@@ -14,14 +14,6 @@ export default defineConfig(async () => ({
       output: {
         manualChunks(id) {
           if (id.includes("node_modules")) {
-            // React core - the foundation everything depends on
-            if (id.includes("/react-dom/") || id.includes("/react/") || id.includes("/scheduler/")) {
-              return "vendor-react";
-            }
-            // Radix UI primitives - used across many components
-            if (id.includes("@radix-ui")) {
-              return "vendor-radix";
-            }
             // Markdown and syntax highlighting merged into one chunk
             // because react-markdown uses react-syntax-highlighter and they share hast utilities
             if (
@@ -48,14 +40,6 @@ export default defineConfig(async () => ({
             // State management
             if (id.includes("mobx")) {
               return "vendor-state";
-            }
-            // Diff library
-            if (id.includes("/diff/") || id.includes("@pierre/diffs")) {
-              return "vendor-diff";
-            }
-            // Tauri plugins
-            if (id.includes("@tauri-apps")) {
-              return "vendor-tauri";
             }
           }
         },
