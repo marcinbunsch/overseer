@@ -418,19 +418,3 @@
   background-color: var(--color-ovr-bg-panel);
   border-color: var(--color-ovr-border-subtle);
 }
-
-/* Highlight effect for scrolling to a specific line (double-click from markdown) */
-.pierre-diff-container .plan-diff-highlight {
-  animation: plan-diff-highlight-pulse 1.5s ease-out;
-}
-
-@keyframes plan-diff-highlight-pulse {
-  0% {
-    background-color: var(--color-ovr-azure-500);
-    opacity: 0.4;
-  }
-  100% {
-    background-color: transparent;
-    opacity: 1;
-  }
-}
