@@ -13,6 +13,7 @@ import {
   GenericToolItem,
   TodoWriteToolItem,
   WebFetchToolItem,
+  WebSearchToolItem,
   EnterPlanModeToolItem,
 } from "./tools"
 import { MarkdownContent } from "./MarkdownContent"
@@ -126,6 +127,7 @@ const compactTools: Record<string, React.ComponentType<{ tool: import("./tools")
   Grep: GrepToolItem,
   TodoWrite: TodoWriteToolItem,
   WebFetch: WebFetchToolItem,
+  WebSearch: WebSearchToolItem,
   EnterPlanMode: EnterPlanModeToolItem,
 }
 
