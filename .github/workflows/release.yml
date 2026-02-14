@@ -5,6 +5,10 @@ on:
     tags:
       - "v*.*.*"
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
