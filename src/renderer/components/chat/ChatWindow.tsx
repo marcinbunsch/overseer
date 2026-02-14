@@ -235,6 +235,7 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                   open={planReviewOpen}
                   onOpenChange={setPlanReviewOpen}
                   planContent={workspaceStore.pendingPlanApproval.planContent}
+                  previousPlanContent={workspaceStore.pendingPlanApproval.previousPlanContent}
                   onSubmitReview={handleSubmitReview}
                   onApprove={handleApprovePlan}
                 />

@@ -10,6 +10,7 @@ export interface PlanReviewNote {
 }
 
 export interface PendingPlanNote {
+  filePath: string // Static "plan.md" for pierre/diff compatibility
   anchorIndex: number // 0-based index into lines array
   focusIndex: number // 0-based index into lines array
   commentText: string
@@ -20,7 +21,10 @@ export interface PendingPlanNote {
  * Manages plan review state for the PlanReviewDialog.
  * Collects multiple notes before submitting them as a batch.
  */
-export type PlanViewMode = "code" | "markdown"
+export type PlanViewMode = "diff" | "markdown"
+
+/** Static file path for pierre/diff compatibility */
+export const PLAN_FILE_PATH = "plan.md"
 
 export class PlanReviewStore {
   @observable.deep
@@ -48,8 +52,8 @@ export class PlanReviewStore {
   }
 
   @action
-  switchToCodeAtLine(lineIndex: number) {
-    this.viewMode = "code"
+  switchToDiffAtLine(lineIndex: number) {
+    this.viewMode = "diff"
     this.highlightedLine = lineIndex
     // Don't start selection - just highlight the line
   }
@@ -106,16 +110,17 @@ export class PlanReviewStore {
   }
 
   @action
-  startSelection(lineIndex: number, shiftKey: boolean) {
+  startSelection(filePath: string, lineIndex: number, shiftKey: boolean) {
     // Clear any highlight from double-click navigation
     this.highlightedLine = null
 
-    if (shiftKey && this.pending) {
+    if (shiftKey && this.pending && this.pending.filePath === filePath) {
       // Extend existing selection
       this.pending.focusIndex = lineIndex
     } else {
       // Start new selection
       this.pending = {
+        filePath,
         anchorIndex: lineIndex,
         focusIndex: lineIndex,
         commentText: "",
@@ -174,6 +179,7 @@ export class PlanReviewStore {
   editNote(note: PlanReviewNote) {
     // Convert 1-based line numbers to 0-based indices
     this.pending = {
+      filePath: PLAN_FILE_PATH,
       anchorIndex: note.startLine - 1,
       focusIndex: note.endLine - 1,
       commentText: note.comment,

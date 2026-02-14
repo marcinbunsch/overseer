@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
 import { PlanMarkdownView } from "../PlanMarkdownView"
-import { PlanReviewStore } from "../../../stores/PlanReviewStore"
+import { PlanReviewStore, PLAN_FILE_PATH } from "../../../stores/PlanReviewStore"
 
 // Mock react-markdown to simplify testing
 vi.mock("react-markdown", () => ({
@@ -49,17 +49,18 @@ describe("PlanMarkdownView", () => {
     render(<PlanMarkdownView planContent={planContent} notesStore={store} />)
 
     expect(
-      screen.getByText("Double-click anywhere to switch to code view and add comments")
+      screen.getByText("Double-click anywhere to switch to diff view and add comments")
     ).toBeInTheDocument()
   })
 
-  it("switches to code view on double-click", () => {
+  it("switches to diff view on double-click", () => {
+    store.setViewMode("markdown") // Start in markdown mode
     render(<PlanMarkdownView planContent={planContent} notesStore={store} />)
 
     const content = screen.getByText("Step 1")
     fireEvent.doubleClick(content)
 
-    expect(store.viewMode).toBe("code")
+    expect(store.viewMode).toBe("diff")
   })
 
   it("highlights the clicked line on double-click", () => {
@@ -81,7 +82,7 @@ describe("PlanMarkdownView", () => {
 
   it("shows comment count badge when notes exist", () => {
     // Add a note
-    store.startSelection(1, false)
+    store.startSelection(PLAN_FILE_PATH, 1, false)
     store.updateComment("Test comment")
     store.addNote("Step 1", 2, 2)
 
@@ -92,11 +93,11 @@ describe("PlanMarkdownView", () => {
 
   it("shows plural comment count for multiple notes", () => {
     // Add two notes
-    store.startSelection(1, false)
+    store.startSelection(PLAN_FILE_PATH, 1, false)
     store.updateComment("Comment 1")
     store.addNote("Step 1", 2, 2)
 
-    store.startSelection(2, false)
+    store.startSelection(PLAN_FILE_PATH, 2, false)
     store.updateComment("Comment 2")
     store.addNote("Step 2", 3, 3)
 
@@ -106,13 +107,14 @@ describe("PlanMarkdownView", () => {
   })
 
   it("falls back to line 0 when clicked text not found", () => {
+    store.setViewMode("markdown") // Start in markdown mode
     render(<PlanMarkdownView planContent={planContent} notesStore={store} />)
 
     // Double-click on something that won't match any line
     const container = screen.getByTestId("markdown-content")
     fireEvent.doubleClick(container)
 
-    expect(store.viewMode).toBe("code")
+    expect(store.viewMode).toBe("diff")
     expect(store.highlightedLine).toBe(0)
   })
 })
