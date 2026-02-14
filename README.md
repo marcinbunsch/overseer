@@ -41,6 +41,37 @@ My main design principles are:
 
 **Review & Feedback Focused** — I want to stay in control of my agents, so reviewing their changes and giving feedback is a first-class experience. Inline diffs, line commenting, plan review mode, and more.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/images/chat-view.png" alt="Chat View" />
+      <br /><em>Chat View</em>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/images/new-chat-view.png" alt="New Chat View" />
+      <br /><em>New Chat View</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/images/plan-review-1.png" alt="Plan Review - Diff View" />
+      <br /><em>Plan Review — Diff View</em>
+    </td>
+    <td align="center">
+      <img src="docs/images/plan-review-2.png" alt="Plan Review - Markdown View" />
+      <br /><em>Plan Review — Markdown View</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <img src="docs/images/changes-diff.png" alt="Changes Diff View" />
+      <br /><em>Changes Diff View</em>
+    </td>
+  </tr>
+</table>
+
 ## Supported Agents
 
 - **Claude Code** — I use it the most, so it has the most features and polish. Full support for tools, questions, and overseer actions.
