@@ -245,6 +245,11 @@ class GeminiAgentService implements AgentService {
     // No-op: Gemini headless mode doesn't support interactive tool approvals
   }
 
+  async interruptTurn(chatId: string): Promise<void> {
+    // Gemini headless mode doesn't have a protocol-level cancel, so interrupt = stop
+    await this.stopChat(chatId)
+  }
+
   async stopChat(chatId: string): Promise<void> {
     const chat = this.chats.get(chatId)
     if (chat) {

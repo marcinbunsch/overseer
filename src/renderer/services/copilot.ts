@@ -253,18 +253,20 @@ class CopilotAgentService implements AgentService {
     })
   }
 
+  async interruptTurn(chatId: string): Promise<void> {
+    const chat = this.chats.get(chatId)
+    if (!chat?.sessionId) return
+
+    // Send cancel notification - don't kill server to preserve session context
+    this.sendNotification(chatId, "session/cancel", { sessionId: chat.sessionId })
+  }
+
   async stopChat(chatId: string): Promise<void> {
     const chat = this.chats.get(chatId)
     if (!chat) return
 
-    if (chat.sessionId) {
-      // Try to cancel the current turn gracefully
-      try {
-        this.sendNotification(chatId, "session/cancel", { sessionId: chat.sessionId })
-      } catch {
-        // ignore
-      }
-    }
+    // Interrupt any running turn first
+    await this.interruptTurn(chatId)
 
     chat.running = false
     await invoke("stop_copilot_server", { serverId: chat.serverId })

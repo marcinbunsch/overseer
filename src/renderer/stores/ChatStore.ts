@@ -190,7 +190,7 @@ export class ChatStore {
 
   @action stopGeneration(): void {
     if (!this.service) return
-    this.service.stopChat(this.chat.id)
+    this.service.interruptTurn(this.chat.id)
     this.chat.messages.push({
       id: crypto.randomUUID(),
       role: "assistant",

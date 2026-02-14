@@ -48,6 +48,9 @@ export interface AgentService {
     toolInput?: Record<string, unknown>,
     denyMessage?: string
   ): Promise<void>
+  /** Interrupt current turn without killing the process. Use for "Stop" button. */
+  interruptTurn(chatId: string): Promise<void>
+  /** Stop chat and kill the process. Use for archive/delete. */
   stopChat(chatId: string): Promise<void>
   isRunning(chatId: string): boolean
   getSessionId(chatId: string): string | null

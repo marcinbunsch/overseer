@@ -242,18 +242,20 @@ class CodexAgentService implements AgentService {
     })
   }
 
+  async interruptTurn(chatId: string): Promise<void> {
+    const chat = this.chats.get(chatId)
+    if (!chat?.threadId) return
+
+    // Send interrupt notification - don't kill server to preserve thread context
+    this.sendNotification(chatId, "turn/interrupt", { threadId: chat.threadId })
+  }
+
   async stopChat(chatId: string): Promise<void> {
     const chat = this.chats.get(chatId)
     if (!chat) return
 
-    if (chat.threadId) {
-      // Try to interrupt the current turn gracefully
-      try {
-        this.sendNotification(chatId, "turn/interrupt", { threadId: chat.threadId })
-      } catch {
-        // ignore
-      }
-    }
+    // Interrupt any running turn first
+    await this.interruptTurn(chatId)
 
     chat.running = false
     await invoke("stop_codex_server", { serverId: chat.serverId })

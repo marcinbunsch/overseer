@@ -70,30 +70,49 @@ describe("CopilotAgentService", () => {
     expect(data.id).toBe(42) // Should be a number, not "42"
   })
 
-  it("stopChat invokes stop_copilot_server and marks as not running", async () => {
-    const service = await freshService()
-
-    // Manually set up the chat state
-    service.setSessionId("conv-1", "sess-123")
-
-    await service.stopChat("conv-1")
-
-    expect(invoke).toHaveBeenCalledWith("stop_copilot_server", { serverId: "conv-1" })
-    expect(service.isRunning("conv-1")).toBe(false)
-  })
-
-  it("stopChat sends session/cancel when sessionId exists", async () => {
+  it("interruptTurn sends session/cancel but does NOT kill the server", async () => {
     const service = await freshService()
 
     service.setSessionId("conv-1", "sess-123")
 
-    await service.stopChat("conv-1")
+    await service.interruptTurn("conv-1")
 
-    // Should have tried to send cancel notification
+    // Should have sent cancel notification
     expect(invoke).toHaveBeenCalledWith("copilot_stdin", {
       serverId: "conv-1",
       data: expect.stringContaining("session/cancel"),
     })
+
+    // Should NOT have killed the server
+    expect(invoke).not.toHaveBeenCalledWith("stop_copilot_server", expect.anything())
+  })
+
+  it("interruptTurn does nothing if no sessionId", async () => {
+    const service = await freshService()
+
+    // No sessionId set
+    await service.interruptTurn("conv-1")
+
+    // Should not have sent anything
+    expect(invoke).not.toHaveBeenCalledWith("copilot_stdin", expect.anything())
+  })
+
+  it("stopChat interrupts turn then kills server", async () => {
+    const service = await freshService()
+
+    service.setSessionId("conv-1", "sess-123")
+
+    await service.stopChat("conv-1")
+
+    // Should have sent cancel notification first
+    expect(invoke).toHaveBeenCalledWith("copilot_stdin", {
+      serverId: "conv-1",
+      data: expect.stringContaining("session/cancel"),
+    })
+
+    // Then killed the server
+    expect(invoke).toHaveBeenCalledWith("stop_copilot_server", { serverId: "conv-1" })
+    expect(service.isRunning("conv-1")).toBe(false)
   })
 
   it("setSessionId and getSessionId work correctly", async () => {
