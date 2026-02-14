@@ -57,14 +57,6 @@ pub struct OpenCodeModel {
     pub provider_id: String,
 }
 
-/// Provider info returned from OpenCode server.
-#[derive(Clone, Serialize, Deserialize)]
-struct OpenCodeProvider {
-    id: String,
-    name: String,
-    models: HashMap<String, serde_json::Value>,
-}
-
 #[derive(Default)]
 pub struct OpenCodeServerMap {
     servers: Mutex<HashMap<String, OpenCodeServerEntry>>,
