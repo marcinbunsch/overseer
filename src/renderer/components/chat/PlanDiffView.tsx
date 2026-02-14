@@ -30,6 +30,31 @@ export const PlanDiffView = observer(function PlanDiffView({
   onAddNote,
 }: PlanDiffViewProps) {
   const [diffStyle, setDiffStyle] = useState<DiffStyle>("unified")
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Scroll to highlighted line when switching from markdown view
+  const highlightedLine = notesStore.highlightedLine
+  useEffect(() => {
+    if (highlightedLine === null || !containerRef.current) return
+
+    // Convert 0-based index to 1-based line number for pierre/diffs
+    const lineNumber = highlightedLine + 1
+
+    // Find the line element - pierre/diffs uses data-line attribute
+    const lineElement = containerRef.current.querySelector(`[data-line="${lineNumber}"]`)
+    if (lineElement) {
+      lineElement.scrollIntoView({ behavior: "smooth", block: "center" })
+
+      // Add a brief highlight effect
+      lineElement.classList.add("plan-diff-highlight")
+      setTimeout(() => {
+        lineElement.classList.remove("plan-diff-highlight")
+      }, 1500)
+    }
+
+    // Clear the highlight after scrolling
+    notesStore.clearHighlight()
+  }, [highlightedLine, notesStore])
 
   // Create FileContents for old/new
   const oldFile: FileContents = {
@@ -118,7 +143,7 @@ export const PlanDiffView = observer(function PlanDiffView({
       </div>
 
       {/* Diff content */}
-      <div className="pierre-diff-container min-h-0 flex-1 overflow-auto">
+      <div ref={containerRef} className="pierre-diff-container min-h-0 flex-1 overflow-auto">
         <MultiFileDiff
           oldFile={oldFile}
           newFile={newFile}
