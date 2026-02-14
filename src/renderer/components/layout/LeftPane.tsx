@@ -1,6 +1,7 @@
 import { observer } from "mobx-react-lite"
 import { ProjectList } from "../projects/ProjectList"
 import { AddProjectButton } from "../projects/AddProjectButton"
+import { debugStore } from "../../stores/DebugStore"
 
 export const LeftPane = observer(function LeftPane({ width }: { width: number }) {
   return (
@@ -22,7 +23,7 @@ export const LeftPane = observer(function LeftPane({ width }: { width: number })
       <div className="flex-1 overflow-y-auto py-1">
         <ProjectList />
       </div>
-      {import.meta.env.DEV && (
+      {debugStore.showDevUI && (
         <div className="shrink-0 bg-ovr-dev px-3 py-1.5 text-center text-xs font-bold tracking-wide text-black uppercase">
           Dev Mode
         </div>

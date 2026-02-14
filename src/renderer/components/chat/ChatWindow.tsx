@@ -132,7 +132,7 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
         )}
         <span className="ml-2 text-xs text-ovr-text-muted">{workspace.path}</span>
         <div className="ml-auto flex gap-1">
-          {debugStore.isDebugMode && workspaceStore.activeChatId && (
+          {debugStore.showDevUI && debugStore.isDebugMode && workspaceStore.activeChatId && (
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
                 <button

@@ -219,7 +219,7 @@ export const ChatInput = observer(function ChatInput({
           autoCapitalize="off"
           spellCheck={false}
           className={`min-h-20 resize-none overflow-y-auto rounded-lg border bg-ovr-bg-panel px-3 py-2 text-sm text-ovr-text-primary outline-none placeholder:text-ovr-text-muted focus:shadow-[var(--shadow-ovr-glow-soft)] disabled:opacity-50 ${
-            debugStore.isDevMode
+            debugStore.showDevUI
               ? "border-ovr-dev focus:border-ovr-dev"
               : "border-ovr-border-subtle focus:border-ovr-azure-500"
           }`}

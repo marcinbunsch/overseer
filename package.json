@@ -10,6 +10,7 @@
     "vite-preview": "vite preview",
     "tauri": "tauri",
     "dev": "tauri dev",
+    "dev:demo": "OVERSEER_DEMO=1 tauri dev",
     "build": "tauri build --bundles app",
     "build:linux": "tauri build --bundles appimage,deb",
     "start": "pnpm build && pnpm open",

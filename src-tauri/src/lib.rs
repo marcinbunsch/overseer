@@ -19,6 +19,11 @@ async fn is_debug_mode() -> bool {
 }
 
 #[tauri::command]
+async fn is_demo_mode() -> bool {
+    std::env::var("OVERSEER_DEMO").is_ok()
+}
+
+#[tauri::command]
 async fn open_external(command: String, path: String) -> Result<(), String> {
     let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() {
@@ -203,6 +208,7 @@ pub fn run() {
             check_command_exists,
             show_main_window,
             is_debug_mode,
+            is_demo_mode,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

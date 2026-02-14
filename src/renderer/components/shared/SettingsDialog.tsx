@@ -5,6 +5,7 @@ import * as Select from "@radix-ui/react-select"
 import * as Switch from "@radix-ui/react-switch"
 import { X, Check, AlertTriangle, Loader2, ChevronDown, Download } from "lucide-react"
 import { configStore } from "../../stores/ConfigStore"
+import { debugStore } from "../../stores/DebugStore"
 import { toolAvailabilityStore, type ToolStatus } from "../../stores/ToolAvailabilityStore"
 import { updateStore } from "../../stores/UpdateStore"
 import { getVersion } from "@tauri-apps/api/app"
@@ -521,7 +522,7 @@ export const SettingsDialog = observer(function SettingsDialog({
                   <p className="text-[11px] text-ovr-text-dim">You're on the latest version.</p>
                 )}
 
-                {import.meta.env.DEV && (
+                {debugStore.showDevUI && (
                   <button
                     onClick={() => updateStore.simulateFakeUpdate()}
                     className="mt-2 rounded border border-dashed border-ovr-warn px-2 py-1 text-[10px] text-ovr-warn hover:bg-ovr-warn/10"
