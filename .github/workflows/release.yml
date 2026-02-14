@@ -35,11 +35,11 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Upload artifacts
+      - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: macos-app
-          path: src-tauri/target/release/bundle/macos/Overseer.app
+          name: macos-dmg
+          path: src-tauri/target/release/bundle/dmg/*.dmg
 
   build-linux:
     needs: ci
