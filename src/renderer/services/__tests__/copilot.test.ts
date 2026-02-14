@@ -451,4 +451,233 @@ describe("CopilotAgentService", () => {
       )
     })
   })
+
+  describe("Task handling", () => {
+    async function setupWithStdoutCapture() {
+      let stdoutHandler: ((event: { payload: string }) => void) | null = null
+
+      vi.mocked(listen).mockImplementation(async (eventName, handler) => {
+        if ((eventName as string).includes("stdout")) {
+          stdoutHandler = handler as (event: { payload: string }) => void
+        }
+        return () => {}
+      })
+
+      vi.resetModules()
+      const { copilotAgentService } = await import("../copilot")
+
+      const eventCb = vi.fn()
+      copilotAgentService.onEvent("conv-1", eventCb)
+
+      vi.mocked(invoke).mockRejectedValueOnce(new Error("stop"))
+      try {
+        await copilotAgentService.sendMessage("conv-1", "test", "/tmp")
+      } catch {
+        // Expected
+      }
+
+      return { service: copilotAgentService, eventCb, stdoutHandler: stdoutHandler! }
+    }
+
+    it("detects Task when rawInput has agent_type and emits with toolUseId", async () => {
+      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
+
+      const taskToolCall = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-123",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "task-123",
+            title: "Find permission prompt display",
+            kind: "other",
+            status: "pending",
+            rawInput: {
+              agent_type: "explore",
+              description: "Find permission prompt display",
+              prompt: "Find where the permission prompt is shown",
+            },
+          },
+        },
+      }
+
+      stdoutHandler({ payload: JSON.stringify(taskToolCall) })
+
+      expect(eventCb).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "message",
+          toolMeta: { toolName: "Task" },
+          toolUseId: "task-123",
+        })
+      )
+
+      // Check that agent_type was transformed to subagent_type
+      const call = eventCb.mock.calls.find(
+        (c: { kind: string; toolUseId?: string }[]) => c[0].toolUseId === "task-123"
+      )
+      expect(call).toBeDefined()
+      const content = JSON.parse(call![0].content.replace("[Task]\n", ""))
+      expect(content.subagent_type).toBe("explore")
+      expect(content.agent_type).toBeUndefined()
+    })
+
+    it("assigns parentToolUseId to child tools of active task", async () => {
+      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
+
+      // Start a task
+      const taskToolCall = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-123",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "task-456",
+            title: "Explore code",
+            kind: "other",
+            status: "pending",
+            rawInput: {
+              agent_type: "explore",
+              description: "Explore code",
+              prompt: "Find something",
+            },
+          },
+        },
+      }
+
+      stdoutHandler({ payload: JSON.stringify(taskToolCall) })
+
+      // Now a child tool arrives
+      const childToolCall = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-123",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "child-789",
+            title: "Read file.ts",
+            kind: "read",
+            status: "pending",
+            rawInput: {
+              path: "/some/file.ts",
+            },
+          },
+        },
+      }
+
+      stdoutHandler({ payload: JSON.stringify(childToolCall) })
+
+      // Child tool should have parentToolUseId
+      expect(eventCb).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "message",
+          toolMeta: { toolName: "Read" },
+          parentToolUseId: "task-456",
+        })
+      )
+    })
+
+    it("clears activeTask when task completes", async () => {
+      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
+
+      // Start a task
+      const taskToolCall = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-123",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "task-abc",
+            title: "Explore",
+            kind: "other",
+            status: "pending",
+            rawInput: {
+              agent_type: "explore",
+              description: "Explore",
+              prompt: "Find something",
+            },
+          },
+        },
+      }
+
+      stdoutHandler({ payload: JSON.stringify(taskToolCall) })
+
+      // Complete the task
+      const taskComplete = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-123",
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "task-abc",
+            status: "completed",
+            content: [{ type: "text", text: "Task result" }],
+          },
+        },
+      }
+
+      stdoutHandler({ payload: JSON.stringify(taskComplete) })
+
+      // Now another regular tool - should NOT have parentToolUseId
+      const nextToolCall = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-123",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "next-tool",
+            title: "Read another file",
+            kind: "read",
+            status: "pending",
+            rawInput: { path: "/another/file.ts" },
+          },
+        },
+      }
+
+      stdoutHandler({ payload: JSON.stringify(nextToolCall) })
+
+      // Find the call for the next tool
+      const nextToolEvent = eventCb.mock.calls.find(
+        (c: { toolMeta?: { toolName: string }; parentToolUseId?: string }[]) =>
+          c[0].toolMeta?.toolName === "Read" && c[0].parentToolUseId === undefined
+      )
+      expect(nextToolEvent).toBeDefined()
+    })
+
+    it("regular tools without active task have no parentToolUseId", async () => {
+      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
+
+      // Regular tool with no active task
+      const regularToolCall = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-123",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "regular-123",
+            title: "Run tests",
+            kind: "execute",
+            status: "pending",
+            rawInput: { command: "pnpm test" },
+          },
+        },
+      }
+
+      stdoutHandler({ payload: JSON.stringify(regularToolCall) })
+
+      expect(eventCb).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "message",
+          toolMeta: { toolName: "Bash" },
+          parentToolUseId: undefined,
+        })
+      )
+    })
+  })
 })

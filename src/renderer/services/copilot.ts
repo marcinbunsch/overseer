@@ -74,6 +74,8 @@ interface CopilotChat {
   unlistenClose: UnlistenFn | null
   /** Track active tool calls for status updates */
   activeToolCalls: Map<string, { title: string; kind: string }>
+  /** Currently active task for child tool grouping */
+  activeTask: { toolCallId: string } | null
 }
 
 interface PermissionOption {
@@ -115,6 +117,7 @@ class CopilotAgentService implements AgentService {
         unlistenStderr: null,
         unlistenClose: null,
         activeToolCalls: new Map(),
+        activeTask: null,
       }
       this.chats.set(chatId, chat)
     }
@@ -492,14 +495,42 @@ class CopilotAgentService implements AgentService {
           }
 
           if (status === "pending" || status === "in_progress") {
-            // Emit as a tool message
-            const toolName = this.kindToToolName(kind, title)
-            const inputStr = input ? JSON.stringify(input, null, 2) : ""
-            this.emitEvent(chatId, {
-              kind: "message",
-              content: inputStr ? `[${toolName}]\n${inputStr}` : `[${toolName}]`,
-              toolMeta: { toolName },
-            })
+            // Check if this is a Task (has agent_type in input)
+            const isTask = input && typeof input.agent_type === "string"
+
+            if (isTask) {
+              // This is a Task - track it and emit with toolUseId
+              if (chat) {
+                chat.activeTask = { toolCallId }
+              }
+
+              // Transform input: rename agent_type -> subagent_type for TaskToolItem
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const { agent_type, ...rest } = input
+              const transformedInput = {
+                ...rest,
+                subagent_type: agent_type,
+              }
+
+              const inputStr = JSON.stringify(transformedInput, null, 2)
+              this.emitEvent(chatId, {
+                kind: "message",
+                content: `[Task]\n${inputStr}`,
+                toolMeta: { toolName: "Task" },
+                toolUseId: toolCallId,
+              })
+            } else {
+              // Regular tool - may be a child of an active Task
+              const toolName = this.kindToToolName(kind, title)
+              const inputStr = input ? JSON.stringify(input, null, 2) : ""
+              const parentToolUseId = chat?.activeTask?.toolCallId ?? undefined
+              this.emitEvent(chatId, {
+                kind: "message",
+                content: inputStr ? `[${toolName}]\n${inputStr}` : `[${toolName}]`,
+                toolMeta: { toolName },
+                parentToolUseId,
+              })
+            }
           }
           break
         }
@@ -550,6 +581,10 @@ class CopilotAgentService implements AgentService {
 
             if (chat) {
               chat.activeToolCalls.delete(toolCallId)
+              // Clear active task if this was the task completing
+              if (chat.activeTask?.toolCallId === toolCallId) {
+                chat.activeTask = null
+              }
             }
           }
           break
