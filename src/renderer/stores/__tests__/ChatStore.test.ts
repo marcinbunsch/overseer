@@ -9,6 +9,7 @@ const mockAgentService = {
   onDone: vi.fn(),
   sendMessage: vi.fn(() => Promise.resolve()),
   sendToolApproval: vi.fn(() => Promise.resolve()),
+  interruptTurn: vi.fn(),
   stopChat: vi.fn(),
   removeChat: vi.fn(),
   isRunning: vi.fn(() => false),
@@ -162,7 +163,7 @@ describe("ChatStore", () => {
 
     store.stopGeneration()
 
-    expect(mockAgentService.stopChat).toHaveBeenCalledWith("test-chat-id")
+    expect(mockAgentService.interruptTurn).toHaveBeenCalledWith("test-chat-id")
     expect(store.isSending).toBe(false)
     expect(store.messages[store.messages.length - 1].content).toBe("[cancelled]")
     expect(store.status).toBe("idle")

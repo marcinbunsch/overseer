@@ -409,6 +409,11 @@ class ClaudeAgentService implements AgentService {
     this.eventCallbacks.get(chatId)?.(event)
   }
 
+  async interruptTurn(chatId: string): Promise<void> {
+    // Claude doesn't have a protocol-level cancel, so interrupt = stop
+    await this.stopChat(chatId)
+  }
+
   async stopChat(chatId: string): Promise<void> {
     const conv = this.conversations.get(chatId)
     if (conv) {

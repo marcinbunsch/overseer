@@ -305,21 +305,27 @@ class OpenCodeAgentService implements AgentService {
     // so no approval prompts are shown
   }
 
+  async interruptTurn(chatId: string): Promise<void> {
+    const chat = this.chats.get(chatId)
+    if (!chat?.sessionId || !chat.client) return
+
+    // Abort the current operation without stopping the server
+    try {
+      await chat.client.session.abort({
+        sessionID: chat.sessionId,
+        directory: chat.workingDir,
+      })
+    } catch {
+      // ignore - server might already be down
+    }
+  }
+
   async stopChat(chatId: string): Promise<void> {
     const chat = this.chats.get(chatId)
     if (!chat) return
 
-    // Try to abort the session
-    if (chat.sessionId && chat.client) {
-      try {
-        await chat.client.session.abort({
-          sessionID: chat.sessionId,
-          directory: chat.workingDir,
-        })
-      } catch {
-        // ignore - server might already be down
-      }
-    }
+    // Interrupt any running turn first
+    await this.interruptTurn(chatId)
 
     // Stop the server
     chat.running = false
