@@ -67,8 +67,8 @@ jobs:
           echo "Checking app signature..."
           codesign -dv --verbose=4 src-tauri/target/release/bundle/macos/*.app || true
 
-      - name: Upload DMG
+      - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
-          name: macos-dmg-test
-          path: src-tauri/target/release/bundle/dmg/*.dmg
+          name: macos-app-test
+          path: src-tauri/target/release/bundle/macos/*.app
