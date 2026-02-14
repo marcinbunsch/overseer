@@ -67,7 +67,7 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
                   setFeedback("")
                 }}
                 disabled={!feedback.trim()}
-                className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                className="rounded-lg bg-ovr-azure-500 px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 Send Feedback
               </button>
@@ -76,7 +76,7 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
                   setShowFeedback(false)
                   setFeedback("")
                 }}
-                className="rounded px-3 py-1 text-xs font-medium text-ovr-text-muted transition-opacity hover:opacity-90"
+                className="ovr-btn-ghost px-3 py-1.5 text-sm"
               >
                 Cancel
               </button>
@@ -86,26 +86,23 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
           <div className="flex gap-2">
             <button
               onClick={onApprove}
-              className="rounded bg-green-600 px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
+              className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
             >
-              Approve Plan
+              Approve
             </button>
             <button
               onClick={onReview}
-              className="rounded-lg bg-ovr-azure-500 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="rounded-lg bg-ovr-azure-500 px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
             >
-              Review Plan
+              Review
             </button>
             <button
               onClick={() => setShowFeedback(true)}
-              className="rounded-lg bg-ovr-azure-500 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="ovr-btn-ghost px-3 py-1.5 text-sm"
             >
               Request Changes
             </button>
-            <button
-              onClick={onDeny}
-              className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
-            >
+            <button onClick={onDeny} className="ovr-btn-danger px-3 py-1.5 text-sm">
               Deny
             </button>
           </div>
