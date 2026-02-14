@@ -3,6 +3,7 @@ mod git;
 mod logging;
 mod pty;
 
+use crate::agents::build_login_shell_command;
 use std::process::Command;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, WindowEvent};
@@ -39,11 +40,15 @@ struct CommandCheckResult {
 }
 
 #[tauri::command]
-fn check_command_exists(command: String) -> CommandCheckResult {
-    // Try running the command with --version to check if it exists
-    let output = Command::new(&command).arg("--version").output();
+async fn check_command_exists(command: String) -> CommandCheckResult {
+    let run_command = |args: Vec<String>| -> Result<std::process::Output, String> {
+        let mut cmd = build_login_shell_command(&command, &args, None, None)?;
+        cmd.output()
+            .map_err(|e| format!("Failed to run '{}': {}", command, e))
+    };
 
-    match output {
+    // Try running the command with --version to check if it exists
+    match run_command(vec!["--version".to_string()]) {
         Ok(result) => {
             if result.status.success() {
                 // Extract first line of stdout as version
@@ -56,8 +61,7 @@ fn check_command_exists(command: String) -> CommandCheckResult {
                 }
             } else {
                 // Command exists but --version failed, try without args
-                let simple_check = Command::new(&command).output();
-                match simple_check {
+                match run_command(vec![]) {
                     Ok(_) => CommandCheckResult {
                         available: true,
                         version: None,
@@ -66,20 +70,16 @@ fn check_command_exists(command: String) -> CommandCheckResult {
                     Err(e) => CommandCheckResult {
                         available: false,
                         version: None,
-                        error: Some(format!("{}", e)),
+                        error: Some(e),
                     },
                 }
             }
         }
-        Err(e) => {
-            // Check if it's a "not found" error
-            let error_msg = format!("{}", e);
-            CommandCheckResult {
-                available: false,
-                version: None,
-                error: Some(error_msg),
-            }
-        }
+        Err(e) => CommandCheckResult {
+            available: false,
+            version: None,
+            error: Some(e),
+        },
     }
 }
 
@@ -522,7 +522,7 @@ mod tests {
     #[test]
     fn check_command_exists_finds_git() {
         // git should be available on all systems running these tests
-        let result = check_command_exists("git".to_string());
+        let result = tauri::async_runtime::block_on(check_command_exists("git".to_string()));
         assert!(result.available);
         assert!(result.version.is_some());
         assert!(result.error.is_none());
@@ -531,8 +531,9 @@ mod tests {
     #[test]
     fn check_command_exists_reports_missing_command() {
         // A command that definitely doesn't exist
-        let result =
-            check_command_exists("this-command-definitely-does-not-exist-12345".to_string());
+        let result = tauri::async_runtime::block_on(check_command_exists(
+            "this-command-definitely-does-not-exist-12345".to_string(),
+        ));
         assert!(!result.available);
         assert!(result.version.is_none());
         assert!(result.error.is_some());
