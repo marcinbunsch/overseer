@@ -6,8 +6,10 @@ import { MiddlePane } from "./components/layout/MiddlePane"
 import { RightPane } from "./components/layout/RightPane"
 import { Toasts } from "./components/shared/Toasts"
 import { SettingsDialog } from "./components/shared/SettingsDialog"
+import { UpdateNotification } from "./components/shared/UpdateNotification"
 import { configStore } from "./stores/ConfigStore"
 import { projectRegistry } from "./stores/ProjectRegistry"
+import { updateStore } from "./stores/UpdateStore"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
@@ -108,6 +110,9 @@ export default observer(function App() {
     // (window starts hidden via `visible: false` in tauri.conf.json)
     invoke("show_main_window")
 
+    // Check for updates on startup (non-blocking)
+    updateStore.checkForUpdates()
+
     const unlistenSettings = listen("menu:settings", () => {
       configStore.setSettingsOpen(true)
     })
@@ -132,6 +137,7 @@ export default observer(function App() {
         <RightPane width={configStore.rightPaneWidth} />
       </div>
       <Toasts />
+      <UpdateNotification />
       <SettingsDialog
         open={configStore.settingsOpen}
         onOpenChange={(open) => configStore.setSettingsOpen(open)}

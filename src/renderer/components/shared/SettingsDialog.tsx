@@ -3,9 +3,11 @@ import { useState, useEffect } from "react"
 import * as AlertDialog from "@radix-ui/react-alert-dialog"
 import * as Select from "@radix-ui/react-select"
 import * as Switch from "@radix-ui/react-switch"
-import { X, Check, AlertTriangle, Loader2, ChevronDown } from "lucide-react"
+import { X, Check, AlertTriangle, Loader2, ChevronDown, Download } from "lucide-react"
 import { configStore } from "../../stores/ConfigStore"
 import { toolAvailabilityStore, type ToolStatus } from "../../stores/ToolAvailabilityStore"
+import { updateStore } from "../../stores/UpdateStore"
+import { getVersion } from "@tauri-apps/api/app"
 import type { AgentType } from "../../types"
 import { AgentIcon } from "../chat/AgentIcon"
 import { ModelSelector } from "../chat/ModelSelector"
@@ -54,6 +56,12 @@ export const SettingsDialog = observer(function SettingsDialog({
   const [checkingCopilot, setCheckingCopilot] = useState(false)
   const [checkingGemini, setCheckingGemini] = useState(false)
   const [checkingOpencode, setCheckingOpencode] = useState(false)
+  const [currentVersion, setCurrentVersion] = useState<string | null>(null)
+
+  // Get current version on mount
+  useEffect(() => {
+    getVersion().then(setCurrentVersion)
+  }, [])
 
   // Lazy-load OpenCode models when settings dialog opens
   useEffect(() => {
@@ -113,8 +121,11 @@ export const SettingsDialog = observer(function SettingsDialog({
         <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/60" />
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-105 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-ovr-border-subtle bg-ovr-bg-panel p-6 shadow-ovr-panel">
           <div className="flex items-center justify-between">
-            <AlertDialog.Title className="text-sm font-semibold text-ovr-text-strong">
+            <AlertDialog.Title className="flex items-center gap-2 text-sm font-semibold text-ovr-text-strong">
               Settings
+              {updateStore.availableUpdate && (
+                <span className="size-2 rounded-full bg-ovr-azure-500" title="Update available" />
+              )}
             </AlertDialog.Title>
             <AlertDialog.Cancel asChild>
               <button className="rounded p-1 text-ovr-text-dim hover:text-ovr-text-muted">
@@ -437,6 +448,87 @@ export const SettingsDialog = observer(function SettingsDialog({
                     Examples: /bin/bash -l -c, /bin/zsh -c
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Updates */}
+            <div className="border-t border-ovr-border-subtle pt-4">
+              <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Updates</label>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-ovr-text-primary">
+                      Current version: {currentVersion ?? "..."}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => updateStore.checkForUpdates(false)}
+                    disabled={updateStore.isChecking}
+                    className="rounded px-2 py-1 text-xs text-ovr-text-muted hover:text-ovr-text-primary disabled:opacity-50"
+                    data-testid="check-updates-btn"
+                  >
+                    {updateStore.isChecking ? (
+                      <span className="flex items-center gap-1">
+                        <Loader2 className="size-3 animate-spin" />
+                        Checking...
+                      </span>
+                    ) : (
+                      "Check for updates"
+                    )}
+                  </button>
+                </div>
+
+                {updateStore.availableUpdate && (
+                  <div className="rounded-lg border border-ovr-azure-500/30 bg-ovr-azure-500/10 p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-medium text-ovr-text-primary">
+                          v{updateStore.availableUpdate.version} available
+                        </span>
+                        {updateStore.availableUpdate.body && (
+                          <p className="mt-1 line-clamp-2 text-[11px] text-ovr-text-dim">
+                            {updateStore.availableUpdate.body}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => updateStore.downloadAndInstall()}
+                        disabled={updateStore.isDownloading}
+                        className="ovr-btn-primary flex items-center gap-1.5 px-3 py-1.5 text-xs"
+                        data-testid="install-update-btn"
+                      >
+                        {updateStore.isDownloading ? (
+                          <>
+                            <Loader2 className="size-3 animate-spin" />
+                            Installing...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="size-3" />
+                            Install & Restart
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {updateStore.error && (
+                  <p className="text-[11px] text-ovr-error">{updateStore.error}</p>
+                )}
+
+                {!updateStore.availableUpdate && !updateStore.isChecking && !updateStore.error && (
+                  <p className="text-[11px] text-ovr-text-dim">You're on the latest version.</p>
+                )}
+
+                {import.meta.env.DEV && (
+                  <button
+                    onClick={() => updateStore.simulateFakeUpdate()}
+                    className="mt-2 rounded border border-dashed border-ovr-warn px-2 py-1 text-[10px] text-ovr-warn hover:bg-ovr-warn/10"
+                  >
+                    [DEV] Simulate fake update
+                  </button>
+                )}
               </div>
             </div>
           </div>

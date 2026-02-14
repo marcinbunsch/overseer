@@ -28,6 +28,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -55,19 +57,51 @@ jobs:
 
           rm certificate.p12
 
-      - name: Build
+      - name: Build (aarch64)
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm build --bundles dmg
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: pnpm tauri build --target aarch64-apple-darwin --bundles dmg,updater
 
-      - name: Upload DMG
+      - name: Build (x86_64)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: pnpm tauri build --target x86_64-apple-darwin --bundles dmg,updater
+
+      - name: Upload DMG (aarch64)
         uses: actions/upload-artifact@v4
         with:
-          name: macos-dmg
-          path: src-tauri/target/release/bundle/dmg/*.dmg
+          name: macos-dmg-aarch64
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+
+      - name: Upload DMG (x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg-x86_64
+          path: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+
+      - name: Upload updater bundle (aarch64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-updater-aarch64
+          path: |
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz.sig
+
+      - name: Upload updater bundle (x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-updater-x86_64
+          path: |
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.tar.gz
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.tar.gz.sig
 
   build-linux:
     needs: ci
@@ -106,7 +140,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm build:linux
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: pnpm tauri build --bundles appimage,deb,updater
 
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
@@ -119,6 +155,14 @@ jobs:
         with:
           name: linux-deb
           path: src-tauri/target/release/bundle/deb/*.deb
+
+      - name: Upload updater bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-updater
+          path: |
+            src-tauri/target/release/bundle/appimage/*.tar.gz
+            src-tauri/target/release/bundle/appimage/*.tar.gz.sig
 
   create-release:
     needs: [build-mac, build-linux]
@@ -133,11 +177,61 @@ jobs:
         with:
           path: artifacts
 
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Generate latest.json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+
+          # Read signatures
+          MAC_ARM_SIG=$(cat artifacts/macos-updater-aarch64/*.sig 2>/dev/null || echo "")
+          MAC_X64_SIG=$(cat artifacts/macos-updater-x86_64/*.sig 2>/dev/null || echo "")
+          LINUX_SIG=$(cat artifacts/linux-updater/*.sig 2>/dev/null || echo "")
+
+          # Get filenames
+          MAC_ARM_FILE=$(ls artifacts/macos-updater-aarch64/*.tar.gz 2>/dev/null | head -1 | xargs basename || echo "")
+          MAC_X64_FILE=$(ls artifacts/macos-updater-x86_64/*.tar.gz 2>/dev/null | head -1 | xargs basename || echo "")
+          LINUX_FILE=$(ls artifacts/linux-updater/*.tar.gz 2>/dev/null | head -1 | xargs basename || echo "")
+
+          cat > artifacts/latest.json << EOF
+          {
+            "version": "$VERSION",
+            "notes": "See the release notes on GitHub for details.",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-aarch64": {
+                "url": "https://github.com/$REPO/releases/download/v$VERSION/$MAC_ARM_FILE",
+                "signature": "$MAC_ARM_SIG"
+              },
+              "darwin-x86_64": {
+                "url": "https://github.com/$REPO/releases/download/v$VERSION/$MAC_X64_FILE",
+                "signature": "$MAC_X64_SIG"
+              },
+              "linux-x86_64": {
+                "url": "https://github.com/$REPO/releases/download/v$VERSION/$LINUX_FILE",
+                "signature": "$LINUX_SIG"
+              }
+            }
+          }
+          EOF
+
+          cat artifacts/latest.json
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           draft: false
           prerelease: false
           files: |
-            artifacts/**/*
+            artifacts/macos-dmg-aarch64/*
+            artifacts/macos-dmg-x86_64/*
+            artifacts/macos-updater-aarch64/*
+            artifacts/macos-updater-x86_64/*
+            artifacts/linux-appimage/*
+            artifacts/linux-deb/*
+            artifacts/linux-updater/*
+            artifacts/latest.json
           generate_release_notes: true
