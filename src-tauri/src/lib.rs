@@ -4,7 +4,6 @@ mod logging;
 mod pty;
 
 use crate::agents::build_login_shell_command;
-use std::process::Command;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, WindowEvent};
 
@@ -29,10 +28,11 @@ async fn open_external(command: String, path: String) -> Result<(), String> {
     if parts.is_empty() {
         return Err("Empty command".to_string());
     }
-    Command::new(parts[0])
-        .args(&parts[1..])
-        .arg(&path)
-        .spawn()
+    // Use login shell to ensure PATH includes user's shell profile (e.g., for VS Code's `code` command)
+    let mut args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+    args.push(path);
+    let mut cmd = build_login_shell_command(parts[0], &args, None, None)?;
+    cmd.spawn()
         .map_err(|e| format!("Failed to run '{}': {}", command, e))?;
     Ok(())
 }
