@@ -422,19 +422,19 @@ export const SettingsDialog = observer(function SettingsDialog({
               <div className="space-y-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="w-28 text-xs text-ovr-text-muted">Agent Shell:</span>
+                    <span className="w-28 text-xs text-ovr-text-muted">Shell Prefix:</span>
                     <input
                       type="text"
                       value={configStore.agentShell}
                       onChange={(e) => configStore.setAgentShell(e.target.value)}
-                      placeholder="(uses $SHELL)"
+                      placeholder="$SHELL -l -c"
                       className="ovr-input flex-1 px-2 py-1 text-xs"
                       data-testid="agent-shell-input"
                     />
                   </div>
                   <p className="mt-1.5 text-[11px] text-ovr-text-dim">
-                    Shell used to launch agents. Leave empty to use $SHELL. Set to /bin/bash if
-                    using fish or nushell.
+                    Shell prefix for launching agents. Default: $SHELL -l -c (login shell).
+                    Examples: /bin/bash -l -c, /bin/zsh -c
                   </p>
                 </div>
               </div>

@@ -16,5 +16,6 @@ pub use codex::CodexServerMap;
 pub use copilot::CopilotServerMap;
 pub use gemini::GeminiServerMap;
 pub use opencode::OpenCodeServerMap;
+pub use shared::build_login_shell_command;
 #[cfg(test)]
 pub(crate) use shared::AgentExit;

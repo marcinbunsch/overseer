@@ -1,3 +1,4 @@
+use crate::agents::build_login_shell_command;
 use ignore::WalkBuilder;
 use serde::Serialize;
 use std::process::{Command, Stdio};
@@ -690,10 +691,19 @@ pub struct PrStatus {
 pub async fn get_pr_status(
     workspace_path: String,
     branch: String,
+    agent_shell: Option<String>,
 ) -> Result<Option<PrStatus>, String> {
-    let output = Command::new("gh")
-        .args(["pr", "view", &branch, "--json", "number,state,url,isDraft"])
-        .current_dir(&workspace_path)
+    let args = vec![
+        "pr".to_string(),
+        "view".to_string(),
+        branch,
+        "--json".to_string(),
+        "number,state,url,isDraft".to_string(),
+    ];
+
+    let mut cmd = build_login_shell_command("gh", &args, Some(&workspace_path), agent_shell.as_deref())?;
+
+    let output = cmd
         .output()
         .map_err(|e| format!("Failed to run gh: {}", e))?;
 

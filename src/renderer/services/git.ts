@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core"
+import { configStore } from "../stores/ConfigStore"
 import type { ChangedFilesResult, MergeResult } from "../types"
 
 export interface WorkspaceInfo {
@@ -71,7 +72,11 @@ class GitService {
   }
 
   async getPrStatus(workspacePath: string, branch: string): Promise<PrStatus | null> {
-    return invoke<PrStatus | null>("get_pr_status", { workspacePath, branch })
+    return invoke<PrStatus | null>("get_pr_status", {
+      workspacePath,
+      branch,
+      agentShell: configStore.agentShell || null,
+    })
   }
 
   async isGitRepo(path: string): Promise<boolean> {
