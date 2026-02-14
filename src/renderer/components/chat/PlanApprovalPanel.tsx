@@ -92,13 +92,13 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
             </button>
             <button
               onClick={onReview}
-              className="rounded border border-ovr-border-subtle px-3 py-1 text-xs font-medium text-ovr-text-muted transition-opacity hover:opacity-90"
+              className="rounded-lg bg-ovr-azure-500 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               Review Plan
             </button>
             <button
               onClick={() => setShowFeedback(true)}
-              className="rounded border border-ovr-border-subtle px-3 py-1 text-xs font-medium text-ovr-text-muted transition-opacity hover:opacity-90"
+              className="rounded-lg bg-ovr-azure-500 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               Request Changes
             </button>
