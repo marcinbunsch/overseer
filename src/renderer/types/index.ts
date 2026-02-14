@@ -291,6 +291,7 @@ export function areCommandsSafe(prefixes: string[] | undefined): boolean {
 /**
  * Extract command prefix from a single command (not chained).
  * Uses first word for simple commands, first two words for commands with subcommands.
+ * Skips flags (arguments starting with - or --) when looking for the subcommand.
  */
 function extractSinglePrefix(cmd: string): string | undefined {
   const trimmed = cmd.trimStart()
@@ -305,11 +306,27 @@ function extractSinglePrefix(cmd: string): string | undefined {
     return firstWord
   }
 
-  // Multi-word commands (git, npm, etc.): use first two words
-  if (parts.length >= 2) {
-    return `${parts[0]} ${parts[1]}`
+  // Multi-word commands (git, npm, etc.): use first word + first non-flag word
+  // Skip arguments that start with - or -- (flags and their values)
+  for (let i = 1; i < parts.length; i++) {
+    const word = parts[i]
+    // Skip flags
+    if (word && word.startsWith("-")) {
+      // If it's a single-letter flag (like -c) and the next word doesn't start with -,
+      // skip it too (it's likely the flag's value)
+      if (word.match(/^-[a-zA-Z]$/) && i + 1 < parts.length) {
+        const nextWord = parts[i + 1]
+        if (nextWord && !nextWord.startsWith("-")) {
+          i++ // Skip the flag's value
+        }
+      }
+      continue
+    }
+    // Found the subcommand!
+    return `${firstWord} ${word}`
   }
 
+  // No subcommand found, just return the first word
   return firstWord
 }
 

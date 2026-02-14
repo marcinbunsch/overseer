@@ -149,6 +149,20 @@ describe("getCommandPrefixes", () => {
     it("handles multiple consecutive spaces in command", () => {
       expect(getCommandPrefixes({ command: "git   commit   -m 'test'" })).toEqual(["git commit"])
     })
+
+    it("skips flags to find subcommand for git --no-pager", () => {
+      expect(getCommandPrefixes({ command: "git --no-pager status" })).toEqual(["git status"])
+    })
+
+    it("skips multiple flags to find subcommand", () => {
+      expect(getCommandPrefixes({ command: "git -c color.ui=false --no-pager diff" })).toEqual([
+        "git diff",
+      ])
+    })
+
+    it("handles command with only flags (no subcommand)", () => {
+      expect(getCommandPrefixes({ command: "git --version" })).toEqual(["git"])
+    })
   })
 
   describe("all single-word commands", () => {
