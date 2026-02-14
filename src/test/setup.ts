@@ -32,6 +32,21 @@ vi.mock("@tauri-apps/plugin-os", () => ({
   platform: vi.fn(() => "macos"),
 }))
 
+// Mock Tauri app API
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn(() => Promise.resolve("0.1.2")),
+}))
+
+// Mock Tauri updater plugin
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: vi.fn(() => Promise.resolve(null)),
+}))
+
+// Mock Tauri process plugin
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: vi.fn(() => Promise.resolve()),
+}))
+
 // Native/desktop packages (tauri-pty, xterm, etc.) are aliased in vite.config.ts
 // to stub modules under src/test/mocks/, so no vi.mock() needed here.
 

@@ -3,6 +3,14 @@
   "productName": "Overseer",
   "version": "0.1.2",
   "identifier": "com.overseer.desktop",
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/marcinbunsch/overseer/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM1MjdBQTlFNzdBRjQ0MDkKUldRSlJLOTNucW9ueGJpV1VpZExwL1EzNkR5SXBUMG96UWJaSjNXWk0rYjUxTGM1Z1lBM044Si8K"
+    }
+  },
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
