@@ -169,6 +169,8 @@ export interface MessageTurn {
 export interface PendingPlanApproval {
   id: string
   planContent: string
+  /** Previous plan content for showing diff on revisions. Null for first submission. */
+  previousPlanContent: string | null
 }
 
 // --- Tool Approval ---

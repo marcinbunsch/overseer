@@ -31,13 +31,13 @@ export const PlanMarkdownView = observer(function PlanMarkdownView({
       const lines = planContent.split("\n")
       for (let i = 0; i < lines.length; i++) {
         if (lines[i].includes(text.trim()) && text.trim().length > 0) {
-          notesStore.switchToCodeAtLine(i)
+          notesStore.switchToDiffAtLine(i)
           return
         }
       }
 
-      // Fallback: switch to code view at line 0
-      notesStore.switchToCodeAtLine(0)
+      // Fallback: switch to diff view at line 0
+      notesStore.switchToDiffAtLine(0)
     },
     [planContent, notesStore]
   )
@@ -123,7 +123,7 @@ export const PlanMarkdownView = observer(function PlanMarkdownView({
         </ReactMarkdown>
       </div>
       <div className="mt-4 text-center text-xs text-ovr-text-dim">
-        Double-click anywhere to switch to code view and add comments
+        Double-click anywhere to switch to diff view and add comments
       </div>
     </div>
   )

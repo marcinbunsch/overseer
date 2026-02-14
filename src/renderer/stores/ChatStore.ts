@@ -42,6 +42,8 @@ export class ChatStore {
   @observable pendingToolUses: PendingToolUse[] = []
   @observable pendingQuestions: AgentQuestion[] = []
   @observable pendingPlanApproval: PendingPlanApproval | null = null
+  /** Tracks rejected plan content for showing diff when agent revises */
+  private _lastRejectedPlanContent: string | null = null
   @observable pendingFollowUps: string[] = []
   @observable draft: string = ""
   @observable loaded: boolean = false
@@ -317,6 +319,8 @@ export class ChatStore {
     const feedbackMessage = feedback.trim()
       ? `User requested changes to the plan:\n\n${feedback.trim()}`
       : "User rejected the plan"
+    // Preserve the current plan content so we can show a diff when the agent revises
+    this._lastRejectedPlanContent = this.pendingPlanApproval.planContent
     try {
       await this.service.sendToolApproval(
         this.chat.id,
@@ -565,12 +569,20 @@ export class ChatStore {
           })
           break
 
-        case "planApproval":
+        case "planApproval": {
+          // Preserve previous plan content for diff view (null on first submission)
+          // Check both current pending approval and rejected plan content
+          const previousPlanContent =
+            this.pendingPlanApproval?.planContent ?? this._lastRejectedPlanContent ?? null
+          // Clear the rejected plan content now that we have a new plan
+          this._lastRejectedPlanContent = null
           this.pendingPlanApproval = {
             id: event.id,
             planContent: event.planContent,
+            previousPlanContent,
           }
           break
+        }
 
         case "done":
           // Handled by the onDone callback

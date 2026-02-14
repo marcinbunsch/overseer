@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest"
-import { PlanReviewStore, createPlanReviewStore } from "../PlanReviewStore"
+import { PlanReviewStore, createPlanReviewStore, PLAN_FILE_PATH } from "../PlanReviewStore"
 
 describe("PlanReviewStore", () => {
   let store: PlanReviewStore
@@ -31,9 +31,10 @@ describe("PlanReviewStore", () => {
 
   describe("startSelection", () => {
     it("creates a new pending note with same anchor and focus", () => {
-      store.startSelection(5, false)
+      store.startSelection(PLAN_FILE_PATH, 5, false)
 
       expect(store.pending).toEqual({
+        filePath: PLAN_FILE_PATH,
         anchorIndex: 5,
         focusIndex: 5,
         commentText: "",
@@ -42,24 +43,34 @@ describe("PlanReviewStore", () => {
     })
 
     it("starts a new selection when shift is not pressed", () => {
-      store.startSelection(3, false)
-      store.startSelection(7, false)
+      store.startSelection(PLAN_FILE_PATH, 3, false)
+      store.startSelection(PLAN_FILE_PATH, 7, false)
 
       expect(store.pending?.anchorIndex).toBe(7)
       expect(store.pending?.focusIndex).toBe(7)
     })
 
     it("extends existing selection when shift is pressed", () => {
-      store.startSelection(3, false)
-      store.startSelection(7, true)
+      store.startSelection(PLAN_FILE_PATH, 3, false)
+      store.startSelection(PLAN_FILE_PATH, 7, true)
 
       expect(store.pending?.anchorIndex).toBe(3)
       expect(store.pending?.focusIndex).toBe(7)
     })
 
     it("does not extend if no existing selection", () => {
-      store.startSelection(7, true)
+      store.startSelection(PLAN_FILE_PATH, 7, true)
 
+      expect(store.pending?.anchorIndex).toBe(7)
+      expect(store.pending?.focusIndex).toBe(7)
+    })
+
+    it("does not extend if different file path", () => {
+      store.startSelection(PLAN_FILE_PATH, 3, false)
+      store.startSelection("other.md", 7, true)
+
+      // Should start a new selection since file path is different
+      expect(store.pending?.filePath).toBe("other.md")
       expect(store.pending?.anchorIndex).toBe(7)
       expect(store.pending?.focusIndex).toBe(7)
     })
@@ -67,7 +78,7 @@ describe("PlanReviewStore", () => {
 
   describe("extendSelection", () => {
     it("updates focusIndex when pending exists", () => {
-      store.startSelection(3, false)
+      store.startSelection(PLAN_FILE_PATH, 3, false)
       store.extendSelection(10)
 
       expect(store.pending?.focusIndex).toBe(10)
@@ -83,7 +94,7 @@ describe("PlanReviewStore", () => {
 
   describe("selectionStart and selectionEnd", () => {
     it("returns min/max of anchor and focus when anchor < focus", () => {
-      store.startSelection(3, false)
+      store.startSelection(PLAN_FILE_PATH, 3, false)
       store.extendSelection(7)
 
       expect(store.selectionStart).toBe(3)
@@ -91,7 +102,7 @@ describe("PlanReviewStore", () => {
     })
 
     it("returns min/max when anchor > focus (dragging up)", () => {
-      store.startSelection(10, false)
+      store.startSelection(PLAN_FILE_PATH, 10, false)
       store.extendSelection(5)
 
       expect(store.selectionStart).toBe(5)
@@ -99,7 +110,7 @@ describe("PlanReviewStore", () => {
     })
 
     it("returns same value when anchor === focus", () => {
-      store.startSelection(5, false)
+      store.startSelection(PLAN_FILE_PATH, 5, false)
 
       expect(store.selectionStart).toBe(5)
       expect(store.selectionEnd).toBe(5)
@@ -108,7 +119,7 @@ describe("PlanReviewStore", () => {
 
   describe("updateComment", () => {
     it("updates commentText when pending exists", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("This needs work")
 
       expect(store.pending?.commentText).toBe("This needs work")
@@ -127,18 +138,18 @@ describe("PlanReviewStore", () => {
     })
 
     it("returns false when pending has empty comment", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       expect(store.hasUnsavedComment).toBe(false)
     })
 
     it("returns false when pending has whitespace-only comment", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("   \n\t  ")
       expect(store.hasUnsavedComment).toBe(false)
     })
 
     it("returns true when pending has non-empty comment", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Some comment")
       expect(store.hasUnsavedComment).toBe(true)
     })
@@ -146,7 +157,7 @@ describe("PlanReviewStore", () => {
 
   describe("addNote", () => {
     it("adds note to notes array and clears pending", () => {
-      store.startSelection(5, false)
+      store.startSelection(PLAN_FILE_PATH, 5, false)
       store.updateComment("Fix this issue")
       store.addNote("const x = 1", 6, 6)
 
@@ -163,7 +174,7 @@ describe("PlanReviewStore", () => {
     })
 
     it("trims comment text", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("  Fix this  ")
       store.addNote("code", 1, 1)
 
@@ -176,24 +187,24 @@ describe("PlanReviewStore", () => {
     })
 
     it("does nothing when comment is empty", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.addNote("code", 1, 1)
       expect(store.notes).toHaveLength(0)
     })
 
     it("does nothing when comment is whitespace only", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("   ")
       store.addNote("code", 1, 1)
       expect(store.notes).toHaveLength(0)
     })
 
     it("allows adding multiple notes", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("First comment")
       store.addNote("line 1", 1, 1)
 
-      store.startSelection(5, false)
+      store.startSelection(PLAN_FILE_PATH, 5, false)
       store.updateComment("Second comment")
       store.addNote("line 6", 6, 6)
 
@@ -202,7 +213,7 @@ describe("PlanReviewStore", () => {
     })
 
     it("clears showDiscardDialog", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Comment")
       store.showDiscardDialog = true
       store.addNote("code", 1, 1)
@@ -213,7 +224,7 @@ describe("PlanReviewStore", () => {
 
   describe("editNote", () => {
     it("sets pending with note data and editingNoteId", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Original comment")
       store.addNote("code", 1, 3)
 
@@ -221,6 +232,7 @@ describe("PlanReviewStore", () => {
       store.editNote(note)
 
       expect(store.pending).toEqual({
+        filePath: PLAN_FILE_PATH,
         anchorIndex: 0, // startLine 1 - 1
         focusIndex: 2, // endLine 3 - 1
         commentText: "Original comment",
@@ -232,7 +244,7 @@ describe("PlanReviewStore", () => {
 
   describe("addNote with editing", () => {
     it("updates existing note when editingNoteId is set", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Original comment")
       store.addNote("code", 1, 1)
 
@@ -255,12 +267,12 @@ describe("PlanReviewStore", () => {
 
   describe("isEditing", () => {
     it("returns false when not editing", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       expect(store.isEditing).toBe(false)
     })
 
     it("returns true when editing a note", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Comment")
       store.addNote("code", 1, 1)
 
@@ -275,7 +287,7 @@ describe("PlanReviewStore", () => {
     })
 
     it("returns correct line indices for single-line note", () => {
-      store.startSelection(2, false)
+      store.startSelection(PLAN_FILE_PATH, 2, false)
       store.updateComment("Comment")
       store.addNote("code", 3, 3) // Line 3 = index 2
 
@@ -284,7 +296,7 @@ describe("PlanReviewStore", () => {
     })
 
     it("returns correct line indices for multi-line note", () => {
-      store.startSelection(1, false)
+      store.startSelection(PLAN_FILE_PATH, 1, false)
       store.extendSelection(3)
       store.updateComment("Comment")
       store.addNote("code", 2, 4) // Lines 2-4 = indices 1,2,3
@@ -296,11 +308,11 @@ describe("PlanReviewStore", () => {
     })
 
     it("combines line indices from multiple notes", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Comment 1")
       store.addNote("code", 1, 1) // Line 1 = index 0
 
-      store.startSelection(4, false)
+      store.startSelection(PLAN_FILE_PATH, 4, false)
       store.updateComment("Comment 2")
       store.addNote("code", 5, 5) // Line 5 = index 4
 
@@ -312,11 +324,11 @@ describe("PlanReviewStore", () => {
 
   describe("removeNote", () => {
     it("removes note by id", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Comment 1")
       store.addNote("code1", 1, 1)
 
-      store.startSelection(5, false)
+      store.startSelection(PLAN_FILE_PATH, 5, false)
       store.updateComment("Comment 2")
       store.addNote("code2", 6, 6)
 
@@ -328,7 +340,7 @@ describe("PlanReviewStore", () => {
     })
 
     it("does nothing if note id not found", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Comment")
       store.addNote("code", 1, 1)
 
@@ -340,7 +352,7 @@ describe("PlanReviewStore", () => {
 
   describe("discardPending", () => {
     it("clears pending and showDiscardDialog", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Some text")
       store.showDiscardDialog = true
 
@@ -353,7 +365,7 @@ describe("PlanReviewStore", () => {
 
   describe("requestDiscard", () => {
     it("returns false and discards when no unsaved comment", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
 
       const result = store.requestDiscard()
 
@@ -362,7 +374,7 @@ describe("PlanReviewStore", () => {
     })
 
     it("returns true and shows dialog when has unsaved comment", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Unsaved text")
 
       const result = store.requestDiscard()
@@ -385,10 +397,10 @@ describe("PlanReviewStore", () => {
 
   describe("reset", () => {
     it("clears all state", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Comment")
       store.addNote("code", 1, 1)
-      store.startSelection(5, false)
+      store.startSelection(PLAN_FILE_PATH, 5, false)
       store.showDiscardDialog = true
 
       store.reset()
@@ -412,7 +424,7 @@ Line 6`
     })
 
     it("formats a single note on one line", () => {
-      store.startSelection(1, false)
+      store.startSelection(PLAN_FILE_PATH, 1, false)
       store.updateComment("This line needs work")
       store.addNote("Line 2", 2, 2)
 
@@ -426,7 +438,7 @@ Line 6`
     })
 
     it("formats a single note spanning multiple lines", () => {
-      store.startSelection(1, false)
+      store.startSelection(PLAN_FILE_PATH, 1, false)
       store.extendSelection(3)
       store.updateComment("These lines need work")
       store.addNote("Line 2\nLine 3\nLine 4", 2, 4)
@@ -441,13 +453,13 @@ Line 6`
 
     it("formats multiple notes sorted by line number", () => {
       // Add note on lines 4-5 first
-      store.startSelection(3, false)
+      store.startSelection(PLAN_FILE_PATH, 3, false)
       store.extendSelection(4)
       store.updateComment("Second section issue")
       store.addNote("Line 4\nLine 5", 4, 5)
 
       // Add note on line 2 second
-      store.startSelection(1, false)
+      store.startSelection(PLAN_FILE_PATH, 1, false)
       store.updateComment("First section issue")
       store.addNote("Line 2", 2, 2)
 
@@ -460,7 +472,7 @@ Line 6`
     })
 
     it("includes separator and closing instruction", () => {
-      store.startSelection(0, false)
+      store.startSelection(PLAN_FILE_PATH, 0, false)
       store.updateComment("Comment")
       store.addNote("# Plan", 1, 1)
 
@@ -486,38 +498,40 @@ Line 6`
       expect(store.viewMode).toBe("markdown")
     })
 
-    it("can be set to code", () => {
-      store.setViewMode("code")
-      expect(store.viewMode).toBe("code")
+    it("can be set to diff", () => {
+      store.setViewMode("diff")
+      expect(store.viewMode).toBe("diff")
     })
 
     it("can be set back to markdown", () => {
-      store.setViewMode("code")
+      store.setViewMode("diff")
       store.setViewMode("markdown")
       expect(store.viewMode).toBe("markdown")
     })
 
     it("is reset to markdown on reset()", () => {
-      store.setViewMode("code")
+      store.setViewMode("diff")
       store.reset()
       expect(store.viewMode).toBe("markdown")
     })
   })
 
-  describe("switchToCodeAtLine", () => {
-    it("switches to code view and highlights line without opening editor", () => {
-      store.switchToCodeAtLine(5)
+  describe("switchToDiffAtLine", () => {
+    it("switches to diff view and highlights line without opening editor", () => {
+      store.setViewMode("markdown")
+      store.switchToDiffAtLine(5)
 
-      expect(store.viewMode).toBe("code")
+      expect(store.viewMode).toBe("diff")
       expect(store.highlightedLine).toBe(5)
       // Should NOT create a pending note (editor should not open)
       expect(store.pending).toBeNull()
     })
 
     it("highlights line 0 when called with 0", () => {
-      store.switchToCodeAtLine(0)
+      store.setViewMode("markdown")
+      store.switchToDiffAtLine(0)
 
-      expect(store.viewMode).toBe("code")
+      expect(store.viewMode).toBe("diff")
       expect(store.highlightedLine).toBe(0)
     })
   })
@@ -528,15 +542,15 @@ Line 6`
     })
 
     it("is cleared when startSelection is called", () => {
-      store.switchToCodeAtLine(5)
+      store.switchToDiffAtLine(5)
       expect(store.highlightedLine).toBe(5)
 
-      store.startSelection(3, false)
+      store.startSelection(PLAN_FILE_PATH, 3, false)
       expect(store.highlightedLine).toBeNull()
     })
 
     it("is cleared on reset()", () => {
-      store.switchToCodeAtLine(5)
+      store.switchToDiffAtLine(5)
       store.reset()
       expect(store.highlightedLine).toBeNull()
     })

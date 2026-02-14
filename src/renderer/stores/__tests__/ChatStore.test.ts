@@ -760,6 +760,7 @@ describe("ChatStore", () => {
       store.pendingPlanApproval = {
         id: "plan-1",
         planContent: "my plan",
+        previousPlanContent: null,
       }
     })
     expect(store.status).toBe("needs_attention")
@@ -904,6 +905,7 @@ describe("ChatStore", () => {
       store.pendingPlanApproval = {
         id: "plan-1",
         planContent: "# My Plan",
+        previousPlanContent: null,
       }
     })
 
@@ -925,6 +927,7 @@ describe("ChatStore", () => {
       store.pendingPlanApproval = {
         id: "plan-1",
         planContent: "# My Plan",
+        previousPlanContent: null,
       }
     })
 
@@ -951,6 +954,7 @@ describe("ChatStore", () => {
       store.pendingPlanApproval = {
         id: "plan-1",
         planContent: "# My Plan",
+        previousPlanContent: null,
       }
     })
 
@@ -975,6 +979,7 @@ describe("ChatStore", () => {
       store.pendingPlanApproval = {
         id: "plan-1",
         planContent: "# My Plan",
+        previousPlanContent: null,
       }
     })
 
@@ -989,6 +994,7 @@ describe("ChatStore", () => {
       store.pendingPlanApproval = {
         id: "plan-1",
         planContent: "# My Plan",
+        previousPlanContent: null,
       }
       store.isSending = true
       store.chat.status = "running"
