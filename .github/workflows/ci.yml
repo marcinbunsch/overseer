@@ -58,8 +58,8 @@ jobs:
       - name: Run tests
         run: pnpm test
 
-      - name: Build app
-        run: pnpm build:linux
+      - name: Run rustcheck
+        run: pnpm rustcheck
 
       - name: Run rust tests
         run: cd src-tauri && cargo test -q
