@@ -62,11 +62,20 @@ async fn check_command_exists(command: String) -> CommandCheckResult {
             } else {
                 // Command exists but --version failed, try without args
                 match run_command(vec![]) {
-                    Ok(_) => CommandCheckResult {
+                    Ok(result) if result.status.success() => CommandCheckResult {
                         available: true,
                         version: None,
                         error: None,
                     },
+                    Ok(result) => {
+                        // Command likely doesn't exist - extract error from stderr
+                        let stderr = String::from_utf8_lossy(&result.stderr);
+                        CommandCheckResult {
+                            available: false,
+                            version: None,
+                            error: Some(stderr.trim().to_string()),
+                        }
+                    }
                     Err(e) => CommandCheckResult {
                         available: false,
                         version: None,
