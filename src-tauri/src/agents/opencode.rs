@@ -10,7 +10,7 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader},
     net::TcpListener,
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -19,7 +19,7 @@ use std::{
 };
 use tauri::Emitter;
 
-use super::shared::{prepare_path_env, AgentExit};
+use super::shared::{build_login_shell_command, AgentExit};
 use crate::logging::{log_line, open_log_file, LogHandle};
 
 struct OpenCodeServerEntry {
@@ -103,6 +103,7 @@ pub fn start_opencode_server(
     port: u16,
     log_dir: Option<String>,
     log_id: Option<String>,
+    agent_shell: Option<String>,
 ) -> Result<String, String> {
     // Stop any existing server for this id first.
     {
@@ -128,17 +129,14 @@ pub fn start_opencode_server(
         "http://localhost:1420".to_string(),
     ];
 
-    let mut cmd = Command::new(&opencode_path);
-    cmd.args(&args)
-        .stdin(Stdio::null())
+    let mut cmd = build_login_shell_command(&opencode_path, &args, None, agent_shell.as_deref())?;
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     // Note: We intentionally don't set OPENCODE_SERVER_PASSWORD because the
     // OpenCode server doesn't exempt CORS preflight (OPTIONS) requests from
     // authentication, causing 401 errors from the browser. Since the server
     // only listens on 127.0.0.1, running without password is reasonably safe.
-
-    prepare_path_env(&mut cmd, &opencode_path);
 
     let mut child = cmd
         .spawn()
@@ -457,13 +455,13 @@ pub fn opencode_unsubscribe_events(
 /// This works without a running server - it uses the CLI directly.
 /// Returns a list of models with their provider info.
 #[tauri::command(async)]
-pub fn opencode_list_models(opencode_path: String) -> Result<Vec<OpenCodeModel>, String> {
-    let mut cmd = Command::new(&opencode_path);
-    cmd.arg("models")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-
-    prepare_path_env(&mut cmd, &opencode_path);
+pub fn opencode_list_models(
+    opencode_path: String,
+    agent_shell: Option<String>,
+) -> Result<Vec<OpenCodeModel>, String> {
+    let args = vec!["models".to_string()];
+    let mut cmd = build_login_shell_command(&opencode_path, &args, None, agent_shell.as_deref())?;
+    cmd.stdout(Stdio::piped()).stderr(Stdio::null());
 
     let output = cmd
         .output()

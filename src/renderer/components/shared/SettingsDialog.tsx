@@ -427,6 +427,30 @@ export const SettingsDialog = observer(function SettingsDialog({
               </div>
             </div>
 
+            {/* Advanced */}
+            <div className="border-t border-ovr-border-subtle pt-4">
+              <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Advanced</label>
+              <div className="space-y-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-28 text-xs text-ovr-text-muted">Shell Prefix:</span>
+                    <input
+                      type="text"
+                      value={configStore.agentShell}
+                      onChange={(e) => configStore.setAgentShell(e.target.value)}
+                      placeholder="$SHELL -l -c"
+                      className="ovr-input flex-1 px-2 py-1 text-xs"
+                      data-testid="agent-shell-input"
+                    />
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-ovr-text-dim">
+                    Shell prefix for launching agents. Default: $SHELL -l -c (login shell).
+                    Examples: /bin/bash -l -c, /bin/zsh -c
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Updates */}
             <div className="border-t border-ovr-border-subtle pt-4">
               <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Updates</label>

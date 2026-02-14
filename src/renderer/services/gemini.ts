@@ -224,6 +224,7 @@ class GeminiAgentService implements AgentService {
         approvalMode: approvalMode ?? null,
         logDir: logDir ?? null,
         logId: chatId,
+        agentShell: configStore.agentShell || null,
       })
       chat.running = true
     } catch (err) {

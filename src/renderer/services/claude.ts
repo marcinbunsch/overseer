@@ -226,6 +226,7 @@ class ClaudeAgentService implements AgentService {
         logDir: logDir ?? null,
         logId: chatId,
         permissionMode: permissionMode ?? null,
+        agentShell: configStore.agentShell || null,
       })
       conv.running = true
     } catch (err) {

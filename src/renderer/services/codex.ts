@@ -165,6 +165,7 @@ class CodexAgentService implements AgentService {
           modelVersion: modelVersion ?? null,
           logDir: logDir ?? null,
           logId: chatId,
+          agentShell: configStore.agentShell || null,
         })
       } catch (err) {
         // Re-throw with a more helpful error message

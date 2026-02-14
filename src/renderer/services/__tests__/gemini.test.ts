@@ -48,6 +48,7 @@ describe("GeminiAgentService", () => {
         approvalMode: "yolo",
         logDir: null,
         logId: "chat-1",
+        agentShell: null,
       })
     })
 
@@ -70,6 +71,7 @@ describe("GeminiAgentService", () => {
         approvalMode: "yolo",
         logDir: null,
         logId: "chat-1",
+        agentShell: null,
       })
     })
 
@@ -92,6 +94,7 @@ describe("GeminiAgentService", () => {
         approvalMode: "yolo",
         logDir: "/tmp/logs",
         logId: "chat-1",
+        agentShell: null,
       })
     })
 
@@ -114,6 +117,7 @@ describe("GeminiAgentService", () => {
         approvalMode: "auto_edit",
         logDir: null,
         logId: "chat-1",
+        agentShell: null,
       })
     })
 
@@ -136,6 +140,7 @@ describe("GeminiAgentService", () => {
         approvalMode: "yolo",
         logDir: null,
         logId: "chat-1",
+        agentShell: null,
       })
     })
 
@@ -166,6 +171,7 @@ describe("GeminiAgentService", () => {
         approvalMode: "yolo",
         logDir: null,
         logId: "chat-1",
+        agentShell: null,
       })
     })
 
@@ -199,6 +205,7 @@ describe("GeminiAgentService", () => {
         approvalMode: "yolo",
         logDir: null,
         logId: "chat-1",
+        agentShell: null,
       })
     })
 
@@ -224,6 +231,7 @@ describe("GeminiAgentService", () => {
         approvalMode: "yolo",
         logDir: null,
         logId: "chat-1",
+        agentShell: null,
       })
     })
 
