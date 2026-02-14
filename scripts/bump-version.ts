@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Bump version in package.json and tauri.conf.json
  * Usage: tsx scripts/bump-version.ts <patch|minor|major>
