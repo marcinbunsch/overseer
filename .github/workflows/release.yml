@@ -149,7 +149,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build --bundles appimage,deb,updater
+        run: pnpm tauri build --bundles appimage,deb
 
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
@@ -168,8 +168,8 @@ jobs:
         with:
           name: linux-updater
           path: |
-            src-tauri/target/release/bundle/appimage/*.tar.gz
-            src-tauri/target/release/bundle/appimage/*.tar.gz.sig
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.AppImage.sig
 
   create-release:
     needs: [build-mac, build-linux]
@@ -194,14 +194,14 @@ jobs:
           REPO="${{ github.repository }}"
 
           # Read signatures
-          MAC_ARM_SIG=$(cat artifacts/macos-updater-aarch64/*.sig 2>/dev/null || echo "")
-          MAC_X64_SIG=$(cat artifacts/macos-updater-x86_64/*.sig 2>/dev/null || echo "")
-          LINUX_SIG=$(cat artifacts/linux-updater/*.sig 2>/dev/null || echo "")
+          MAC_ARM_SIG=$(cat artifacts/macos-updater-aarch64/*.tar.gz.sig 2>/dev/null || echo "")
+          MAC_X64_SIG=$(cat artifacts/macos-updater-x86_64/*.tar.gz.sig 2>/dev/null || echo "")
+          LINUX_SIG=$(cat artifacts/linux-updater/*.AppImage.sig 2>/dev/null || echo "")
 
           # Get filenames
           MAC_ARM_FILE=$(ls artifacts/macos-updater-aarch64/*.tar.gz 2>/dev/null | head -1 | xargs basename || echo "")
           MAC_X64_FILE=$(ls artifacts/macos-updater-x86_64/*.tar.gz 2>/dev/null | head -1 | xargs basename || echo "")
-          LINUX_FILE=$(ls artifacts/linux-updater/*.tar.gz 2>/dev/null | head -1 | xargs basename || echo "")
+          LINUX_FILE=$(ls artifacts/linux-updater/*.AppImage 2>/dev/null | head -1 | xargs basename || echo "")
 
           cat > artifacts/latest.json << EOF
           {
