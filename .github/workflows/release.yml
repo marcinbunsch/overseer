@@ -197,6 +197,9 @@ jobs:
           # Rename x86_64 files to include architecture
           mv artifacts/macos-updater-x86_64/Overseer.app.tar.gz artifacts/macos-updater-x86_64/Overseer-x86_64.app.tar.gz
           mv artifacts/macos-updater-x86_64/Overseer.app.tar.gz.sig artifacts/macos-updater-x86_64/Overseer-x86_64.app.tar.gz.sig
+          
+          # Remove duplicate AppImage from linux-updater (it's in linux-appimage already)
+          rm -f artifacts/linux-updater/*.AppImage
 
       - name: Generate latest.json
         run: |
