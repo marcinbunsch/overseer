@@ -503,6 +503,7 @@ export class WorkspaceStore {
       getWorkspacePath: () => this.path,
       renameChat: (chatId: string, newLabel: string) => this.renameChat(chatId, newLabel),
       isWorkspaceSelected: () => projectRegistry.selectedWorkspaceId === this.id,
+      refreshChangedFiles: () => void this._changedFilesStore?.refresh(),
     }
   }
 

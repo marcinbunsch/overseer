@@ -78,6 +78,7 @@ function createTestContext(overrides?: TestContextOverrides): ChatStoreContext {
     getWorkspacePath: overrides?.getWorkspacePath ?? (() => "/tmp/test-workspace"),
     renameChat: overrides?.renameChat ?? vi.fn(),
     isWorkspaceSelected: overrides?.isWorkspaceSelected ?? (() => true),
+    refreshChangedFiles: overrides?.refreshChangedFiles ?? vi.fn(),
   }
 }
 
@@ -265,6 +266,25 @@ describe("ChatStore", () => {
 
     expect(store.isSending).toBe(false)
     expect(store.status).toBe("idle")
+  })
+
+  it("handleAgentEvent calls refreshChangedFiles on turnComplete", () => {
+    const refreshChangedFiles = vi.fn()
+    const store = createChatStore(undefined, { refreshChangedFiles })
+
+    runInAction(() => {
+      store.isSending = true
+      store.chat.status = "running"
+    })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({ kind: "turnComplete" })
+
+    expect(refreshChangedFiles).toHaveBeenCalledTimes(1)
   })
 
   it("handleAgentEvent processes tool approval events", () => {

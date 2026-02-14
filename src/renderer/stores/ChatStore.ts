@@ -33,6 +33,7 @@ export interface ChatStoreContext {
   getWorkspacePath: () => string
   renameChat: (chatId: string, newLabel: string) => void
   isWorkspaceSelected: () => boolean
+  refreshChangedFiles: () => void
 }
 
 export class ChatStore {
@@ -497,6 +498,8 @@ export class ChatStore {
           // Check for overseer blocks in messages that were built up via delta streaming
           // (Claude sends complete messages, but Gemini streams deltas that accumulate)
           this.processOverseerBlocksFromRecentMessages()
+          // Refresh changed files - the agent may have created/modified/deleted files
+          this.context.refreshChangedFiles()
           // Immediate save - cancel any scheduled save and save now
           if (this.saveTimeout) {
             clearTimeout(this.saveTimeout)
