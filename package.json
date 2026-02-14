@@ -22,7 +22,10 @@
     "checks": "pnpm run \"/format:check|lint|typecheck|rustcheck/\"",
     "checks:ui": "pnpm run \"/format:check|lint|typecheck/\" ",
     "test": "vitest run --silent --reporter=dot",
-    "test:watch": "vitest --silent --reporter=dot"
+    "test:watch": "vitest --silent --reporter=dot",
+    "release:patch": "./scripts/release.sh patch",
+    "release:minor": "./scripts/release.sh minor",
+    "release:major": "./scripts/release.sh major"
   },
   "packageManager": "pnpm@10.17.1",
   "pnpm": {
