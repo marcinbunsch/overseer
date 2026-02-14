@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="lensGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00FF88"/>
+      <stop offset="100%" stop-color="#00AACC"/>
+    </linearGradient>
+    
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="400" height="400" fill="#0A0A0F"/>
+  
+  <!-- Single soft hexagon outline -->
+  <path 
+    d="M200,60 Q210,60 260,90 L320,130 Q330,136 330,150 L330,250 Q330,264 320,270 L260,310 Q210,340 200,340 Q190,340 140,310 L80,270 Q70,264 70,250 L70,150 Q70,136 80,130 L140,90 Q190,60 200,60 Z" 
+    fill="none" 
+    stroke="#1E1E28" 
+    stroke-width="1.5"
+  />
+  
+  <!-- The Eye - simplified -->
+  <g filter="url(#glow)">
+    <!-- Outer eye shape - smooth almond -->
+    <ellipse cx="200" cy="200" rx="80" ry="45" fill="none" stroke="url(#lensGradient)" stroke-width="2"/>
+    
+    <!-- Pupil -->
+    <circle cx="200" cy="200" r="16" fill="url(#lensGradient)"/>
+    
+    <!-- Highlight -->
+    <circle cx="194" cy="194" r="5" fill="#ffffff" opacity="0.7"/>
+  </g>
+  
+  <!-- Three subtle orbital dots -->
+  <g fill="#00FF88" opacity="0.6">
+    <circle cx="200" cy="100" r="2.5"/>
+    <circle cx="113" cy="250" r="2.5"/>
+    <circle cx="287" cy="250" r="2.5"/>
+  </g>
+</svg>

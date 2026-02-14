@@ -1,0 +1,420 @@
+/* ================================
+   Overseer Tailwind v4 Theme + UI Kit
+   Single-file drop-in
+================================ */
+
+/* =================================
+   THEME TOKENS
+================================= */
+
+@theme {
+  /* ===== Background roles ===== */
+  --color-ovr-bg-base: #121417;
+  --color-ovr-bg-app: #1b1f24;
+  --color-ovr-bg-panel: #232830;
+  --color-ovr-bg-elevated: #2c323b;
+  --color-ovr-bg-surface: #343b46;
+  --color-ovr-bg-overlay: #0e1116;
+
+  /* ===== Brand neon azure ===== */
+  --color-ovr-azure-300: #6ee7ff;
+  --color-ovr-azure-400: #3fdcff;
+  --color-ovr-azure-500: #00d9ff;
+  --color-ovr-azure-600: #00b8e6;
+  --color-ovr-azure-700: #0095bf;
+
+  /* ===== Text ===== */
+  --color-ovr-text-strong: #e6f7ff;
+  --color-ovr-text-primary: #c9d6df;
+  --color-ovr-text-muted: #8a97a3;
+  --color-ovr-text-dim: #5c6772;
+
+  /* ===== Borders ===== */
+  --color-ovr-border-subtle: #2a313a;
+  --color-ovr-border-strong: #3a4450;
+
+  /* ===== Status ===== */
+  --color-ovr-ok: #2de2a6;
+  --color-ovr-warn: #ffee00;
+  --color-ovr-bad: #ff4d6d;
+  --color-ovr-info: #8b9cff;
+
+  /* ===== Dev mode ===== */
+  --color-ovr-dev: #ffee00;
+
+  /* ===== Diff ===== */
+  --color-ovr-diff-add: #3fb950;
+  --color-ovr-diff-del: #f85149;
+
+  /* ===== Shadows ===== */
+  --shadow-ovr-glow-soft: 0 0 20px rgba(0, 217, 255, 0.18);
+  --shadow-ovr-glow: 0 0 24px rgba(0, 217, 255, 0.35);
+  --shadow-ovr-glow-strong: 0 0 28px rgba(0, 217, 255, 0.55);
+  --shadow-ovr-panel: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* =================================
+   GRADIENT + EFFECT UTILITIES
+================================= */
+
+@utility bg-ovr-hero {
+  background-image: radial-gradient(circle at 50% 45%, #1f2630 0%, #151a22 40%, #0e1116 100%);
+}
+
+@utility bg-ovr-sheen {
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.02) 35%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+@utility ovr-scanline {
+  background-image: linear-gradient(180deg, rgba(0, 217, 255, 0.18), rgba(0, 217, 255, 0));
+}
+
+/* =================================
+   PANELS / CARDS
+================================= */
+
+@utility ovr-panel {
+  @apply rounded-xl border;
+  background-color: var(--color-ovr-bg-panel);
+  border-color: var(--color-ovr-border-subtle);
+  box-shadow: var(--shadow-ovr-panel);
+}
+
+@utility ovr-panel-hover {
+  @apply transition;
+}
+.ovr-panel-hover:hover {
+  background-color: var(--color-ovr-bg-elevated);
+  border-color: var(--color-ovr-border-strong);
+}
+
+/* =================================
+   TERMINAL CARD
+================================= */
+
+@utility ovr-terminal {
+  @apply rounded-xl border font-mono text-sm;
+  background-color: var(--color-ovr-bg-overlay);
+  border-color: var(--color-ovr-border-subtle);
+}
+
+@utility ovr-terminal-header {
+  @apply flex items-center justify-between px-4 py-3 border-b;
+  border-color: var(--color-ovr-border-subtle);
+}
+
+@utility ovr-terminal-body {
+  @apply px-4 py-3;
+  color: var(--color-ovr-text-primary);
+}
+
+/* =================================
+   BUTTONS
+================================= */
+
+@utility ovr-btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 font-medium transition;
+}
+
+@utility ovr-btn-primary {
+  @apply ovr-btn;
+  background-color: var(--color-ovr-azure-500);
+  color: #001015;
+  box-shadow: var(--shadow-ovr-glow-soft);
+}
+.ovr-btn-primary:hover {
+  background-color: var(--color-ovr-azure-400);
+  box-shadow: var(--shadow-ovr-glow);
+}
+.ovr-btn-primary:active {
+  background-color: var(--color-ovr-azure-600);
+}
+
+@utility ovr-btn-ghost {
+  @apply ovr-btn border;
+  background-color: var(--color-ovr-bg-surface);
+  border-color: var(--color-ovr-border-strong);
+  color: var(--color-ovr-text-primary);
+}
+.ovr-btn-ghost:hover {
+  background-color: var(--color-ovr-bg-elevated);
+  border-color: var(--color-ovr-border-strong);
+}
+
+@utility ovr-btn-danger {
+  @apply ovr-btn;
+  background-color: var(--color-ovr-bad);
+  color: #140006;
+}
+
+/* =================================
+   INPUTS
+================================= */
+
+@utility ovr-input {
+  @apply w-full rounded-lg border px-3 py-2 outline-none transition;
+  background-color: var(--color-ovr-bg-app);
+  border-color: var(--color-ovr-border-subtle);
+  color: var(--color-ovr-text-primary);
+}
+.ovr-input::placeholder {
+  color: var(--color-ovr-text-dim);
+}
+.ovr-input:focus {
+  border-color: var(--color-ovr-azure-500);
+  box-shadow: var(--shadow-ovr-glow-soft);
+}
+
+/* =================================
+   BADGES / STATUS PILLS
+================================= */
+
+@utility ovr-badge {
+  @apply inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium border;
+  border-color: var(--color-ovr-border-subtle);
+  background-color: var(--color-ovr-bg-panel);
+  color: var(--color-ovr-text-primary);
+}
+
+@utility ovr-dot {
+  @apply inline-block size-2 rounded-full;
+}
+
+@utility ovr-badge-ok {
+  @apply ovr-badge;
+}
+.ovr-badge-ok .ovr-dot {
+  background-color: var(--color-ovr-ok);
+}
+
+@utility ovr-badge-warn {
+  @apply ovr-badge;
+}
+.ovr-badge-warn .ovr-dot {
+  background-color: var(--color-ovr-warn);
+}
+
+@utility ovr-badge-bad {
+  @apply ovr-badge;
+}
+.ovr-badge-bad .ovr-dot {
+  background-color: var(--color-ovr-bad);
+}
+
+@utility ovr-badge-info {
+  @apply ovr-badge;
+}
+.ovr-badge-info .ovr-dot {
+  background-color: var(--color-ovr-info);
+}
+
+/* =================================
+   MARKDOWN CONTENT
+================================= */
+
+.ovr-markdown {
+  line-height: 1.6;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.ovr-markdown > *:first-child {
+  margin-top: 0;
+}
+.ovr-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.ovr-markdown p {
+  margin: 0.5em 0;
+}
+
+.ovr-markdown h1,
+.ovr-markdown h2,
+.ovr-markdown h3,
+.ovr-markdown h4,
+.ovr-markdown h5,
+.ovr-markdown h6 {
+  margin: 1em 0 0.5em;
+  font-weight: 600;
+  color: var(--color-ovr-text-strong);
+}
+
+.ovr-markdown h1 {
+  font-size: 1.25em;
+}
+.ovr-markdown h2 {
+  font-size: 1.125em;
+}
+.ovr-markdown h3 {
+  font-size: 1em;
+}
+
+.ovr-markdown strong {
+  color: var(--color-ovr-text-strong);
+}
+
+.ovr-markdown a {
+  color: var(--color-ovr-azure-400);
+  text-decoration: underline;
+}
+
+.ovr-markdown code:not(pre code) {
+  padding: 0.15em 0.35em;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  background-color: var(--color-ovr-bg-surface);
+  color: var(--color-ovr-azure-300);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+.ovr-markdown pre {
+  margin: 0.75em 0;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+}
+
+.ovr-markdown ul,
+.ovr-markdown ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.ovr-markdown ul {
+  list-style-type: disc;
+}
+.ovr-markdown ol {
+  list-style-type: decimal;
+}
+
+.ovr-markdown li {
+  margin: 0.25em 0;
+}
+
+.ovr-markdown li > p {
+  margin: 0;
+}
+
+.ovr-markdown blockquote {
+  margin: 0.5em 0;
+  padding: 0.25em 0.75em;
+  border-left: 3px solid var(--color-ovr-border-strong);
+  color: var(--color-ovr-text-muted);
+}
+
+.ovr-markdown hr {
+  margin: 1em 0;
+  border: none;
+  border-top: 1px solid var(--color-ovr-border-subtle);
+}
+
+.ovr-markdown table {
+  margin: 0.5em 0;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.ovr-markdown th,
+.ovr-markdown td {
+  padding: 0.35em 0.75em;
+  border: 1px solid var(--color-ovr-border-subtle);
+  text-align: left;
+}
+
+.ovr-markdown th {
+  background-color: var(--color-ovr-bg-surface);
+  font-weight: 600;
+  color: var(--color-ovr-text-strong);
+}
+
+/* =================================
+   @pierre/diffs OVERRIDES
+================================= */
+
+/* Container for pierre diffs */
+.pierre-diff-container {
+  height: 100%;
+}
+
+/* Override pierre diff backgrounds to match Overseer theme */
+.pierre-diff-container pre[data-diffs] {
+  background-color: var(--color-ovr-bg-app) !important;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* Line numbers styling */
+.pierre-diff-container [data-line-number] {
+  color: var(--color-ovr-text-dim);
+  user-select: none;
+}
+
+/* Hover state for line numbers (when line selection is enabled) */
+.pierre-diff-container [data-line-number]:hover {
+  color: var(--color-ovr-azure-400);
+  background-color: rgba(0, 217, 255, 0.1);
+}
+
+/* Selected line highlighting */
+.pierre-diff-container [data-selected-line="true"] {
+  background-color: rgba(0, 217, 255, 0.15) !important;
+}
+
+/* Diff addition lines */
+.pierre-diff-container [data-line-type="addition"],
+.pierre-diff-container [data-line-type="change-addition"] {
+  background-color: rgba(63, 185, 80, 0.15);
+}
+
+.pierre-diff-container [data-line-type="addition"] [data-diff-indicator],
+.pierre-diff-container [data-line-type="change-addition"] [data-diff-indicator] {
+  color: var(--color-ovr-diff-add);
+}
+
+/* Diff deletion lines */
+.pierre-diff-container [data-line-type="deletion"],
+.pierre-diff-container [data-line-type="change-deletion"] {
+  background-color: rgba(248, 81, 73, 0.15);
+}
+
+.pierre-diff-container [data-line-type="deletion"] [data-diff-indicator],
+.pierre-diff-container [data-line-type="change-deletion"] [data-diff-indicator] {
+  color: var(--color-ovr-diff-del);
+}
+
+/* Hunk separators */
+.pierre-diff-container [data-hunk-separator] {
+  background-color: var(--color-ovr-bg-elevated);
+  color: var(--color-ovr-text-muted);
+  border-color: var(--color-ovr-border-subtle);
+}
+
+/* Word-level diff highlights */
+.pierre-diff-container [data-diff-highlight="addition"] {
+  background-color: rgba(63, 185, 80, 0.35);
+  border-radius: 2px;
+}
+
+.pierre-diff-container [data-diff-highlight="deletion"] {
+  background-color: rgba(248, 81, 73, 0.35);
+  border-radius: 2px;
+}
+
+/* File header (when visible) */
+.pierre-diff-container [data-file-header] {
+  background-color: var(--color-ovr-bg-panel);
+  border-color: var(--color-ovr-border-subtle);
+  color: var(--color-ovr-text-primary);
+}
+
+/* Split view gutter */
+.pierre-diff-container [data-split-gutter] {
+  background-color: var(--color-ovr-bg-panel);
+  border-color: var(--color-ovr-border-subtle);
+}

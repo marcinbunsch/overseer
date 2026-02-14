@@ -1,0 +1,12 @@
+node_modules
+dist
+.claude/settings.local.json
+.pnpm-store
+
+.DS_Store
+.env
+.env.*
+src-tauri/target/
+.vscode/
+.idea/
+*.iml

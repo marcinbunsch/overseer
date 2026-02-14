@@ -1,0 +1,108 @@
+# Scratchpad
+
+My learning journal for this codebase. **Rules** are patterns I must follow. **Mistakes Log** tracks past errors for context.
+
+---
+
+## Rules
+
+### Testing
+
+- **Always use test IDs for element selection** — Never query by text content. Text can appear in multiple places (labels, instructions, content). Use `data-testid` attributes and `getByTestId`/`queryByTestId`.
+- **Mock complex rendering libraries** — For react-markdown, react-syntax-highlighter, use simple mocks that provide predictable structure:
+  ```typescript
+  vi.mock("react-markdown", () => ({
+    default: ({ children }: { children: string }) => (
+      <div data-testid="markdown-content">{children}</div>
+    ),
+  }))
+  ```
+
+### MobX
+
+- **Use decorators, not makeAutoObservable** — Always use `@observable`, `@computed`, `@action` on separate lines. Makes reactive structure explicit.
+- **Store view state in stores, not components** — For things like `viewMode`, `highlightedLine`, put them in MobX stores so they persist across re-renders and are accessible from multiple components.
+
+### UI Patterns
+
+- **Two-phase highlighting** — For navigation vs editing: use `highlightedLine` for visual-only highlight, separate `pending` state for editor. Clear highlight when user starts interacting.
+- **View mode toggles** — Store mode in MobX, add action like `switchToCodeAtLine(index)` for cross-view navigation.
+
+### Tauri
+
+- **Always make Tauri commands async** — Synchronous `#[tauri::command]` functions block the main thread during the entire IPC roundtrip, causing UI lag. Always use `async fn` for Tauri commands, even if the operation itself is fast. This moves execution to Tauri's async runtime.
+- **Check capabilities for FS operations** — Tauri fails silently if permissions aren't granted. Check `src-tauri/capabilities/default.json`. Common permissions: `fs:allow-rename`, `fs:allow-remove`, `fs:allow-read-text-file`, `fs:allow-write-text-file`, `fs:allow-mkdir`, `fs:allow-exists`.
+
+### React
+
+- **Sync refs with async state** — When refs track values loaded asynchronously (from disk/API), sync the ref at operation start, not just at mount.
+- **Async service init pattern** — When a service method becomes async (like `getOrCreate`), update components to use `useEffect` with `mounted` flag pattern to handle cleanup properly.
+
+### Architecture
+
+- **Keep invoke() in services** — Low-level Tauri `invoke()` calls should stay in the service layer, not leak into stores. Expose clean methods like `terminalService.write()` instead of having stores call `invoke("pty_write", ...)`.
+
+### Code Style
+
+- **Never use nested ternaries** — Extract logic into utility functions or use switch statements. Nested ternaries are unreadable. Example: `getAgentDisplayName(agentType)` instead of `agentType === "codex" ? "Codex" : agentType === "copilot" ? "Copilot" : ...`
+
+---
+
+## Project Knowledge
+
+- **Dev vs Prod paths**: Dev mode uses different paths to avoid conflicts with stable builds:
+  - Dev: `~/.config/overseer-dev/` and `~/overseer/workspaces-dev/`
+  - Prod: `~/.config/overseer/` and `~/overseer/workspaces/`
+  - Use `getConfigPath()` from `utils/paths.ts` for TypeScript, `cfg!(debug_assertions)` for Rust
+- Animal-named workspace folders: `~/overseer/workspaces[-dev]/{repo}/`
+- Chat folders: `~/.config/overseer[-dev]/chats/{repo}/{animal}/`
+- Archived chats: `~/.config/overseer[-dev]/chats/{repo}.archived/`
+- Settings load async from `~/.config/overseer[-dev]/` — don't assume ready at mount
+
+---
+
+## Mistakes Log
+
+### 2026-02-07: Tauri FS permissions
+
+**Issue**: Chat archiving wasn't working - `rename()` calls were silently failing.
+**Cause**: Missing `fs:allow-rename` permission in capabilities file.
+
+### 2026-02-07: React refs vs async state
+
+**Issue**: Panel drag handles jumping ~100px on first drag.
+**Cause**: Refs initialized at mount with defaults, but actual values loaded async. First drag used stale ref.
+
+### 2026-02-07: Makefile variable escaping
+
+**Issue**: `$(pgrep ...)` interpreted as Make variable.
+**Fix**: Use `$$()` for shell command substitution in Makefiles.
+
+### 2026-02-07: Test regex too broad
+
+**Issue**: `queryByText(/comment/i)` matched instruction text containing "comments".
+**Fix**: Use specific patterns like `/^\d+ comments?$/` for badge text.
+
+### 2026-02-07: MobX singleton store state leaking between tests
+
+**Issue**: Tests using singleton MobX stores (like `toolAvailabilityStore`) were sharing state, causing flaky tests.
+**Fix**: Two approaches:
+
+1. Reset store state explicitly in `beforeEach`: `toolAvailabilityStore.claude = null`
+2. For tests that need fresh module instances, use `vi.resetModules()` before dynamic imports:
+   ```typescript
+   vi.resetModules()
+   const { claudeAgentService } = await import("../claude")
+   const { toolAvailabilityStore } = await import("../../stores/ToolAvailabilityStore")
+   ```
+
+### 2026-02-07: TypeScript optional chaining after assertion
+
+**Issue**: `expect(store.value).not.toBeNull()` followed by `store.value?.prop` causes TypeScript error because optional chaining implies the value could still be null.
+**Fix**: After a runtime assertion like `not.toBeNull()`, use non-null assertion: `store.value!.prop`
+
+### 2026-02-11: Synchronous Tauri commands cause UI lag
+
+**Issue**: "Open in terminal" button felt slow/laggy.
+**Cause**: `open_external` was a synchronous Tauri command (`fn` instead of `async fn`). Even though `spawn()` returns quickly, the synchronous command blocks the main thread during the entire JS→Rust→JS IPC roundtrip.
+**Fix**: Add `async` to all Tauri command functions. This moves them off the main thread to Tauri's async runtime.

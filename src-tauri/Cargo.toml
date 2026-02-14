@@ -1,0 +1,42 @@
+[package]
+name = "Overseer"
+version = "0.1.0"
+description = "Overseer - Oversee your AI coding agents"
+authors = ["Marcin Bunsch"]
+license = "MIT"
+repository = "https://github.com/marcinbunsch/overseer"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+ignore = "0.4"
+rand = "0.8"
+tauri = { version = "=2.9.5", features = ["devtools"] }
+tauri-plugin-log = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-os = "2"
+portable-pty = "0.8"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+ureq = { version = "2.9", features = ["json"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSImage", "NSRunningApplication"] }
+objc2-foundation = { version = "0.3.2", features = ["NSData"] }

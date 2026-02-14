@@ -1,0 +1,61 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "shell:allow-open",
+    "shell:allow-stdin-write",
+    "shell:allow-kill",
+    "os:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        { "name": "claude", "cmd": "claude", "args": true },
+        { "name": "sh", "cmd": "sh", "args": true },
+        { "name": "zsh", "cmd": "zsh", "args": true }
+      ]
+    },
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        { "name": "claude", "cmd": "claude", "args": true },
+        { "name": "sh", "cmd": "sh", "args": true },
+        { "name": "zsh", "cmd": "zsh", "args": true }
+      ]
+    },
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-rename",
+    "fs:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$HOME/.config/overseer" },
+        { "path": "$HOME/.config/overseer/**" },
+        { "path": "$HOME/.config/overseer-dev" },
+        { "path": "$HOME/.config/overseer-dev/**" },
+        { "path": "$HOME/overseer/chats" },
+        { "path": "$HOME/overseer/chats/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-remove",
+      "allow": [
+        { "path": "$HOME/.config/overseer/conversations/**" },
+        { "path": "$HOME/.config/overseer-dev/conversations/**" },
+        { "path": "$HOME/.config/overseer/chats/**" },
+        { "path": "$HOME/.config/overseer-dev/chats/**" }
+      ]
+    }
+  ]
+}

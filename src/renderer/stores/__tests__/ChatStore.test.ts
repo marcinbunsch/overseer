@@ -1,0 +1,1650 @@
+import { describe, it, expect, vi, beforeEach } from "vitest"
+import { runInAction } from "mobx"
+import type { Chat } from "../../types"
+import { ChatStore, type ChatStoreContext } from "../ChatStore"
+
+// Mock agent services via agentRegistry
+const mockAgentService = {
+  onEvent: vi.fn(),
+  onDone: vi.fn(),
+  sendMessage: vi.fn(() => Promise.resolve()),
+  sendToolApproval: vi.fn(() => Promise.resolve()),
+  stopChat: vi.fn(),
+  removeChat: vi.fn(),
+  isRunning: vi.fn(() => false),
+  setSessionId: vi.fn(),
+  getSessionId: vi.fn(() => null),
+}
+
+vi.mock("../../services/agentRegistry", () => ({
+  getAgentService: () => mockAgentService,
+}))
+
+// Mock ConfigStore
+vi.mock("../ConfigStore", () => ({
+  configStore: {
+    claudePath: "claude",
+    codexPath: "codex",
+    claudePermissionMode: "default",
+    codexApprovalPolicy: "untrusted",
+    loaded: true,
+  },
+}))
+
+// Mock Tauri filesystem
+vi.mock("@tauri-apps/plugin-fs", () => ({
+  readTextFile: vi.fn(),
+  writeTextFile: vi.fn(() => Promise.resolve()),
+  exists: vi.fn(() => Promise.resolve(false)),
+  mkdir: vi.fn(() => Promise.resolve()),
+  remove: vi.fn(() => Promise.resolve()),
+}))
+
+// Mock eventBus
+vi.mock("../../utils/eventBus", () => ({
+  eventBus: {
+    emit: vi.fn(),
+  },
+}))
+
+import { eventBus } from "../../utils/eventBus"
+
+// Helper type for test context overrides
+// Allows passing Sets directly (for convenience) plus any ChatStoreContext overrides
+interface TestContextOverrides extends Partial<ChatStoreContext> {
+  approvedToolNames?: Set<string>
+  approvedCommandPrefixes?: Set<string>
+}
+
+function createTestContext(overrides?: TestContextOverrides): ChatStoreContext {
+  // Allow passing Sets directly for test convenience
+  const approvedToolNames = overrides?.approvedToolNames ?? new Set<string>()
+  const approvedCommandPrefixes = overrides?.approvedCommandPrefixes ?? new Set<string>()
+
+  return {
+    getChatDir: overrides?.getChatDir ?? (() => Promise.resolve("/tmp/test-chats")),
+    getInitPrompt: overrides?.getInitPrompt ?? (() => undefined),
+    getApprovedToolNames: overrides?.getApprovedToolNames ?? (() => approvedToolNames),
+    getApprovedCommandPrefixes:
+      overrides?.getApprovedCommandPrefixes ?? (() => approvedCommandPrefixes),
+    addApprovedToolName:
+      overrides?.addApprovedToolName ?? ((name: string) => approvedToolNames.add(name)),
+    addApprovedCommandPrefix:
+      overrides?.addApprovedCommandPrefix ??
+      ((prefix: string) => approvedCommandPrefixes.add(prefix)),
+    saveIndex: overrides?.saveIndex ?? vi.fn(),
+    saveApprovals: overrides?.saveApprovals ?? vi.fn(),
+    getActiveChatId: overrides?.getActiveChatId ?? (() => "test-chat-id"),
+    getWorkspacePath: overrides?.getWorkspacePath ?? (() => "/tmp/test-workspace"),
+    renameChat: overrides?.renameChat ?? vi.fn(),
+    isWorkspaceSelected: overrides?.isWorkspaceSelected ?? (() => true),
+  }
+}
+
+function createTestChat(overrides?: Partial<Chat>): Chat {
+  return {
+    id: "test-chat-id",
+    workspaceId: "wt-1",
+    label: "Test Chat",
+    messages: [],
+    status: "idle",
+    agentType: "claude",
+    agentSessionId: null,
+    modelVersion: null,
+    permissionMode: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  }
+}
+
+function createChatStore(
+  chatOverrides?: Partial<Chat>,
+  ctxOverrides?: TestContextOverrides
+): ChatStore {
+  return new ChatStore(createTestChat(chatOverrides), createTestContext(ctxOverrides))
+}
+
+describe("ChatStore", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  it("initializes with correct defaults", () => {
+    const store = createChatStore()
+
+    expect(store.id).toBe("test-chat-id")
+    expect(store.label).toBe("Test Chat")
+    expect(store.messages).toEqual([])
+    expect(store.isSending).toBe(false)
+    expect(store.pendingToolUses).toEqual([])
+    expect(store.pendingQuestions).toEqual([])
+    expect(store.draft).toBe("")
+    expect(store.agentType).toBe("claude")
+  })
+
+  it("draft management stores and retrieves drafts", () => {
+    const store = createChatStore()
+
+    store.setDraft("my draft text")
+    expect(store.draft).toBe("my draft text")
+
+    store.setDraft("")
+    expect(store.draft).toBe("")
+  })
+
+  it("draft management persists to localStorage", () => {
+    const store = createChatStore()
+
+    store.setDraft("test draft")
+    const raw = localStorage.getItem("overseer:drafts")
+    expect(raw).not.toBeNull()
+    const parsed = JSON.parse(raw!)
+    expect(parsed["test-chat-id"]).toBe("test draft")
+  })
+
+  it("draft loads from localStorage on construction", () => {
+    localStorage.setItem("overseer:drafts", JSON.stringify({ "test-chat-id": "saved draft" }))
+
+    const store = createChatStore()
+    expect(store.draft).toBe("saved draft")
+  })
+
+  it("stopGeneration adds cancelled message and resets state", () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.isSending = true
+      store.chat.status = "running"
+    })
+
+    store.stopGeneration()
+
+    expect(mockAgentService.stopChat).toHaveBeenCalledWith("test-chat-id")
+    expect(store.isSending).toBe(false)
+    expect(store.messages[store.messages.length - 1].content).toBe("[cancelled]")
+    expect(store.status).toBe("idle")
+  })
+
+  it("sendMessage adds user message and calls agent service", async () => {
+    const store = createChatStore()
+
+    await store.sendMessage("hello agent", "/home/user/wt")
+
+    expect(store.messages).toHaveLength(1)
+    expect(store.messages[0].role).toBe("user")
+    expect(store.messages[0].content).toBe("hello agent")
+    expect(mockAgentService.sendMessage).toHaveBeenCalled()
+  })
+
+  it("sendMessage does nothing when already sending", async () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.isSending = true
+    })
+
+    await store.sendMessage("hello", "/home/user/wt")
+
+    expect(mockAgentService.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it("handleAgentEvent processes message events", () => {
+    const store = createChatStore()
+
+    const onEventCalls = mockAgentService.onEvent.mock.calls
+    const eventCall = onEventCalls.find((call: unknown[]) => call[0] === "test-chat-id")
+    expect(eventCall).toBeDefined()
+
+    const eventCallback = eventCall![1]
+
+    eventCallback({
+      kind: "message",
+      content: "Hello from the agent!",
+    })
+
+    expect(store.messages).toHaveLength(1)
+    expect(store.messages[0].content).toBe("Hello from the agent!")
+  })
+
+  it("handleAgentEvent captures sessionId", () => {
+    const store = createChatStore()
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({
+      kind: "sessionId",
+      sessionId: "session-123",
+    })
+
+    expect(store.chat.agentSessionId).toBe("session-123")
+  })
+
+  it("handleAgentEvent processes text deltas by appending", () => {
+    const store = createChatStore()
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    // First, add a base message
+    eventCallback({
+      kind: "message",
+      content: "Start",
+    })
+
+    // Then stream a delta
+    eventCallback({
+      kind: "text",
+      text: " more text",
+    })
+
+    expect(store.messages).toHaveLength(1)
+    expect(store.messages[0].content).toBe("Start more text")
+  })
+
+  it("handleAgentEvent processes turnComplete event", () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.isSending = true
+      store.chat.status = "running"
+    })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({ kind: "turnComplete" })
+
+    expect(store.isSending).toBe(false)
+    expect(store.status).toBe("idle")
+  })
+
+  it("handleAgentEvent processes tool approval events", () => {
+    const store = createChatStore()
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({
+      kind: "toolApproval",
+      id: "req-1",
+      name: "Bash",
+      input: { command: "git commit -m 'test'" },
+      displayInput: '{"command": "git commit -m \'test\'"}',
+      commandPrefixes: ["git commit"],
+    })
+
+    expect(store.pendingToolUses).toHaveLength(1)
+    expect(store.pendingToolUses[0].name).toBe("Bash")
+    expect(store.pendingToolUses[0].commandPrefixes).toEqual(["git commit"])
+  })
+
+  it("handleAgentEvent auto-approves tools in the approved set", () => {
+    const approvedToolNames = new Set(["Read"])
+    const store = createChatStore(undefined, { approvedToolNames })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({
+      kind: "toolApproval",
+      id: "req-1",
+      name: "Read",
+      input: { path: "/tmp/file.txt" },
+      displayInput: '{"path": "/tmp/file.txt"}',
+    })
+
+    // Should auto-approve, not add to pending
+    expect(store.pendingToolUses).toHaveLength(0)
+    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-1", true, {
+      path: "/tmp/file.txt",
+    })
+  })
+
+  it("handleAgentEvent auto-approves Bash when all command prefixes are approved", () => {
+    const approvedCommandPrefixes = new Set(["cd", "pnpm install"])
+    const store = createChatStore(undefined, { approvedCommandPrefixes })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({
+      kind: "toolApproval",
+      id: "req-1",
+      name: "Bash",
+      input: { command: "cd /foo && pnpm install" },
+      displayInput: '{"command": "cd /foo && pnpm install"}',
+      commandPrefixes: ["cd", "pnpm install"],
+    })
+
+    // Should auto-approve since both prefixes are approved
+    expect(store.pendingToolUses).toHaveLength(0)
+    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-1", true, {
+      command: "cd /foo && pnpm install",
+    })
+  })
+
+  it("handleAgentEvent does NOT auto-approve Bash when only some prefixes are approved", () => {
+    const approvedCommandPrefixes = new Set(["cd"]) // pnpm install not approved
+    const store = createChatStore(undefined, { approvedCommandPrefixes })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({
+      kind: "toolApproval",
+      id: "req-1",
+      name: "Bash",
+      input: { command: "cd /foo && pnpm install" },
+      displayInput: '{"command": "cd /foo && pnpm install"}',
+      commandPrefixes: ["cd", "pnpm install"],
+    })
+
+    // Should NOT auto-approve since pnpm install is not approved
+    expect(store.pendingToolUses).toHaveLength(1)
+    expect(store.pendingToolUses[0].commandPrefixes).toEqual(["cd", "pnpm install"])
+    expect(mockAgentService.sendToolApproval).not.toHaveBeenCalled()
+  })
+
+  it("handleAgentEvent auto-approves single-command Bash when prefix is approved", () => {
+    const approvedCommandPrefixes = new Set(["git commit"])
+    const store = createChatStore(undefined, { approvedCommandPrefixes })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({
+      kind: "toolApproval",
+      id: "req-1",
+      name: "Bash",
+      input: { command: "git commit -m 'test'" },
+      displayInput: '{"command": "git commit -m \'test\'"}',
+      commandPrefixes: ["git commit"],
+    })
+
+    // Should auto-approve
+    expect(store.pendingToolUses).toHaveLength(0)
+    expect(mockAgentService.sendToolApproval).toHaveBeenCalled()
+  })
+
+  it("handleAgentEvent auto-approves safe git commands without prior approval", () => {
+    const store = createChatStore()
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    // Test git status (safe command)
+    eventCallback({
+      kind: "toolApproval",
+      id: "req-1",
+      name: "Bash",
+      input: { command: "git status" },
+      displayInput: '{"command": "git status"}',
+      commandPrefixes: ["git status"],
+    })
+
+    // Should auto-approve without prior approval
+    expect(store.pendingToolUses).toHaveLength(0)
+    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-1", true, {
+      command: "git status",
+    })
+
+    // Test git diff (safe command)
+    eventCallback({
+      kind: "toolApproval",
+      id: "req-2",
+      name: "Bash",
+      input: { command: "git diff" },
+      displayInput: '{"command": "git diff"}',
+      commandPrefixes: ["git diff"],
+    })
+
+    // Should auto-approve
+    expect(store.pendingToolUses).toHaveLength(0)
+    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-2", true, {
+      command: "git diff",
+    })
+  })
+
+  it("handleAgentEvent processes question events", () => {
+    const store = createChatStore()
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({
+      kind: "question",
+      id: "q-1",
+      questions: [
+        {
+          question: "Which option?",
+          header: "Choose",
+          options: [{ label: "A", description: "Option A" }],
+          multiSelect: false,
+        },
+      ],
+      rawInput: {},
+    })
+
+    expect(store.pendingQuestions).toHaveLength(1)
+    expect(store.pendingQuestions[0].questions[0].question).toBe("Which option?")
+  })
+
+  it("approveToolUse sends approval and removes from pending", async () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.pendingToolUses.push({
+        id: "tool-1",
+        name: "Bash",
+        input: '{"command": "ls"}',
+        rawInput: { command: "ls" },
+        commandPrefixes: ["ls"],
+      })
+    })
+
+    await store.approveToolUse("tool-1", true)
+
+    expect(mockAgentService.sendToolApproval).toHaveBeenCalled()
+    expect(store.pendingToolUses).toHaveLength(0)
+  })
+
+  describe("approveToolUseAll", () => {
+    it("adds tool name to approved set when scope is tool", async () => {
+      const approvedToolNames = new Set<string>()
+      const saveApprovals = vi.fn()
+      const store = createChatStore(undefined, { approvedToolNames, saveApprovals })
+
+      runInAction(() => {
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Read",
+          input: '{"path": "/tmp/file.txt"}',
+          rawInput: { path: "/tmp/file.txt" },
+        })
+      })
+
+      await store.approveToolUseAll("tool-1", "tool")
+
+      expect(approvedToolNames.has("Read")).toBe(true)
+      expect(saveApprovals).toHaveBeenCalled()
+    })
+
+    it("adds all command prefixes when scope is command", async () => {
+      const approvedCommandPrefixes = new Set<string>()
+      const saveApprovals = vi.fn()
+      const store = createChatStore(undefined, { approvedCommandPrefixes, saveApprovals })
+
+      runInAction(() => {
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Bash",
+          input: '{"command": "cd /foo && pnpm install"}',
+          rawInput: { command: "cd /foo && pnpm install" },
+          commandPrefixes: ["cd", "pnpm install"],
+        })
+      })
+
+      await store.approveToolUseAll("tool-1", "command")
+
+      expect(approvedCommandPrefixes.has("cd")).toBe(true)
+      expect(approvedCommandPrefixes.has("pnpm install")).toBe(true)
+      expect(saveApprovals).toHaveBeenCalled()
+    })
+
+    it("auto-approves other pending Bash tools when all their prefixes become approved", async () => {
+      const approvedCommandPrefixes = new Set<string>()
+      const saveApprovals = vi.fn()
+      const store = createChatStore(undefined, { approvedCommandPrefixes, saveApprovals })
+
+      runInAction(() => {
+        // First tool with cd and pnpm install
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Bash",
+          input: '{"command": "cd /foo && pnpm install"}',
+          rawInput: { command: "cd /foo && pnpm install" },
+          commandPrefixes: ["cd", "pnpm install"],
+        })
+        // Second tool with just cd (should be auto-approved after tool-1)
+        store.pendingToolUses.push({
+          id: "tool-2",
+          name: "Bash",
+          input: '{"command": "cd /bar"}',
+          rawInput: { command: "cd /bar" },
+          commandPrefixes: ["cd"],
+        })
+        // Third tool with pnpm test (should NOT be auto-approved - pnpm test != pnpm install)
+        store.pendingToolUses.push({
+          id: "tool-3",
+          name: "Bash",
+          input: '{"command": "pnpm test"}',
+          rawInput: { command: "pnpm test" },
+          commandPrefixes: ["pnpm test"],
+        })
+      })
+
+      await store.approveToolUseAll("tool-1", "command")
+
+      // tool-1 and tool-2 should be approved (cd is now approved)
+      expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
+        "test-chat-id",
+        "tool-1",
+        true,
+        { command: "cd /foo && pnpm install" }
+      )
+      expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
+        "test-chat-id",
+        "tool-2",
+        true,
+        { command: "cd /bar" }
+      )
+
+      // tool-3 should remain pending (pnpm test not approved)
+      expect(store.pendingToolUses).toHaveLength(1)
+      expect(store.pendingToolUses[0].id).toBe("tool-3")
+    })
+
+    it("does NOT auto-approve other Bash tools if only some of their prefixes are approved", async () => {
+      const approvedCommandPrefixes = new Set<string>()
+      const saveApprovals = vi.fn()
+      const store = createChatStore(undefined, { approvedCommandPrefixes, saveApprovals })
+
+      runInAction(() => {
+        // First tool with just cd
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Bash",
+          input: '{"command": "cd /foo"}',
+          rawInput: { command: "cd /foo" },
+          commandPrefixes: ["cd"],
+        })
+        // Second tool with cd AND git push (git push not approved)
+        store.pendingToolUses.push({
+          id: "tool-2",
+          name: "Bash",
+          input: '{"command": "cd /repo && git push"}',
+          rawInput: { command: "cd /repo && git push" },
+          commandPrefixes: ["cd", "git push"],
+        })
+      })
+
+      await store.approveToolUseAll("tool-1", "command")
+
+      // tool-1 should be approved
+      expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
+        "test-chat-id",
+        "tool-1",
+        true,
+        { command: "cd /foo" }
+      )
+
+      // tool-2 should remain pending (git push not approved)
+      expect(store.pendingToolUses).toHaveLength(1)
+      expect(store.pendingToolUses[0].id).toBe("tool-2")
+    })
+
+    it("auto-approves other Read tools when approving Read by tool name", async () => {
+      const approvedToolNames = new Set<string>()
+      const saveApprovals = vi.fn()
+      const store = createChatStore(undefined, { approvedToolNames, saveApprovals })
+
+      runInAction(() => {
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Read",
+          input: '{"path": "/a.txt"}',
+          rawInput: { path: "/a.txt" },
+        })
+        store.pendingToolUses.push({
+          id: "tool-2",
+          name: "Read",
+          input: '{"path": "/b.txt"}',
+          rawInput: { path: "/b.txt" },
+        })
+        store.pendingToolUses.push({
+          id: "tool-3",
+          name: "Write",
+          input: '{"path": "/c.txt"}',
+          rawInput: { path: "/c.txt" },
+        })
+      })
+
+      await store.approveToolUseAll("tool-1", "tool")
+
+      // tool-1 and tool-2 (both Read) should be approved
+      expect(mockAgentService.sendToolApproval).toHaveBeenCalledTimes(2)
+
+      // tool-3 (Write) should remain pending
+      expect(store.pendingToolUses).toHaveLength(1)
+      expect(store.pendingToolUses[0].name).toBe("Write")
+    })
+  })
+
+  it("rename updates the label and triggers persistence", () => {
+    const saveIndex = vi.fn()
+    const store = createChatStore(undefined, { saveIndex })
+
+    store.rename("New Name")
+
+    expect(store.label).toBe("New Name")
+    expect(saveIndex).toHaveBeenCalled()
+  })
+
+  it("clearUnreadStatus resets status to idle when no pending items and not sending", () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.chat.status = "done"
+    })
+
+    store.clearUnreadStatus()
+    expect(store.status).toBe("idle")
+  })
+
+  it("clearUnreadStatus resets status to running when no pending items but still sending", () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.chat.status = "needs_attention"
+      store.isSending = true
+    })
+
+    store.clearUnreadStatus()
+    expect(store.status).toBe("running")
+  })
+
+  it("clearUnreadStatus preserves status when pending items exist", () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.chat.status = "needs_attention"
+      store.pendingToolUses.push({
+        id: "tool-1",
+        name: "Bash",
+        input: "{}",
+        rawInput: {},
+      })
+    })
+
+    store.clearUnreadStatus()
+    expect(store.status).toBe("needs_attention")
+  })
+
+  // --- Status derivation tests ---
+
+  it("status returns idle by default", () => {
+    const store = createChatStore()
+    expect(store.status).toBe("idle")
+  })
+
+  it("status returns running when isSending is true", () => {
+    const store = createChatStore()
+    runInAction(() => {
+      store.isSending = true
+    })
+    expect(store.status).toBe("running")
+  })
+
+  it("status returns needs_attention when pendingToolUses is non-empty", () => {
+    const store = createChatStore()
+    runInAction(() => {
+      store.pendingToolUses.push({
+        id: "tool-1",
+        name: "Bash",
+        input: "{}",
+        rawInput: {},
+      })
+    })
+    expect(store.status).toBe("needs_attention")
+  })
+
+  it("status returns needs_attention when pendingQuestions is non-empty", () => {
+    const store = createChatStore()
+    runInAction(() => {
+      store.pendingQuestions.push({
+        id: "q-1",
+        questions: [],
+        rawInput: {},
+      })
+    })
+    expect(store.status).toBe("needs_attention")
+  })
+
+  it("status returns needs_attention when pendingPlanApproval is set", () => {
+    const store = createChatStore()
+    runInAction(() => {
+      store.pendingPlanApproval = {
+        id: "plan-1",
+        planContent: "my plan",
+      }
+    })
+    expect(store.status).toBe("needs_attention")
+  })
+
+  it("status returns needs_attention over running when both pending and sending", () => {
+    const store = createChatStore()
+    runInAction(() => {
+      store.isSending = true
+      store.pendingToolUses.push({
+        id: "tool-1",
+        name: "Bash",
+        input: "{}",
+        rawInput: {},
+      })
+    })
+    expect(store.status).toBe("needs_attention")
+  })
+
+  it("status returns done when chat.status is done and not sending/pending", () => {
+    const store = createChatStore()
+    runInAction(() => {
+      store.chat.status = "done"
+    })
+    expect(store.status).toBe("done")
+  })
+
+  it("status ignores persisted running status when not actually sending", () => {
+    const store = createChatStore()
+    runInAction(() => {
+      store.chat.status = "running"
+      store.isSending = false
+    })
+    expect(store.status).toBe("idle")
+  })
+
+  it("status ignores persisted needs_attention when no pending items", () => {
+    const store = createChatStore()
+    runInAction(() => {
+      store.chat.status = "needs_attention"
+    })
+    expect(store.status).toBe("idle")
+  })
+
+  // --- End status derivation tests ---
+
+  it("modelVersion returns null by default", () => {
+    const store = createChatStore()
+
+    expect(store.modelVersion).toBeNull()
+  })
+
+  it("modelVersion returns the chat's modelVersion", () => {
+    const store = createChatStore({ modelVersion: "opus" })
+
+    expect(store.modelVersion).toBe("opus")
+  })
+
+  it("setModelVersion updates the modelVersion", () => {
+    const store = createChatStore()
+
+    store.setModelVersion("haiku")
+    expect(store.modelVersion).toBe("haiku")
+
+    store.setModelVersion(null)
+    expect(store.modelVersion).toBeNull()
+  })
+
+  it("sendMessage passes modelVersion to agent service", async () => {
+    const store = createChatStore({ modelVersion: "opus" })
+
+    await store.sendMessage("test message", "/home/user/wt")
+
+    expect(mockAgentService.sendMessage).toHaveBeenCalledWith(
+      "test-chat-id",
+      "test message",
+      "/home/user/wt",
+      "/tmp/test-chats",
+      "opus",
+      "default", // permission mode
+      undefined // initPrompt
+    )
+  })
+
+  it("sendMessage passes null modelVersion when not set", async () => {
+    const store = createChatStore({ modelVersion: null })
+
+    await store.sendMessage("test message", "/home/user/wt")
+
+    expect(mockAgentService.sendMessage).toHaveBeenCalledWith(
+      "test-chat-id",
+      "test message",
+      "/home/user/wt",
+      "/tmp/test-chats",
+      null,
+      "default", // permission mode
+      undefined // initPrompt
+    )
+  })
+
+  it("handleAgentEvent processes planApproval events with plan content", () => {
+    const store = createChatStore()
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    const planContent = "# My Plan\n\n## Step 1\nDo something"
+    eventCallback({
+      kind: "planApproval",
+      id: "plan-1",
+      planContent,
+    })
+
+    expect(store.pendingPlanApproval).not.toBeNull()
+    expect(store.pendingPlanApproval?.id).toBe("plan-1")
+    expect(store.pendingPlanApproval?.planContent).toBe(planContent)
+  })
+
+  it("handleAgentEvent sets needs_attention status for plan approval in background chat", () => {
+    const store = createChatStore(undefined, { getActiveChatId: () => "other-chat" })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({
+      kind: "planApproval",
+      id: "plan-1",
+      planContent: "# Plan",
+    })
+
+    expect(store.status).toBe("needs_attention")
+  })
+
+  it("approvePlan sends approval and clears pending state", async () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.pendingPlanApproval = {
+        id: "plan-1",
+        planContent: "# My Plan",
+      }
+    })
+
+    await store.approvePlan()
+
+    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
+      "test-chat-id",
+      "plan-1",
+      true,
+      {}
+    )
+    expect(store.pendingPlanApproval).toBeNull()
+  })
+
+  it("rejectPlan sends rejection with feedback and clears pending state", async () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.pendingPlanApproval = {
+        id: "plan-1",
+        planContent: "# My Plan",
+      }
+    })
+
+    await store.rejectPlan("Please add more details")
+
+    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
+      "test-chat-id",
+      "plan-1",
+      false,
+      {},
+      "User requested changes to the plan:\n\nPlease add more details"
+    )
+    expect(store.pendingPlanApproval).toBeNull()
+    // Feedback should be added as a user message
+    expect(store.messages).toHaveLength(1)
+    expect(store.messages[0].content).toBe("Please add more details")
+    expect(store.messages[0].role).toBe("user")
+  })
+
+  it("rejectPlan with empty feedback does not add user message", async () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.pendingPlanApproval = {
+        id: "plan-1",
+        planContent: "# My Plan",
+      }
+    })
+
+    await store.rejectPlan("")
+
+    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
+      "test-chat-id",
+      "plan-1",
+      false,
+      {},
+      "User rejected the plan"
+    )
+    expect(store.pendingPlanApproval).toBeNull()
+    expect(store.messages).toHaveLength(0)
+  })
+
+  it("clearUnreadStatus preserves status when plan approval is pending", () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.chat.status = "needs_attention"
+      store.pendingPlanApproval = {
+        id: "plan-1",
+        planContent: "# My Plan",
+      }
+    })
+
+    store.clearUnreadStatus()
+    expect(store.status).toBe("needs_attention")
+  })
+
+  it("denyPlan sends denial and resets agent state", async () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.pendingPlanApproval = {
+        id: "plan-1",
+        planContent: "# My Plan",
+      }
+      store.isSending = true
+      store.chat.status = "running"
+    })
+
+    await store.denyPlan()
+
+    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
+      "test-chat-id",
+      "plan-1",
+      false,
+      {},
+      "User denied the plan. Do not proceed with this plan."
+    )
+    expect(store.pendingPlanApproval).toBeNull()
+    expect(store.isSending).toBe(false)
+    expect(store.status).toBe("idle")
+  })
+
+  it("denyPlan does nothing when no plan is pending", async () => {
+    const store = createChatStore()
+
+    await store.denyPlan()
+
+    expect(mockAgentService.sendToolApproval).not.toHaveBeenCalled()
+  })
+
+  describe("save timing", () => {
+    it("message events trigger scheduleSave", async () => {
+      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
+      const store = createChatStore()
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      eventCallback({
+        kind: "message",
+        content: "Work message from agent",
+      })
+
+      // The save is scheduled with a 1-second delay
+      expect(store.messages).toHaveLength(1)
+
+      // Wait for the scheduled save
+      await vi.waitFor(
+        () => {
+          expect(writeTextFile).toHaveBeenCalled()
+        },
+        { timeout: 2000 }
+      )
+    })
+
+    it("text events trigger scheduleSave", async () => {
+      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
+      vi.mocked(writeTextFile).mockClear()
+
+      const store = createChatStore()
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      eventCallback({
+        kind: "text",
+        text: "Streamed text",
+      })
+
+      expect(store.messages).toHaveLength(1)
+
+      // Wait for the scheduled save
+      await vi.waitFor(
+        () => {
+          expect(writeTextFile).toHaveBeenCalled()
+        },
+        { timeout: 2000 }
+      )
+    })
+
+    it("turnComplete triggers immediate save", async () => {
+      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
+      vi.mocked(writeTextFile).mockClear()
+
+      const store = createChatStore()
+
+      runInAction(() => {
+        store.isSending = true
+        store.chat.status = "running"
+        store.chat.messages.push({
+          id: "msg-1",
+          role: "assistant",
+          content: "Some content",
+          timestamp: new Date(),
+        })
+      })
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      eventCallback({ kind: "turnComplete" })
+
+      // Save should be triggered immediately (not after 1 second delay)
+      await vi.waitFor(() => {
+        expect(writeTextFile).toHaveBeenCalled()
+      })
+    })
+
+    it("onDone callback triggers immediate save", async () => {
+      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
+      vi.mocked(writeTextFile).mockClear()
+
+      const store = createChatStore()
+
+      runInAction(() => {
+        store.isSending = true
+        store.chat.status = "running"
+        store.chat.messages.push({
+          id: "msg-1",
+          role: "assistant",
+          content: "Final response",
+          timestamp: new Date(),
+        })
+      })
+
+      // Find and call the onDone callback
+      const onDoneCall = mockAgentService.onDone.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      expect(onDoneCall).toBeDefined()
+      const onDoneCallback = onDoneCall![1]
+
+      onDoneCallback()
+
+      // Save should be triggered immediately
+      await vi.waitFor(() => {
+        expect(writeTextFile).toHaveBeenCalled()
+      })
+
+      expect(store.isSending).toBe(false)
+      expect(store.status).toBe("idle")
+    })
+  })
+
+  describe("follow-up queuing", () => {
+    it("initializes with empty pendingFollowUps", () => {
+      const store = createChatStore()
+
+      expect(store.pendingFollowUps).toEqual([])
+    })
+
+    it("queues follow-up when sending message while isSending is true", async () => {
+      const store = createChatStore()
+
+      // First message - sets isSending to true
+      await store.sendMessage("first message", "/home/user/wt")
+      expect(store.isSending).toBe(true)
+
+      // Second message should be queued
+      await store.sendMessage("follow-up message", "/home/user/wt")
+
+      expect(store.pendingFollowUps).toEqual(["follow-up message"])
+      // Should NOT call agent service again
+      expect(mockAgentService.sendMessage).toHaveBeenCalledTimes(1)
+    })
+
+    it("allows multiple follow-ups to be queued", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("first message", "/home/user/wt")
+
+      await store.sendMessage("follow-up 1", "/home/user/wt")
+      await store.sendMessage("follow-up 2", "/home/user/wt")
+      await store.sendMessage("follow-up 3", "/home/user/wt")
+
+      expect(store.pendingFollowUps).toEqual(["follow-up 1", "follow-up 2", "follow-up 3"])
+      expect(mockAgentService.sendMessage).toHaveBeenCalledTimes(1)
+    })
+
+    it("clears draft when queuing follow-up", async () => {
+      const store = createChatStore()
+
+      store.setDraft("my follow-up")
+      await store.sendMessage("first message", "/home/user/wt")
+
+      store.setDraft("queued message")
+      await store.sendMessage("queued message", "/home/user/wt")
+
+      expect(store.draft).toBe("")
+    })
+
+    it("clearPendingFollowUps clears all queued follow-ups", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("first message", "/home/user/wt")
+      await store.sendMessage("follow-up 1", "/home/user/wt")
+      await store.sendMessage("follow-up 2", "/home/user/wt")
+
+      store.clearPendingFollowUps()
+
+      expect(store.pendingFollowUps).toEqual([])
+    })
+
+    it("removeFollowUp removes a single follow-up by index", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("first message", "/home/user/wt")
+      await store.sendMessage("follow-up 1", "/home/user/wt")
+      await store.sendMessage("follow-up 2", "/home/user/wt")
+      await store.sendMessage("follow-up 3", "/home/user/wt")
+
+      expect(store.pendingFollowUps).toEqual(["follow-up 1", "follow-up 2", "follow-up 3"])
+
+      store.removeFollowUp(1)
+
+      expect(store.pendingFollowUps).toEqual(["follow-up 1", "follow-up 3"])
+    })
+
+    it("removeFollowUp does nothing for out-of-bounds index", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("first message", "/home/user/wt")
+      await store.sendMessage("follow-up 1", "/home/user/wt")
+
+      store.removeFollowUp(5)
+      store.removeFollowUp(-1)
+
+      expect(store.pendingFollowUps).toEqual(["follow-up 1"])
+    })
+
+    it("stopGeneration clears pending follow-ups", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("first message", "/home/user/wt")
+      await store.sendMessage("follow-up", "/home/user/wt")
+
+      store.stopGeneration()
+
+      expect(store.pendingFollowUps).toEqual([])
+    })
+
+    it("sends combined follow-ups when turnComplete event is received", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("first message", "/home/user/wt")
+      await store.sendMessage("follow-up 1", "/home/user/wt")
+      await store.sendMessage("follow-up 2", "/home/user/wt")
+
+      expect(store.pendingFollowUps).toHaveLength(2)
+
+      // Trigger turnComplete event
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+      eventCallback({ kind: "turnComplete" })
+
+      // Follow-ups should be cleared immediately
+      expect(store.pendingFollowUps).toEqual([])
+
+      // Wait for the async sendMessage to complete
+      await vi.waitFor(() => {
+        expect(mockAgentService.sendMessage).toHaveBeenCalledTimes(2)
+      })
+
+      expect(mockAgentService.sendMessage).toHaveBeenLastCalledWith(
+        "test-chat-id",
+        "follow-up 1\n\nfollow-up 2",
+        "/tmp/test-workspace",
+        "/tmp/test-chats",
+        null,
+        "default",
+        undefined
+      )
+    })
+
+    it("does not send follow-up when pendingFollowUps is empty on turnComplete", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("first message", "/home/user/wt")
+
+      // Trigger turnComplete without any queued follow-ups
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+      eventCallback({ kind: "turnComplete" })
+
+      // Should only have the original call
+      expect(mockAgentService.sendMessage).toHaveBeenCalledTimes(1)
+    })
+
+    it("clears pending follow-ups when onDone is called (process exits)", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("first message", "/home/user/wt")
+      await store.sendMessage("follow-up 1", "/home/user/wt")
+
+      expect(store.pendingFollowUps).toHaveLength(1)
+
+      // Trigger onDone callback (process exit)
+      const onDoneCall = mockAgentService.onDone.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const onDoneCallback = onDoneCall![1]
+      onDoneCallback()
+
+      // Follow-ups should be cleared (but not sent since process exited)
+      expect(store.pendingFollowUps).toEqual([])
+      // Only the original message was sent, not the follow-up
+      expect(mockAgentService.sendMessage).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe("overseer actions", () => {
+    it("extracts and executes overseer actions from message events", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      eventCallback({
+        kind: "message",
+        content: `Here's my response.
+
+\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "New Chat Title"}}
+\`\`\`
+
+More text here.`,
+      })
+
+      // Action should be executed
+      expect(renameChatMock).toHaveBeenCalledWith("test-chat-id", "New Chat Title")
+
+      // Message should be stored without the overseer block
+      expect(store.messages).toHaveLength(1)
+      expect(store.messages[0].content).toBe("Here's my response.\n\nMore text here.")
+    })
+
+    it("handles multiple overseer actions in a single message", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, {
+        renameChat: renameChatMock,
+      })
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      eventCallback({
+        kind: "message",
+        content: `\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "My Task"}}
+\`\`\`
+
+Done with the task!
+
+\`\`\`overseer
+{"action": "open_pr", "params": {"title": "Complete task"}}
+\`\`\``,
+      })
+
+      // rename_chat is executed directly
+      expect(renameChatMock).toHaveBeenCalledWith("test-chat-id", "My Task")
+
+      // open_pr emits via eventBus
+      expect(eventBus.emit).toHaveBeenCalledWith("overseer:open_pr", {
+        title: "Complete task",
+        body: undefined,
+      })
+
+      // Message should only contain the text between
+      expect(store.messages).toHaveLength(1)
+      expect(store.messages[0].content).toBe("Done with the task!")
+    })
+
+    it("does not add empty message when content is only an overseer block", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      eventCallback({
+        kind: "message",
+        content: `\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "Silent Action"}}
+\`\`\``,
+      })
+
+      // Action should be executed
+      expect(renameChatMock).toHaveBeenCalledWith("test-chat-id", "Silent Action")
+
+      // No message should be added since content is empty after extraction
+      expect(store.messages).toHaveLength(0)
+    })
+
+    it("passes message through unchanged when no overseer blocks", () => {
+      const store = createChatStore()
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      eventCallback({
+        kind: "message",
+        content: "Regular message without any actions.",
+      })
+
+      expect(store.messages).toHaveLength(1)
+      expect(store.messages[0].content).toBe("Regular message without any actions.")
+    })
+
+    it("ignores invalid overseer blocks", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      eventCallback({
+        kind: "message",
+        content: `Here's my response.
+
+\`\`\`overseer
+{invalid json}
+\`\`\`
+
+More text.`,
+      })
+
+      // No action should be executed for invalid JSON
+      expect(renameChatMock).not.toHaveBeenCalled()
+
+      // Message should be stored as-is since no valid actions were found
+      expect(store.messages).toHaveLength(1)
+      expect(store.messages[0].content).toContain("{invalid json}")
+    })
+
+    it("processes overseer blocks from delta-streamed messages on turnComplete", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      // Simulate delta streaming: first add a partial message
+      eventCallback({
+        kind: "message",
+        content: "Starting response",
+        delta: true,
+      })
+
+      // Then stream more content with an overseer block
+      eventCallback({
+        kind: "text",
+        text: `
+
+\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "Delta Streamed Title"}}
+\`\`\`
+
+Final text.`,
+      })
+
+      // At this point, the action should NOT have been executed yet
+      // (because the complete message wasn't processed for overseer blocks during delta)
+      expect(renameChatMock).not.toHaveBeenCalled()
+
+      // Now trigger turnComplete
+      runInAction(() => {
+        store.isSending = true
+        store.chat.status = "running"
+      })
+      eventCallback({ kind: "turnComplete" })
+
+      // Now the action should be executed
+      expect(renameChatMock).toHaveBeenCalledWith("test-chat-id", "Delta Streamed Title")
+
+      // Message content should be cleaned
+      expect(store.messages[0].content).toBe("Starting response\n\nFinal text.")
+    })
+
+    it("does not process overseer blocks from tool messages on turnComplete", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      // Manually add a tool message with an overseer block (shouldn't happen, but testing the guard)
+      runInAction(() => {
+        store.chat.messages.push({
+          id: "msg-1",
+          role: "assistant",
+          content: `\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "Tool Message Title"}}
+\`\`\``,
+          timestamp: new Date(),
+          toolMeta: { toolName: "Bash" },
+        })
+      })
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      runInAction(() => {
+        store.isSending = true
+        store.chat.status = "running"
+      })
+      eventCallback({ kind: "turnComplete" })
+
+      // Should NOT process overseer blocks from tool messages
+      expect(renameChatMock).not.toHaveBeenCalled()
+    })
+
+    it("does not process overseer blocks from bash output messages on turnComplete", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      // Manually add a bash output message with an overseer block
+      runInAction(() => {
+        store.chat.messages.push({
+          id: "msg-1",
+          role: "assistant",
+          content: `\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "Bash Output Title"}}
+\`\`\``,
+          timestamp: new Date(),
+          isBashOutput: true,
+        })
+      })
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      runInAction(() => {
+        store.isSending = true
+        store.chat.status = "running"
+      })
+      eventCallback({ kind: "turnComplete" })
+
+      // Should NOT process overseer blocks from bash output messages
+      expect(renameChatMock).not.toHaveBeenCalled()
+    })
+
+    it("only checks recent messages (last 5) on turnComplete", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      // Add 6 old messages, one with an overseer block
+      runInAction(() => {
+        for (let i = 0; i < 6; i++) {
+          store.chat.messages.push({
+            id: `msg-${i}`,
+            role: "assistant",
+            content:
+              i === 0
+                ? `\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "Old Title ${i}"}}
+\`\`\``
+                : `Regular message ${i}`,
+            timestamp: new Date(),
+          })
+        }
+      })
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      runInAction(() => {
+        store.isSending = true
+        store.chat.status = "running"
+      })
+      eventCallback({ kind: "turnComplete" })
+
+      // Should NOT process the overseer block from the oldest message (index 0)
+      // because it's outside the last 5 messages window
+      expect(renameChatMock).not.toHaveBeenCalled()
+    })
+
+    it("processes overseer blocks from user messages are ignored on turnComplete", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      // Add a user message with an overseer block (shouldn't be processed)
+      runInAction(() => {
+        store.chat.messages.push({
+          id: "msg-1",
+          role: "user",
+          content: `\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "User Message Title"}}
+\`\`\``,
+          timestamp: new Date(),
+        })
+      })
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      runInAction(() => {
+        store.isSending = true
+        store.chat.status = "running"
+      })
+      eventCallback({ kind: "turnComplete" })
+
+      // Should NOT process overseer blocks from user messages
+      expect(renameChatMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("permissionMode", () => {
+    it("permissionMode computed getter returns correct value", () => {
+      const store = createChatStore({ permissionMode: "acceptEdits" })
+      expect(store.permissionMode).toBe("acceptEdits")
+    })
+
+    it("setPermissionMode updates chat.permissionMode", () => {
+      const store = createChatStore()
+
+      store.setPermissionMode("bypassPermissions")
+      expect(store.permissionMode).toBe("bypassPermissions")
+
+      store.setPermissionMode(null)
+      expect(store.permissionMode).toBeNull()
+    })
+
+    it("sendMessage uses chat's permissionMode when set", async () => {
+      const store = createChatStore({ permissionMode: "acceptEdits" })
+
+      await store.sendMessage("test message", "/home/user/wt")
+
+      expect(mockAgentService.sendMessage).toHaveBeenCalledWith(
+        "test-chat-id",
+        "test message",
+        "/home/user/wt",
+        "/tmp/test-chats",
+        null, // modelVersion
+        "acceptEdits", // permission mode from chat
+        undefined // initPrompt
+      )
+    })
+
+    it("sendMessage falls back to configStore.claudePermissionMode when chat's permissionMode is null", async () => {
+      const store = createChatStore({ permissionMode: null })
+
+      await store.sendMessage("test message", "/home/user/wt")
+
+      expect(mockAgentService.sendMessage).toHaveBeenCalledWith(
+        "test-chat-id",
+        "test message",
+        "/home/user/wt",
+        "/tmp/test-chats",
+        null, // modelVersion
+        "default", // fallback to configStore.claudePermissionMode which is mocked as "default"
+        undefined // initPrompt
+      )
+    })
+  })
+})
