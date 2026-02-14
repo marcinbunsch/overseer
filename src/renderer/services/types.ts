@@ -5,7 +5,16 @@ export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "opencode"
 export type AgentEvent =
   | { kind: "text"; text: string }
   | { kind: "bashOutput"; text: string }
-  | { kind: "message"; content: string; toolMeta?: ToolMeta; isInfo?: boolean }
+  | {
+      kind: "message"
+      content: string
+      toolMeta?: ToolMeta
+      isInfo?: boolean
+      /** ID of parent Task tool_use - for grouping subagent messages */
+      parentToolUseId?: string | null
+      /** Tool use ID for Task tools - used to match child messages */
+      toolUseId?: string
+    }
   | {
       kind: "toolApproval"
       id: string

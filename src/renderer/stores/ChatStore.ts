@@ -455,7 +455,13 @@ export class ChatStore {
           // Push the message (with or without the overseer blocks removed)
           const contentToShow = actions.length > 0 ? cleanContent : event.content
           if (contentToShow.trim()) {
-            this.pushMsg(contentToShow, event.toolMeta, event.isInfo)
+            this.pushMsg(
+              contentToShow,
+              event.toolMeta,
+              event.isInfo,
+              event.parentToolUseId,
+              event.toolUseId
+            )
           }
           this.scheduleSave()
           break
@@ -573,7 +579,13 @@ export class ChatStore {
     })
   }
 
-  private pushMsg(content: string, toolMeta?: import("../types").ToolMeta, isInfo?: boolean): void {
+  private pushMsg(
+    content: string,
+    toolMeta?: import("../types").ToolMeta,
+    isInfo?: boolean,
+    parentToolUseId?: string | null,
+    toolUseId?: string
+  ): void {
     this.chat.messages.push({
       id: crypto.randomUUID(),
       role: "assistant",
@@ -581,6 +593,8 @@ export class ChatStore {
       timestamp: new Date(),
       ...(toolMeta && { toolMeta }),
       ...(isInfo && { isInfo }),
+      ...(parentToolUseId !== undefined && { parentToolUseId }),
+      ...(toolUseId && { toolUseId }),
     })
   }
 

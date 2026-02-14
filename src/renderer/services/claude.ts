@@ -64,6 +64,8 @@ interface ClaudeStreamEvent {
   subtype?: string
   session_id?: string
   request_id?: string
+  /** ID of parent Task tool_use - for subagent messages */
+  parent_tool_use_id?: string | null
   request?: {
     subtype: string
     tool_name: string
@@ -292,6 +294,9 @@ class ClaudeAgentService implements AgentService {
 
   /** Translate Claude-specific stream events into generic AgentEvents. */
   private translateEvent(chatId: string, event: ClaudeStreamEvent): void {
+    // Get parent_tool_use_id for subagent message grouping
+    const parentToolUseId = event.parent_tool_use_id
+
     // assistant event — one message per content block
     if (event.type === "assistant" && event.message?.content) {
       for (const block of event.message.content) {
@@ -301,9 +306,14 @@ class ClaudeAgentService implements AgentService {
             kind: "message",
             content: block.thinking,
             toolMeta: { toolName: "Thinking", linesAdded: 0, linesRemoved: 0 },
+            parentToolUseId,
           })
         } else if (block.type === "text" && block.text) {
-          this.emitEvent(chatId, { kind: "message", content: block.text.trim() })
+          this.emitEvent(chatId, {
+            kind: "message",
+            content: block.text.trim(),
+            parentToolUseId,
+          })
         } else if (
           block.type === "tool_use" &&
           (block.name === "AskUserQuestion" || block.name === "ExitPlanMode")
@@ -321,10 +331,14 @@ class ClaudeAgentService implements AgentService {
               linesRemoved: oldStr ? oldStr.split("\n").length : 0,
             }
           }
+          // For Task tools, include the block.id so child messages can reference it
+          const toolUseId = block.name === "Task" ? block.id : undefined
           this.emitEvent(chatId, {
             kind: "message",
             content: input ? `[${block.name}]\n${input}` : `[${block.name}]`,
             toolMeta,
+            parentToolUseId,
+            toolUseId,
           })
         }
       }

@@ -59,6 +59,10 @@ export interface Message {
   isBashOutput?: boolean
   /** True for info messages (e.g., rate limit notifications) - rendered with muted styling */
   isInfo?: boolean
+  /** ID of parent Task tool_use - for grouping subagent messages */
+  parentToolUseId?: string | null
+  /** Tool use ID for Task tools - used to match child messages */
+  toolUseId?: string
 }
 
 export interface QuestionOption {
