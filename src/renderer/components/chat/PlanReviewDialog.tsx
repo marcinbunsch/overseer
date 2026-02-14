@@ -175,13 +175,16 @@ export const PlanReviewDialog = observer(function PlanReviewDialog({
             <button onClick={handleClose} className="ovr-btn-ghost px-3 py-1.5 text-sm">
               Cancel
             </button>
-            <button onClick={handleApprove} className="ovr-btn-primary px-3 py-1.5 text-sm">
+            <button
+              onClick={handleApprove}
+              className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            >
               Approve Plan
             </button>
             <button
               onClick={handleSubmit}
               disabled={noteCount === 0}
-              className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="rounded-lg bg-ovr-azure-500 px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               Submit Review {noteCount > 0 && `(${noteCount} comment${noteCount !== 1 ? "s" : ""})`}
             </button>
