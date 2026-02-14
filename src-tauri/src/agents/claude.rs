@@ -5,13 +5,13 @@
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Stdio},
     sync::{Arc, Mutex},
     time::Duration,
 };
 use tauri::Emitter;
 
-use super::shared::{prepare_path_env, AgentExit};
+use super::shared::{build_login_shell_command, AgentExit};
 use crate::logging::{log_line, open_log_file, LogHandle};
 
 struct AgentProcessEntry {
@@ -52,6 +52,7 @@ pub fn start_agent(
     log_dir: Option<String>,
     log_id: Option<String>,
     permission_mode: Option<String>,
+    agent_shell: Option<String>,
 ) -> Result<(), String> {
     // Stop any existing process for this conversation first.
     {
@@ -87,14 +88,15 @@ pub fn start_agent(
         args.push(id);
     }
 
-    let mut cmd = Command::new(&agent_path);
-    cmd.args(&args)
-        .current_dir(&working_dir)
-        .stdin(Stdio::piped())
+    let mut cmd = build_login_shell_command(
+        &agent_path,
+        &args,
+        Some(&working_dir),
+        agent_shell.as_deref(),
+    )?;
+    cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-
-    prepare_path_env(&mut cmd, &agent_path);
 
     let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn: {}", e))?;
 

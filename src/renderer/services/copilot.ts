@@ -177,6 +177,7 @@ class CopilotAgentService implements AgentService {
           modelVersion: modelVersion ?? null,
           logDir: logDir ?? null,
           logId: chatId,
+          agentShell: configStore.agentShell || null,
         })
       } catch (err) {
         throw new Error(formatSpawnError(err, configStore.copilotPath))

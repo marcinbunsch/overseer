@@ -15,6 +15,7 @@ interface Config {
   copilotPath: string
   geminiPath: string
   opencodePath: string
+  agentShell?: string
   leftPaneWidth: number
   rightPaneWidth: number
   changesHeight: number
@@ -136,6 +137,7 @@ class ConfigStore {
   @observable defaultGeminiModel: string | null = null
   @observable defaultOpencodeModel: string | null = null
   @observable animationsEnabled: boolean = false
+  @observable agentShell: string = ""
   @observable settingsOpen: boolean = false
   @observable loaded: boolean = false
 
@@ -242,6 +244,7 @@ class ConfigStore {
         this.defaultGeminiModel = parsed.defaultGeminiModel ?? null
         this.defaultOpencodeModel = parsed.defaultOpencodeModel ?? null
         this.animationsEnabled = parsed.animationsEnabled ?? false
+        this.agentShell = parsed.agentShell ?? ""
         this.loaded = true
       })
     } catch (err) {
@@ -287,6 +290,7 @@ class ConfigStore {
         codexApprovalPolicy: this.codexApprovalPolicy,
         geminiApprovalMode: this.geminiApprovalMode,
         animationsEnabled: this.animationsEnabled,
+        agentShell: this.agentShell || undefined,
       }
       await writeTextFile(configPath, JSON.stringify(config, null, 2) + "\n")
     } catch (err) {
@@ -395,6 +399,11 @@ class ConfigStore {
     this.save()
   }
 
+  @action setAgentShell(shell: string) {
+    this.agentShell = shell
+    this.save()
+  }
+
   @action setSettingsOpen(open: boolean) {
     this.settingsOpen = open
   }
@@ -405,7 +414,7 @@ class ConfigStore {
    */
   async refreshOpencodeModels(): Promise<void> {
     try {
-      const models = await listOpencodeModels(this.opencodePath)
+      const models = await listOpencodeModels(this.opencodePath, this.agentShell || null)
       if (models.length > 0) {
         runInAction(() => {
           this.opencodeModels = models

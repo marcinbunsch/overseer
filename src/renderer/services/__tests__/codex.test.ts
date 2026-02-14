@@ -55,6 +55,7 @@ describe("CodexAgentService", () => {
         modelVersion: null,
         logDir: null,
         logId: "chat-1",
+        agentShell: null,
       })
     })
 
@@ -80,6 +81,7 @@ describe("CodexAgentService", () => {
         modelVersion: "gpt-5.3-codex",
         logDir: null,
         logId: "chat-1",
+        agentShell: null,
       })
     })
 
@@ -104,6 +106,7 @@ describe("CodexAgentService", () => {
         modelVersion: "gpt-5.2-codex",
         logDir: "/tmp/logs",
         logId: "chat-1",
+        agentShell: null,
       })
     })
 

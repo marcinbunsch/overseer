@@ -87,6 +87,7 @@ describe("OpenCodeAgentService", () => {
       port: 14096,
       logDir: null,
       logId: "conv-1",
+      agentShell: null,
     })
     expect(service.isRunning("conv-1")).toBe(true)
   })

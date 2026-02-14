@@ -7,13 +7,13 @@
 use std::{
     collections::HashMap,
     io::BufRead,
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     sync::{Arc, Mutex},
     time::Duration,
 };
 use tauri::Emitter;
 
-use super::shared::{prepare_path_env, AgentExit};
+use super::shared::{build_login_shell_command, AgentExit};
 use crate::logging::{log_line, open_log_file, LogHandle};
 
 struct GeminiProcessEntry {
@@ -53,6 +53,7 @@ pub fn start_gemini_server(
     approval_mode: Option<String>,
     log_dir: Option<String>,
     log_id: Option<String>,
+    agent_shell: Option<String>,
 ) -> Result<(), String> {
     // Stop any existing process for this id first.
     {
@@ -93,14 +94,11 @@ pub fn start_gemini_server(
         }
     }
 
-    let mut cmd = Command::new(&gemini_path);
-    cmd.args(&args)
-        .current_dir(&working_dir)
-        .stdin(Stdio::null()) // No stdin communication for Gemini headless
+    let mut cmd =
+        build_login_shell_command(&gemini_path, &args, Some(&working_dir), agent_shell.as_deref())?;
+    cmd.stdin(Stdio::null()) // No stdin communication for Gemini headless
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-
-    prepare_path_env(&mut cmd, &gemini_path);
 
     let mut child = cmd
         .spawn()

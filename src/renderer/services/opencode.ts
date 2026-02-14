@@ -173,6 +173,7 @@ class OpenCodeAgentService implements AgentService {
           port: 14096,
           logDir: logDir ?? null,
           logId: chatId,
+          agentShell: configStore.agentShell || null,
         })
         // Parse the JSON response containing port
         const { port } = JSON.parse(result)
@@ -399,10 +400,14 @@ export const opencodeAgentService = new OpenCodeAgentService()
  * Fetch available OpenCode models by running `opencode models` CLI command.
  * This works without a running server.
  */
-export async function listOpencodeModels(opencodePath: string): Promise<AgentModel[]> {
+export async function listOpencodeModels(
+  opencodePath: string,
+  agentShell: string | null
+): Promise<AgentModel[]> {
   try {
     const models = await invoke<OpenCodeModel[]>("opencode_list_models", {
       opencodePath,
+      agentShell,
     })
 
     return models.map((m) => ({

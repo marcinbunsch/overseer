@@ -5,13 +5,13 @@
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Stdio},
     sync::{Arc, Mutex},
     time::Duration,
 };
 use tauri::Emitter;
 
-use super::shared::{prepare_path_env, AgentExit};
+use super::shared::{build_login_shell_command, AgentExit};
 use crate::logging::{log_line, open_log_file, LogHandle};
 
 struct CodexServerEntry {
@@ -48,6 +48,7 @@ pub fn start_codex_server(
     model_version: Option<String>,
     log_dir: Option<String>,
     log_id: Option<String>,
+    agent_shell: Option<String>,
 ) -> Result<(), String> {
     // Stop any existing server for this id first.
     {
@@ -68,13 +69,10 @@ pub fn start_codex_server(
         }
     }
 
-    let mut cmd = Command::new(&codex_path);
-    cmd.args(&args)
-        .stdin(Stdio::piped())
+    let mut cmd = build_login_shell_command(&codex_path, &args, None, agent_shell.as_deref())?;
+    cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-
-    prepare_path_env(&mut cmd, &codex_path);
 
     let mut child = cmd
         .spawn()
