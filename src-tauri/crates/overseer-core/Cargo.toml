@@ -1,0 +1,18 @@
+[package]
+name = "overseer-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core business logic for Overseer - framework-agnostic"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+regex = "1.10"
+log = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
