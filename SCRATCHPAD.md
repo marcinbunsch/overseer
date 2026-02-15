@@ -106,3 +106,9 @@ My learning journal for this codebase. **Rules** are patterns I must follow. **M
 **Issue**: "Open in terminal" button felt slow/laggy.
 **Cause**: `open_external` was a synchronous Tauri command (`fn` instead of `async fn`). Even though `spawn()` returns quickly, the synchronous command blocks the main thread during the entire JS→Rust→JS IPC roundtrip.
 **Fix**: Add `async` to all Tauri command functions. This moves them off the main thread to Tauri's async runtime.
+
+### 2026-02-16: Process recv() vs try_recv() deadlock
+
+**Issue**: Codex agent caused app to beachball (freeze) when sending a message.
+**Cause**: The event forwarding thread used `process.recv()` (blocking) while holding a mutex lock on the process. When TypeScript tried to send stdin via `codex_stdin`, it couldn't acquire the lock because the event thread was blocked waiting for data while holding it.
+**Fix**: Use `process.try_recv()` (non-blocking) instead, with a small sleep (10ms) when no data is available. This pattern releases the mutex between checks, allowing stdin writes to proceed. See `src-tauri/src/agents/claude.rs` for the correct pattern.

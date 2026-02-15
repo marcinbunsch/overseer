@@ -252,19 +252,31 @@ impl CodexParser {
         match req.method.as_str() {
             // Command approval request (e.g., "rm -rf test")
             "item/commandExecution/requestApproval" => {
-                // Extract command string from params
+                // Extract the actual command from commandActions, not the shell-wrapped command.
+                // Codex wraps commands in /bin/zsh -lc 'actual command', so we need to look at
+                // commandActions[0].command for the real command to parse prefixes from.
                 //
-                // Rust Concept: Chained Option methods
-                //
-                // params.get("command") → Option<&Value>
-                // .and_then(|v| v.as_str()) → Option<&str>
-                // .unwrap_or("") → &str (empty if not found)
-                // .to_string() → String (owned copy)
-                let command = params
-                    .get("command")
+                // params.commandActions is an array like:
+                // [{"type": "unknown", "command": "pnpm install"}]
+                let actual_command = params
+                    .get("commandActions")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|v| v.get("command"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
+
+                // Fall back to the shell-wrapped command if commandActions is empty
+                let command = if actual_command.is_empty() {
+                    params
+                        .get("command")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string()
+                } else {
+                    actual_command
+                };
 
                 // Parse command into prefixes for auto-approval
                 let prefixes = parse_command_prefixes(&command);

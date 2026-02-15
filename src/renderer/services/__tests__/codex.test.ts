@@ -51,6 +51,7 @@ describe("CodexAgentService", () => {
     await vi.waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("start_codex_server", {
         serverId: "chat-1",
+        projectName: "default",
         codexPath: "codex",
         modelVersion: null,
         logDir: null,
@@ -77,6 +78,7 @@ describe("CodexAgentService", () => {
     await vi.waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("start_codex_server", {
         serverId: "chat-1",
+        projectName: "default",
         codexPath: "codex",
         modelVersion: "gpt-5.3-codex",
         logDir: null,
@@ -102,6 +104,7 @@ describe("CodexAgentService", () => {
     await vi.waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("start_codex_server", {
         serverId: "chat-1",
+        projectName: "default",
         codexPath: "codex",
         modelVersion: "gpt-5.2-codex",
         logDir: "/tmp/logs",
@@ -519,10 +522,11 @@ describe("CodexAgentService", () => {
     const chat = service.getOrCreateChat("chat-1")
     chat.running = true
 
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let eventHandler: ((event: { payload: any }) => void) | null = null
     vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
+      if (typeof eventName === "string" && eventName.includes("codex:event:")) {
+        eventHandler = handler as typeof eventHandler
       }
       return vi.fn() as unknown as () => void
     })
@@ -530,18 +534,23 @@ describe("CodexAgentService", () => {
     // @ts-expect-error - accessing private method for testing
     await service.attachListeners("chat-1")
 
-    expect(stdoutHandler).not.toBeNull()
+    expect(eventHandler).not.toBeNull()
 
-    // Simulate command approval request with chained commands
-    stdoutHandler!({
-      payload: JSON.stringify({
-        id: 123,
-        method: "item/commandExecution/requestApproval",
-        params: { command: "cd /foo && pnpm install" },
-      }),
+    // Simulate Rust-parsed ToolApproval event for Bash command
+    // Rust uses internally-tagged format: {"kind": "toolApproval", ...fields}
+    eventHandler!({
+      payload: {
+        kind: "toolApproval",
+        request_id: "123",
+        name: "Bash",
+        input: { command: "cd /foo && pnpm install" },
+        display_input: "cd /foo && pnpm install",
+        prefixes: ["cd", "pnpm install"],
+        auto_approved: false,
+      },
     })
 
-    // Command prefixes are computed by ChatStore, not the service
+    // TypeScript service translates Rust event to AgentEvent
     expect(eventCb).toHaveBeenCalledWith({
       kind: "toolApproval",
       id: "123",
@@ -551,7 +560,7 @@ describe("CodexAgentService", () => {
     })
   })
 
-  it("handleServerRequest emits toolApproval without commandPrefixes for Edit tool", async () => {
+  it("handleRustEvent emits toolApproval for Edit tool", async () => {
     const service = await freshService()
     const eventCb = vi.fn()
     service.onEvent("chat-1", eventCb)
@@ -560,10 +569,11 @@ describe("CodexAgentService", () => {
     const chat = service.getOrCreateChat("chat-1")
     chat.running = true
 
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let eventHandler: ((event: { payload: any }) => void) | null = null
     vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
+      if (typeof eventName === "string" && eventName.includes("codex:event:")) {
+        eventHandler = handler as typeof eventHandler
       }
       return vi.fn() as unknown as () => void
     })
@@ -571,12 +581,18 @@ describe("CodexAgentService", () => {
     // @ts-expect-error - accessing private method for testing
     await service.attachListeners("chat-1")
 
-    stdoutHandler!({
-      payload: JSON.stringify({
-        id: 789,
-        method: "item/fileChange/requestApproval",
-        params: { path: "/tmp/file.txt", content: "new content" },
-      }),
+    // Simulate Rust-parsed ToolApproval event for Edit
+    // Rust uses internally-tagged format: {"kind": "toolApproval", ...fields}
+    eventHandler!({
+      payload: {
+        kind: "toolApproval",
+        request_id: "789",
+        name: "Edit",
+        input: { path: "/tmp/file.txt", content: "new content" },
+        display_input: JSON.stringify({ path: "/tmp/file.txt", content: "new content" }),
+        prefixes: null,
+        auto_approved: false,
+      },
     })
 
     expect(eventCb).toHaveBeenCalledWith({
@@ -586,9 +602,6 @@ describe("CodexAgentService", () => {
       input: { path: "/tmp/file.txt", content: "new content" },
       displayInput: expect.stringContaining("/tmp/file.txt"),
     })
-
-    // Verify commandPrefixes is NOT included for non-Bash tools
-    expect(eventCb.mock.calls[0][0].commandPrefixes).toBeUndefined()
   })
 
   it("throws user-friendly error when spawn fails with command not found", async () => {

@@ -46,11 +46,16 @@ Fully implemented and wired end-to-end.
 - Parses stdout through Rust parser, emits typed `AgentEvent` to frontend
 - Frontend `src/renderer/services/claude.ts` receives pre-parsed events (no JSON parsing)
 
+**Codex agent fully migrated:**
+- `src-tauri/src/agents/codex.rs` uses `CodexParser` from `overseer-core`
+- Parses stdout through Rust parser, emits typed `AgentEvent` via `codex:event:` events
+- Auto-approval logic runs in Rust before events reach frontend
+- Frontend `src/renderer/services/codex.ts` receives pre-parsed events (only handles JSON-RPC responses for client requests)
+
 ### In Progress
 
-#### Phase 3: Agent Protocol Parsing (Other agents)
-Core parsers exist but other agents still parse in TypeScript:
-- `crates/overseer-core/src/agents/codex/parser.rs` - implemented, not wired
+#### Phase 3: Agent Protocol Parsing (Remaining agents)
+Core parsers exist but remaining agents still parse in TypeScript:
 - `crates/overseer-core/src/agents/copilot/parser.rs` - implemented, not wired
 - `crates/overseer-core/src/agents/gemini/parser.rs` - implemented, not wired
 - `crates/overseer-core/src/agents/opencode/parser.rs` - implemented, not wired
@@ -58,7 +63,8 @@ Core parsers exist but other agents still parse in TypeScript:
 Integration work needed for each:
 - Create Tauri wrapper similar to `src-tauri/src/agents/claude.rs`
 - Route stdout/stderr through core parser
-- Remove duplicate parsing in `src/renderer/services/{codex,copilot,gemini,opencode}.ts`
+- Add auto-approval logic
+- Simplify frontend service to receive pre-parsed events
 
 #### Phase 4: Overseer Actions Execution
 Parsing is in Rust (`extract_overseer_blocks`), but execution still happens in TypeScript (`executeOverseerAction`).
@@ -77,16 +83,13 @@ Session state + `SessionManager` exist in core, but aren't wired into Tauri yet.
 
 ### Immediate (Phase 3 Completion)
 
-1. **Wire Codex agent to Rust parser**
-   - Create `src-tauri/src/agents/codex.rs` similar to claude.rs
-   - Use `CodexParser` from overseer-core
+1. **Wire Copilot agent to Rust parser**
+   - Create `src-tauri/src/agents/copilot.rs` similar to codex.rs
+   - Use `CopilotParser` from overseer-core
    - Add auto-approval logic
-   - Simplify `src/renderer/services/codex.ts` to receive pre-parsed events
+   - Simplify `src/renderer/services/copilot.ts` to receive pre-parsed events
 
-2. **Wire Copilot agent to Rust parser**
-   - Same pattern as Codex
-
-3. **Wire remaining agents (Gemini, OpenCode)**
+2. **Wire remaining agents (Gemini, OpenCode)**
    - Same pattern
 
 ### Medium Term
