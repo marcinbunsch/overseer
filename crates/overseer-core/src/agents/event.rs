@@ -380,9 +380,13 @@ mod tests {
 
         #[test]
         fn overseer_action_event() {
+            use crate::overseer_actions::RenameChatParams;
+
             let event = AgentEvent::OverseerAction {
                 action: OverseerAction::RenameChat {
-                    title: "New Chat Title".to_string(),
+                    params: RenameChatParams {
+                        title: "New Chat Title".to_string(),
+                    },
                 },
             };
 
@@ -391,7 +395,9 @@ mod tests {
 
             match parsed {
                 AgentEvent::OverseerAction { action } => match action {
-                    OverseerAction::RenameChat { title } => assert_eq!(title, "New Chat Title"),
+                    OverseerAction::RenameChat { params } => {
+                        assert_eq!(params.title, "New Chat Title")
+                    }
                     _ => panic!("Expected RenameChat action"),
                 },
                 _ => panic!("Expected OverseerAction event"),

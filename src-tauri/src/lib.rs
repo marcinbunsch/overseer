@@ -5,6 +5,7 @@ mod pty;
 
 use crate::agents::build_login_shell_command;
 use overseer_core::approval;
+use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, WindowEvent};
 
@@ -36,6 +37,26 @@ fn get_command_prefixes(command: String) -> Vec<String> {
 #[tauri::command]
 fn are_commands_safe(prefixes: Vec<String>) -> bool {
     approval::are_commands_safe(&prefixes)
+}
+
+/// Result of extracting overseer action blocks from content.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtractOverseerBlocksResult {
+    clean_content: String,
+    actions: Vec<OverseerAction>,
+}
+
+/// Extract overseer action blocks from content.
+///
+/// Returns the cleaned content (with blocks removed) and the list of parsed actions.
+#[tauri::command]
+fn extract_overseer_blocks_cmd(content: String) -> ExtractOverseerBlocksResult {
+    let (clean_content, actions) = extract_overseer_blocks(&content);
+    ExtractOverseerBlocksResult {
+        clean_content,
+        actions,
+    }
 }
 
 #[tauri::command]
@@ -227,6 +248,7 @@ pub fn run() {
             is_demo_mode,
             get_command_prefixes,
             are_commands_safe,
+            extract_overseer_blocks_cmd,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
