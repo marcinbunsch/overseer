@@ -15,7 +15,7 @@ import {
   Wrench,
   RefreshCw,
 } from "lucide-react"
-import classNames from "classnames"
+import cn from "classnames"
 import { configStore } from "../../stores/ConfigStore"
 import { debugStore } from "../../stores/DebugStore"
 import { toolAvailabilityStore, type ToolStatus } from "../../stores/ToolAvailabilityStore"
