@@ -196,6 +196,9 @@ describe("SettingsDialog Agents tab - path validation", () => {
 describe("SettingsDialog Agents tab - enabled toggles", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Reset agent enabled states to ensure test isolation
+    configStore.setAgentEnabled("claude", true)
+    configStore.setAgentEnabled("codex", true)
   })
 
   it("shows toggle for each agent", () => {

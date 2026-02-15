@@ -515,7 +515,10 @@ export const SettingsDialog = observer(function SettingsDialog({
               )}
             </AlertDialog.Title>
             <AlertDialog.Cancel asChild>
-              <button className="rounded p-1 text-ovr-text-dim hover:text-ovr-text-muted">
+              <button
+                className="rounded p-1 text-ovr-text-dim hover:text-ovr-text-muted"
+                aria-label="Close settings"
+              >
                 <X className="size-4" />
               </button>
             </AlertDialog.Cancel>
@@ -524,10 +527,17 @@ export const SettingsDialog = observer(function SettingsDialog({
           {/* Body - Sidebar + Content */}
           <div className="flex min-h-0 flex-1">
             {/* Sidebar */}
-            <nav className="w-44 shrink-0 border-r border-ovr-border-subtle bg-ovr-bg-panel p-2">
+            <nav
+              className="w-44 shrink-0 border-r border-ovr-border-subtle bg-ovr-bg-panel p-2"
+              role="tablist"
+              aria-label="Settings sections"
+            >
               {TABS.map((tab) => (
                 <button
                   key={tab.id}
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  aria-controls={`tabpanel-${tab.id}`}
                   onClick={() => setActiveTab(tab.id)}
                   data-testid={`tab-${tab.id}`}
                   className={classNames(
@@ -549,16 +559,36 @@ export const SettingsDialog = observer(function SettingsDialog({
 
             {/* Content - render all tabs, hide inactive ones to preserve state */}
             <div className="flex-1 overflow-y-auto bg-ovr-bg-app px-6 py-4">
-              <div className={activeTab === "general" ? "" : "hidden"}>
+              <div
+                id="tabpanel-general"
+                role="tabpanel"
+                aria-labelledby="tab-general"
+                className={activeTab === "general" ? "" : "hidden"}
+              >
                 <GeneralTab />
               </div>
-              <div className={activeTab === "agents" ? "" : "hidden"}>
+              <div
+                id="tabpanel-agents"
+                role="tabpanel"
+                aria-labelledby="tab-agents"
+                className={activeTab === "agents" ? "" : "hidden"}
+              >
                 <AgentsTab />
               </div>
-              <div className={activeTab === "advanced" ? "" : "hidden"}>
+              <div
+                id="tabpanel-advanced"
+                role="tabpanel"
+                aria-labelledby="tab-advanced"
+                className={activeTab === "advanced" ? "" : "hidden"}
+              >
                 <AdvancedTab />
               </div>
-              <div className={activeTab === "updates" ? "" : "hidden"}>
+              <div
+                id="tabpanel-updates"
+                role="tabpanel"
+                aria-labelledby="tab-updates"
+                className={activeTab === "updates" ? "" : "hidden"}
+              >
                 <UpdatesTab />
               </div>
             </div>
