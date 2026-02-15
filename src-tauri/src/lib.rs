@@ -4,6 +4,7 @@ mod logging;
 mod pty;
 
 use crate::agents::build_login_shell_command;
+use overseer_core::approval;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, WindowEvent};
 
@@ -20,6 +21,21 @@ async fn is_debug_mode() -> bool {
 #[tauri::command]
 async fn is_demo_mode() -> bool {
     std::env::var("OVERSEER_DEMO").is_ok()
+}
+
+/// Parse a bash command into its command prefixes.
+///
+/// For chained commands like `git status && npm test`, returns
+/// `["git status", "npm test"]`.
+#[tauri::command]
+fn get_command_prefixes(command: String) -> Vec<String> {
+    approval::parse_command_prefixes(&command)
+}
+
+/// Check if all command prefixes are safe (read-only operations).
+#[tauri::command]
+fn are_commands_safe(prefixes: Vec<String>) -> bool {
+    approval::are_commands_safe(&prefixes)
 }
 
 #[tauri::command]
@@ -209,6 +225,8 @@ pub fn run() {
             show_main_window,
             is_debug_mode,
             is_demo_mode,
+            get_command_prefixes,
+            are_commands_safe,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
