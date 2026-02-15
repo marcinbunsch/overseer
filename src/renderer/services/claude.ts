@@ -87,6 +87,7 @@ type BackendAgentEvent =
       name: string
       input: Record<string, unknown>
       display_input: string
+      prefixes?: string[] | null
     }
   | {
       kind: "question"
@@ -307,6 +308,7 @@ class ClaudeAgentService implements AgentService {
           name: event.name,
           input: event.input ?? {},
           displayInput: event.display_input ?? "",
+          commandPrefixes: event.prefixes ?? undefined,
         })
         return
       }

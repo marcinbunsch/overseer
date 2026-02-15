@@ -535,6 +535,7 @@ export class ChatStore {
             name: event.name,
             input: event.displayInput,
             rawInput: event.input,
+            commandPrefixes: event.commandPrefixes,
           })
           break
         }

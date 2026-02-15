@@ -21,6 +21,8 @@ export type AgentEvent =
       name: string
       input: Record<string, unknown>
       displayInput: string
+      /** Command prefixes extracted from Bash commands (for "approve command" option) */
+      commandPrefixes?: string[]
       /** Permission options from Copilot (allow_once, allow_always, etc.) */
       options?: Array<{ id: string; name: string; kind: string }>
     }
