@@ -30,6 +30,7 @@ describe("ClaudeAgentService", () => {
 
     expect(invoke).toHaveBeenCalledWith("start_agent", {
       conversationId: "conv-1",
+      projectName: "",
       prompt: "hello",
       workingDir: "/tmp/workdir",
       agentPath: "claude",
@@ -50,6 +51,7 @@ describe("ClaudeAgentService", () => {
 
     expect(invoke).toHaveBeenCalledWith("start_agent", {
       conversationId: "conv-1",
+      projectName: "",
       prompt: "hello",
       workingDir: "/tmp/workdir",
       agentPath: "claude",
@@ -69,6 +71,7 @@ describe("ClaudeAgentService", () => {
 
     expect(invoke).toHaveBeenCalledWith("start_agent", {
       conversationId: "conv-1",
+      projectName: "",
       prompt: "hello",
       workingDir: "/tmp/workdir",
       agentPath: "claude",
@@ -96,6 +99,7 @@ describe("ClaudeAgentService", () => {
 
     expect(invoke).toHaveBeenCalledWith("start_agent", {
       conversationId: "conv-1",
+      projectName: "",
       prompt: "Read docs/ARCH.md first\n\nhello",
       workingDir: "/tmp/workdir",
       agentPath: "claude",
@@ -347,6 +351,8 @@ describe("ClaudeAgentService", () => {
       name: "Bash",
       input: { command: "cd /foo && pnpm install" },
       displayInput: "cd /foo && pnpm install",
+      commandPrefixes: undefined,
+      autoApproved: false,
     })
   })
 
@@ -383,6 +389,8 @@ describe("ClaudeAgentService", () => {
       name: "Read",
       input: { path: "/tmp/file.txt" },
       displayInput: '{"path":"/tmp/file.txt"}',
+      commandPrefixes: undefined,
+      autoApproved: false,
     })
   })
 

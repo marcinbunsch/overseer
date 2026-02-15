@@ -7,10 +7,12 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
+use crate::approvals::ProjectApprovalManager;
 use crate::logging::{log_line, open_log_file, LogHandle};
 use overseer_core::agents::claude::{ClaudeConfig, ClaudeParser};
+use overseer_core::agents::event::AgentEvent;
 use overseer_core::shell::AgentExit;
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
 
@@ -35,12 +37,31 @@ pub struct AgentProcessMap {
     processes: Mutex<HashMap<String, AgentProcessEntry>>,
 }
 
+/// Build a control_response JSON to send approval to the agent.
+fn build_approval_response(request_id: &str, input: &serde_json::Value) -> String {
+    let response = serde_json::json!({
+        "type": "control_response",
+        "response": {
+            "subtype": "success",
+            "request_id": request_id,
+            "response": {
+                "behavior": "allow",
+                "updatedInput": input
+            }
+        }
+    });
+    // Note: No trailing newline - write_stdin uses writeln! which adds one
+    response.to_string()
+}
+
 /// Start a Claude CLI process for a conversation.
 #[tauri::command]
 pub fn start_agent(
     app: tauri::AppHandle,
     state: tauri::State<AgentProcessMap>,
+    approval_state: tauri::State<ProjectApprovalManager>,
     conversation_id: String,
+    project_name: String,
     prompt: String,
     working_dir: String,
     agent_path: String,
@@ -98,6 +119,15 @@ pub fn start_agent(
         map.insert(conversation_id.clone(), entry);
     }
 
+    // Pre-load approval context (but we'll query fresh each time in the loop)
+    log::info!(
+        "Pre-loading approval context for project: '{}' (len={})",
+        project_name,
+        project_name.len()
+    );
+    let _ = approval_state.get_or_load(&project_name);
+    let project_name_clone = project_name.clone();
+
     // Spawn event forwarding thread
     let conv_id = conversation_id.clone();
     let log_file = Arc::clone(&log_handle);
@@ -121,8 +151,71 @@ pub fn start_agent(
                         let mut parser = parser_arc.lock().unwrap();
                         parser.feed(&format!("{line}\n"))
                     };
+
                     for event in parsed_events {
-                        let _ = app.emit(&format!("agent:event:{}", conv_id), event);
+                        // Check if this is a ToolApproval that we can auto-approve
+                        let event_to_emit = match &event {
+                            AgentEvent::ToolApproval {
+                                request_id,
+                                name,
+                                input,
+                                display_input,
+                                prefixes,
+                                ..
+                            } => {
+                                let prefixes_vec: Vec<String> = prefixes
+                                    .as_ref()
+                                    .map(|p| p.clone())
+                                    .unwrap_or_default();
+
+                                // Query the approval manager fresh each time to pick up new approvals
+                                let approval_manager: tauri::State<ProjectApprovalManager> =
+                                    app.state();
+                                let should_approve = approval_manager
+                                    .should_auto_approve(&project_name_clone, name, &prefixes_vec);
+                                log::info!(
+                                    "Checking approval for {} with prefixes {:?} -> {}",
+                                    name,
+                                    prefixes_vec,
+                                    should_approve
+                                );
+
+                                if should_approve {
+                                    // Auto-approve: send response directly to agent
+                                    let response = build_approval_response(request_id, input);
+                                    log_line(&log_file, "STDIN", &response);
+                                    log::info!(
+                                        "Auto-approving {} for project {} (prefixes: {:?})",
+                                        name,
+                                        project_name_clone,
+                                        prefixes_vec
+                                    );
+
+                                    // Write approval to agent stdin
+                                    if let Ok(guard) = process_arc.lock() {
+                                        if let Some(ref process) = *guard {
+                                            let _ = process.write_stdin(&response);
+                                        }
+                                    }
+
+                                    // Emit event with auto_approved = true
+                                    AgentEvent::ToolApproval {
+                                        request_id: request_id.clone(),
+                                        name: name.clone(),
+                                        input: input.clone(),
+                                        display_input: display_input.clone(),
+                                        prefixes: prefixes.clone(),
+                                        auto_approved: true,
+                                    }
+                                } else {
+                                    // Not auto-approved, pass through unchanged
+                                    event
+                                }
+                            }
+                            _ => event,
+                        };
+
+                        let _ = app.emit(&format!("agent:event:{}", conv_id), event_to_emit);
                     }
                 }
                 Some(ProcessEvent::Stderr(line)) => {

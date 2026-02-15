@@ -1,4 +1,5 @@
 mod agents;
+mod approvals;
 mod git;
 mod logging;
 mod pty;
@@ -6,7 +7,7 @@ mod pty;
 use overseer_core::shell::build_login_shell_command;
 use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 
 #[tauri::command]
 async fn show_main_window(window: tauri::Window) {
@@ -126,6 +127,7 @@ pub fn run() {
         .manage(agents::CopilotServerMap::default())
         .manage(agents::GeminiServerMap::default())
         .manage(agents::OpenCodeServerMap::default())
+        .manage(approvals::ProjectApprovalManager::default())
         .manage(pty::PtyMap::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
@@ -181,13 +183,41 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Debug)
-                        .build(),
-                )?;
-            }
+            // Determine config directory: ~/.config/overseer-dev (dev) or ~/.config/overseer (prod)
+            // This matches the frontend's getConfigPath() behavior
+            let config_dir = if let Some(home) = app.path().home_dir().ok() {
+                let dir_name = if cfg!(debug_assertions) {
+                    "overseer-dev"
+                } else {
+                    "overseer"
+                };
+                home.join(".config").join(dir_name)
+            } else {
+                // Fallback to Tauri's config_dir if home is not available
+                app.path().config_dir().ok().unwrap_or_default()
+            };
+
+            // Set up file logging to config_dir/logs/
+            let log_dir = config_dir.join("logs");
+            // Create logs directory if it doesn't exist
+            let _ = std::fs::create_dir_all(&log_dir);
+
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .target(tauri_plugin_log::Target::new(
+                        tauri_plugin_log::TargetKind::Folder {
+                            path: log_dir,
+                            file_name: Some("overseer".into()),
+                        },
+                    ))
+                    .build(),
+            )?;
+
+            // Set up the config directory for approvals persistence
+            let approval_manager = app.state::<approvals::ProjectApprovalManager>();
+            approval_manager.set_config_dir(config_dir);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -231,6 +261,10 @@ pub fn run() {
             is_debug_mode,
             is_demo_mode,
             extract_overseer_blocks_cmd,
+            approvals::load_project_approvals,
+            approvals::add_approval,
+            approvals::remove_approval,
+            approvals::clear_project_approvals,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

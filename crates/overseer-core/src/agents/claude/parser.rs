@@ -594,6 +594,7 @@ impl ClaudeParser {
                     input,
                     display_input,
                     prefixes,
+                    auto_approved: false,
                 }]
             }
 

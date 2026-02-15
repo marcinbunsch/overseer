@@ -1,5 +1,6 @@
 import { observable, computed, action, makeObservable, runInAction } from "mobx"
 import { readTextFile, writeTextFile, exists } from "@tauri-apps/plugin-fs"
+import { backend } from "../backend"
 import type {
   Message,
   MessageMeta,
@@ -22,11 +23,7 @@ import { executeOverseerAction } from "../services/overseerActionExecutor"
 export interface ChatStoreContext {
   getChatDir: () => Promise<string | null>
   getInitPrompt: () => string | undefined
-  getApprovedToolNames: () => Set<string>
-  getApprovedCommandPrefixes: () => Set<string>
-  addApprovedToolName: (name: string) => void
-  addApprovedCommandPrefix: (prefix: string) => void
-  saveApprovals: () => void
+  getProjectName: () => string
   saveIndex: () => void
   getActiveChatId: () => string | null
   getWorkspacePath: () => string
@@ -165,6 +162,7 @@ export class ChatStore {
           : this.chat.agentType === "codex"
             ? configStore.codexApprovalPolicy
             : null
+      const projectName = this.context?.getProjectName() ?? ""
       await this.service.sendMessage(
         this.chat.id,
         content,
@@ -172,7 +170,8 @@ export class ChatStore {
         logDir,
         this.chat.modelVersion,
         permissionMode,
-        initPrompt
+        initPrompt,
+        projectName
       )
     } catch (err) {
       console.error("Error sending message:", err)
@@ -233,36 +232,59 @@ export class ChatStore {
   ): Promise<void> {
     if (!this.service) return
     const tool = this.pendingToolUses.find((t) => t.id === toolId)
-    if (tool) {
-      if (scope === "command" && tool.commandPrefixes?.length) {
-        // Add all prefixes from this command (handles chained commands)
-        for (const prefix of tool.commandPrefixes) {
-          this.context.addApprovedCommandPrefix(prefix)
+    const projectName = this.context?.getProjectName() ?? ""
+
+    console.log("[approveToolUseAll] tool:", tool, "projectName:", projectName, "scope:", scope)
+    if (tool && projectName) {
+      // Persist approval to Rust backend (source of truth)
+      try {
+        if (scope === "command" && tool.commandPrefixes?.length) {
+          console.log("[approveToolUseAll] Adding command prefixes:", tool.commandPrefixes)
+          for (const prefix of tool.commandPrefixes) {
+            console.log("[approveToolUseAll] Invoking add_approval for prefix:", prefix)
+            await backend.invoke("add_approval", {
+              projectName,
+              toolOrPrefix: prefix,
+              isPrefix: true,
+            })
+          }
+        } else {
+          console.log("[approveToolUseAll] Adding tool:", tool.name)
+          await backend.invoke("add_approval", {
+            projectName,
+            toolOrPrefix: tool.name,
+            isPrefix: false,
+          })
         }
-      } else {
-        this.context.addApprovedToolName(tool.name)
+      } catch (err) {
+        console.error("Error persisting approval:", err)
       }
-      this.context.saveApprovals()
+    } else {
+      console.log("[approveToolUseAll] Skipping - tool or projectName missing")
     }
+
     try {
       await this.service.sendToolApproval(this.chat.id, toolId, true, tool?.rawInput ?? {})
     } catch (err) {
       console.error("Error sending tool approval:", err)
     }
+
     runInAction(() => {
       if (!tool) {
         this.pendingToolUses = this.pendingToolUses.filter((t) => t.id !== toolId)
         return
       }
       // Find matching pending tools to also auto-approve
+      // Note: Rust will handle auto-approval for future tools, but we still
+      // need to approve any currently pending tools that match
       const matches = this.pendingToolUses.filter((t) => {
         if (t.id === toolId) return false
         if (scope === "command" && tool.commandPrefixes?.length) {
-          // Check if all prefixes in this tool are approved
+          // Check if all prefixes in this tool match
           return (
             t.name === "Bash" &&
             t.commandPrefixes?.length &&
-            t.commandPrefixes.every((p) => this.context.getApprovedCommandPrefixes().has(p))
+            t.commandPrefixes.every((p) => tool.commandPrefixes!.includes(p))
           )
         }
         return t.name === tool.name
@@ -530,6 +552,10 @@ export class ChatStore {
         }
 
         case "toolApproval": {
+          // If Rust already auto-approved this tool, don't add to pending
+          if (event.autoApproved) {
+            break
+          }
           this.pendingToolUses.push({
             id: event.id,
             name: event.name,

@@ -88,6 +88,7 @@ type BackendAgentEvent =
       input: Record<string, unknown>
       display_input: string
       prefixes?: string[] | null
+      auto_approved?: boolean
     }
   | {
       kind: "question"
@@ -182,7 +183,8 @@ class ClaudeAgentService implements AgentService {
     logDir?: string,
     modelVersion?: string | null,
     permissionMode?: string | null,
-    initPrompt?: string
+    initPrompt?: string,
+    projectName?: string
   ): Promise<void> {
     await this.attachListeners(chatId)
     const conv = this.getOrCreateConversation(chatId)
@@ -221,6 +223,7 @@ class ClaudeAgentService implements AgentService {
     try {
       await backend.invoke("start_agent", {
         conversationId: chatId,
+        projectName: projectName ?? "",
         prompt: messageText,
         workingDir,
         agentPath: configStore.claudePath,
@@ -309,6 +312,7 @@ class ClaudeAgentService implements AgentService {
           input: event.input ?? {},
           displayInput: event.display_input ?? "",
           commandPrefixes: event.prefixes ?? undefined,
+          autoApproved: event.auto_approved ?? false,
         })
         return
       }

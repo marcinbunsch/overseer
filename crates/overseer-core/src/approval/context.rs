@@ -90,6 +90,20 @@ mod tests {
     }
 
     #[test]
+    fn deny_pnpm_install_not_in_safe_list() {
+        let ctx = ApprovalContext::new();
+        // pnpm install is NOT in SAFE_COMMANDS, so should be denied
+        assert!(!ctx.should_auto_approve("Bash", &["pnpm install".to_string()]));
+    }
+
+    #[test]
+    fn deny_pnpm_test_not_in_safe_list() {
+        let ctx = ApprovalContext::new();
+        // pnpm test is NOT in SAFE_COMMANDS, so should be denied
+        assert!(!ctx.should_auto_approve("Bash", &["pnpm test".to_string()]));
+    }
+
+    #[test]
     fn auto_approve_approved_tool() {
         let mut ctx = ApprovalContext::new();
         ctx.add_tool("Edit".to_string());

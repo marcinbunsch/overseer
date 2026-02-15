@@ -23,6 +23,8 @@ export type AgentEvent =
       displayInput: string
       /** Command prefixes extracted from Bash commands (for "approve command" option) */
       commandPrefixes?: string[]
+      /** If true, Rust has already sent approval to the agent */
+      autoApproved?: boolean
       /** Permission options from Copilot (allow_once, allow_always, etc.) */
       options?: Array<{ id: string; name: string; kind: string }>
     }
@@ -48,7 +50,8 @@ export interface AgentService {
     logDir?: string,
     modelVersion?: string | null,
     permissionMode?: string | null,
-    initPrompt?: string
+    initPrompt?: string,
+    projectName?: string
   ): Promise<void>
   sendToolApproval(
     chatId: string,

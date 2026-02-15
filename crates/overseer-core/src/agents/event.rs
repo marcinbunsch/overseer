@@ -79,6 +79,9 @@ pub enum AgentEvent {
         /// Extracted command prefixes for bash commands.
         #[serde(skip_serializing_if = "Option::is_none")]
         prefixes: Option<Vec<String>>,
+        /// If true, Rust has already sent approval to the agent.
+        #[serde(default)]
+        auto_approved: bool,
     },
 
     /// Agent is asking the user a question.
@@ -262,9 +265,10 @@ mod tests {
             let event = AgentEvent::ToolApproval {
                 request_id: "req-123".to_string(),
                 name: "Bash".to_string(),
-                input: json!({"command": "rm -rf /tmp/test"}),
-                display_input: "rm -rf /tmp/test".to_string(),
-                prefixes: Some(vec!["rm".to_string()]),
+                input: json!({"command": "pnpm install"}),
+                display_input: "pnpm install".to_string(),
+                prefixes: Some(vec!["pnpm install".to_string()]),
+                auto_approved: false,
             };
 
             let json = serde_json::to_string(&event).unwrap();
@@ -277,12 +281,14 @@ mod tests {
                     input,
                     display_input,
                     prefixes,
+                    auto_approved,
                 } => {
                     assert_eq!(request_id, "req-123");
                     assert_eq!(name, "Bash");
-                    assert_eq!(input["command"], "rm -rf /tmp/test");
-                    assert_eq!(display_input, "rm -rf /tmp/test");
-                    assert_eq!(prefixes, Some(vec!["rm".to_string()]));
+                    assert_eq!(input["command"], "pnpm install");
+                    assert_eq!(display_input, "pnpm install");
+                    assert_eq!(prefixes, Some(vec!["pnpm install".to_string()]));
+                    assert!(!auto_approved);
                 }
                 _ => panic!("Expected ToolApproval event"),
             }
@@ -473,6 +479,7 @@ mod tests {
                 input: json!({}),
                 display_input: "test".to_string(),
                 prefixes: None,
+                auto_approved: false,
             };
             let json = serde_json::to_string(&event).unwrap();
             assert!(json.contains("toolApproval"));

@@ -493,11 +493,7 @@ export class WorkspaceStore {
     return {
       getChatDir: () => this.getChatDir(),
       getInitPrompt: () => this.buildInitPrompt(),
-      getApprovedToolNames: () => this.projectStore?.approvedToolNames ?? new Set(),
-      getApprovedCommandPrefixes: () => this.projectStore?.approvedCommandPrefixes ?? new Set(),
-      addApprovedToolName: (name) => this.projectStore?.approvedToolNames.add(name),
-      addApprovedCommandPrefix: (prefix) => this.projectStore?.approvedCommandPrefixes.add(prefix),
-      saveApprovals: () => void this.projectStore?.saveApprovals(),
+      getProjectName: () => this.projectName,
       saveIndex: () => this.saveChatIndex(),
       getActiveChatId: () => this.activeChatId,
       getWorkspacePath: () => this.path,

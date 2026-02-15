@@ -199,6 +199,7 @@ impl CopilotParser {
                     input: raw_input,
                     display_input,
                     prefixes,
+                    auto_approved: false,
                 };
 
                 (vec![event], vec![pending])

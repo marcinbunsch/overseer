@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest"
 import { runInAction } from "mobx"
 import type { Chat } from "../../types"
 import { ChatStore, type ChatStoreContext } from "../ChatStore"
@@ -41,6 +41,14 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   remove: vi.fn(() => Promise.resolve()),
 }))
 
+// Mock backend for approval commands
+const mockBackendInvoke: Mock = vi.fn(() => Promise.resolve())
+vi.mock("../../backend", () => ({
+  backend: {
+    invoke: (cmd: string, args: unknown) => mockBackendInvoke(cmd, args),
+  },
+}))
+
 // Mock eventBus
 vi.mock("../../utils/eventBus", () => ({
   eventBus: {
@@ -52,29 +60,14 @@ import { eventBus } from "../../utils/eventBus"
 
 // Helper type for test context overrides
 // Allows passing Sets directly (for convenience) plus any ChatStoreContext overrides
-interface TestContextOverrides extends Partial<ChatStoreContext> {
-  approvedToolNames?: Set<string>
-  approvedCommandPrefixes?: Set<string>
-}
+type TestContextOverrides = Partial<ChatStoreContext>
 
 function createTestContext(overrides?: TestContextOverrides): ChatStoreContext {
-  // Allow passing Sets directly for test convenience
-  const approvedToolNames = overrides?.approvedToolNames ?? new Set<string>()
-  const approvedCommandPrefixes = overrides?.approvedCommandPrefixes ?? new Set<string>()
-
   return {
     getChatDir: overrides?.getChatDir ?? (() => Promise.resolve("/tmp/test-chats")),
     getInitPrompt: overrides?.getInitPrompt ?? (() => undefined),
-    getApprovedToolNames: overrides?.getApprovedToolNames ?? (() => approvedToolNames),
-    getApprovedCommandPrefixes:
-      overrides?.getApprovedCommandPrefixes ?? (() => approvedCommandPrefixes),
-    addApprovedToolName:
-      overrides?.addApprovedToolName ?? ((name: string) => approvedToolNames.add(name)),
-    addApprovedCommandPrefix:
-      overrides?.addApprovedCommandPrefix ??
-      ((prefix: string) => approvedCommandPrefixes.add(prefix)),
+    getProjectName: overrides?.getProjectName ?? (() => "test-project"),
     saveIndex: overrides?.saveIndex ?? vi.fn(),
-    saveApprovals: overrides?.saveApprovals ?? vi.fn(),
     getActiveChatId: overrides?.getActiveChatId ?? (() => "test-chat-id"),
     getWorkspacePath: overrides?.getWorkspacePath ?? (() => "/tmp/test-workspace"),
     renameChat: overrides?.renameChat ?? vi.fn(),
@@ -375,10 +368,12 @@ describe("ChatStore", () => {
   })
 
   describe("approveToolUseAll", () => {
-    it("adds tool name to approved set when scope is tool", async () => {
-      const approvedToolNames = new Set<string>()
-      const saveApprovals = vi.fn()
-      const store = createChatStore(undefined, { approvedToolNames, saveApprovals })
+    beforeEach(() => {
+      mockBackendInvoke.mockClear()
+    })
+
+    it("calls backend to add tool approval when scope is tool", async () => {
+      const store = createChatStore()
 
       runInAction(() => {
         store.pendingToolUses.push({
@@ -391,14 +386,15 @@ describe("ChatStore", () => {
 
       await store.approveToolUseAll("tool-1", "tool")
 
-      expect(approvedToolNames.has("Read")).toBe(true)
-      expect(saveApprovals).toHaveBeenCalled()
+      expect(mockBackendInvoke).toHaveBeenCalledWith("add_approval", {
+        projectName: "test-project",
+        toolOrPrefix: "Read",
+        isPrefix: false,
+      })
     })
 
-    it("adds all command prefixes when scope is command", async () => {
-      const approvedCommandPrefixes = new Set<string>()
-      const saveApprovals = vi.fn()
-      const store = createChatStore(undefined, { approvedCommandPrefixes, saveApprovals })
+    it("calls backend to add all command prefixes when scope is command", async () => {
+      const store = createChatStore()
 
       runInAction(() => {
         store.pendingToolUses.push({
@@ -412,15 +408,20 @@ describe("ChatStore", () => {
 
       await store.approveToolUseAll("tool-1", "command")
 
-      expect(approvedCommandPrefixes.has("cd")).toBe(true)
-      expect(approvedCommandPrefixes.has("pnpm install")).toBe(true)
-      expect(saveApprovals).toHaveBeenCalled()
+      expect(mockBackendInvoke).toHaveBeenCalledWith("add_approval", {
+        projectName: "test-project",
+        toolOrPrefix: "cd",
+        isPrefix: true,
+      })
+      expect(mockBackendInvoke).toHaveBeenCalledWith("add_approval", {
+        projectName: "test-project",
+        toolOrPrefix: "pnpm install",
+        isPrefix: true,
+      })
     })
 
-    it("auto-approves other pending Bash tools when all their prefixes become approved", async () => {
-      const approvedCommandPrefixes = new Set<string>()
-      const saveApprovals = vi.fn()
-      const store = createChatStore(undefined, { approvedCommandPrefixes, saveApprovals })
+    it("auto-approves other pending Bash tools when all their prefixes match", async () => {
+      const store = createChatStore()
 
       runInAction(() => {
         // First tool with cd and pnpm install
@@ -451,7 +452,7 @@ describe("ChatStore", () => {
 
       await store.approveToolUseAll("tool-1", "command")
 
-      // tool-1 and tool-2 should be approved (cd is now approved)
+      // tool-1 and tool-2 should be approved (cd is in tool-1's prefixes)
       expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
         "test-chat-id",
         "tool-1",
@@ -465,15 +466,13 @@ describe("ChatStore", () => {
         { command: "cd /bar" }
       )
 
-      // tool-3 should remain pending (pnpm test not approved)
+      // tool-3 should remain pending (pnpm test not in tool-1's prefixes)
       expect(store.pendingToolUses).toHaveLength(1)
       expect(store.pendingToolUses[0].id).toBe("tool-3")
     })
 
-    it("does NOT auto-approve other Bash tools if only some of their prefixes are approved", async () => {
-      const approvedCommandPrefixes = new Set<string>()
-      const saveApprovals = vi.fn()
-      const store = createChatStore(undefined, { approvedCommandPrefixes, saveApprovals })
+    it("does NOT auto-approve other Bash tools if only some of their prefixes match", async () => {
+      const store = createChatStore()
 
       runInAction(() => {
         // First tool with just cd
@@ -484,7 +483,7 @@ describe("ChatStore", () => {
           rawInput: { command: "cd /foo" },
           commandPrefixes: ["cd"],
         })
-        // Second tool with cd AND git push (git push not approved)
+        // Second tool with cd AND git push (git push not in tool-1's prefixes)
         store.pendingToolUses.push({
           id: "tool-2",
           name: "Bash",
@@ -504,15 +503,13 @@ describe("ChatStore", () => {
         { command: "cd /foo" }
       )
 
-      // tool-2 should remain pending (git push not approved)
+      // tool-2 should remain pending (git push not in tool-1's prefixes)
       expect(store.pendingToolUses).toHaveLength(1)
       expect(store.pendingToolUses[0].id).toBe("tool-2")
     })
 
     it("auto-approves other Read tools when approving Read by tool name", async () => {
-      const approvedToolNames = new Set<string>()
-      const saveApprovals = vi.fn()
-      const store = createChatStore(undefined, { approvedToolNames, saveApprovals })
+      const store = createChatStore()
 
       runInAction(() => {
         store.pendingToolUses.push({
@@ -723,7 +720,8 @@ describe("ChatStore", () => {
       "/tmp/test-chats",
       "opus",
       "default", // permission mode
-      undefined // initPrompt
+      undefined, // initPrompt
+      "test-project"
     )
   })
 
@@ -739,7 +737,8 @@ describe("ChatStore", () => {
       "/tmp/test-chats",
       null,
       "default", // permission mode
-      undefined // initPrompt
+      undefined, // initPrompt
+      "test-project"
     )
   })
 
@@ -1152,7 +1151,8 @@ describe("ChatStore", () => {
         "/tmp/test-chats",
         null,
         "default",
-        undefined
+        undefined,
+        "test-project"
       )
     })
 
@@ -1536,7 +1536,8 @@ Final text.`,
         "/tmp/test-chats",
         null, // modelVersion
         "acceptEdits", // permission mode from chat
-        undefined // initPrompt
+        undefined, // initPrompt
+        "test-project"
       )
     })
 
@@ -1552,7 +1553,8 @@ Final text.`,
         "/tmp/test-chats",
         null, // modelVersion
         "default", // fallback to configStore.claudePermissionMode which is mocked as "default"
-        undefined // initPrompt
+        undefined, // initPrompt
+        "test-project"
       )
     })
   })
