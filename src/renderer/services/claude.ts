@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { backend, type Unsubscribe } from "../backend"
 import type { QuestionItem, ToolMeta } from "../types"
 import { getCommandPrefixes } from "../types"
 import type { AgentService, AgentEventCallback, AgentDoneCallback } from "./types"
@@ -106,9 +105,9 @@ interface ConversationProcess {
   running: boolean
   buffer: string
   rawOutput: string
-  unlistenStdout: UnlistenFn | null
-  unlistenStderr: UnlistenFn | null
-  unlistenClose: UnlistenFn | null
+  unlistenStdout: Unsubscribe | null
+  unlistenStderr: Unsubscribe | null
+  unlistenClose: Unsubscribe | null
 }
 
 class ClaudeAgentService implements AgentService {
@@ -137,25 +136,25 @@ class ClaudeAgentService implements AgentService {
     const conv = this.getOrCreateConversation(chatId)
 
     if (!conv.unlistenStdout) {
-      conv.unlistenStdout = await listen<string>(`agent:stdout:${chatId}`, (event) => {
-        const line = event.payload ?? ""
+      conv.unlistenStdout = await backend.listen<string>(`agent:stdout:${chatId}`, (line) => {
+        const payload = line ?? ""
         if (conv.rawOutput.length < 4096) {
-          conv.rawOutput += line
+          conv.rawOutput += payload
         }
-        this.handleOutput(chatId, `${line}\n`)
+        this.handleOutput(chatId, `${payload}\n`)
       })
     }
 
     if (!conv.unlistenStderr) {
-      conv.unlistenStderr = await listen<string>(`agent:stderr:${chatId}`, (event) => {
-        if (event.payload) {
-          console.warn(`Claude stderr [${chatId}]:`, event.payload)
+      conv.unlistenStderr = await backend.listen<string>(`agent:stderr:${chatId}`, (payload) => {
+        if (payload) {
+          console.warn(`Claude stderr [${chatId}]:`, payload)
         }
       })
     }
 
     if (!conv.unlistenClose) {
-      conv.unlistenClose = await listen<{ code: number }>(`agent:close:${chatId}`, () => {
+      conv.unlistenClose = await backend.listen<{ code: number }>(`agent:close:${chatId}`, () => {
         if (conv.buffer.trim()) {
           this.parseLine(chatId, conv.buffer.trim())
           conv.buffer = ""
@@ -193,7 +192,7 @@ class ClaudeAgentService implements AgentService {
         },
       }
       console.log(`Sending follow-up via stdin [${chatId}], session:`, conv.sessionId)
-      await invoke("agent_stdin", {
+      await backend.invoke("agent_stdin", {
         conversationId: chatId,
         data: JSON.stringify(envelope),
       })
@@ -216,7 +215,7 @@ class ClaudeAgentService implements AgentService {
     )
 
     try {
-      await invoke("start_agent", {
+      await backend.invoke("start_agent", {
         conversationId: chatId,
         prompt: messageText,
         workingDir,
@@ -255,7 +254,7 @@ class ClaudeAgentService implements AgentService {
 
     console.log(`Sending control_response [${chatId}]:`, response)
 
-    await invoke("agent_stdin", {
+    await backend.invoke("agent_stdin", {
       conversationId: chatId,
       data: JSON.stringify(response),
     })
@@ -434,7 +433,7 @@ class ClaudeAgentService implements AgentService {
     if (conv) {
       conv.running = false
     }
-    await invoke("stop_agent", { conversationId: chatId })
+    await backend.invoke("stop_agent", { conversationId: chatId })
   }
 
   isRunning(chatId: string): boolean {

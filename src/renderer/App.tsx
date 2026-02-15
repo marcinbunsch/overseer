@@ -10,8 +10,7 @@ import { UpdateNotification } from "./components/shared/UpdateNotification"
 import { configStore } from "./stores/ConfigStore"
 import { projectRegistry } from "./stores/ProjectRegistry"
 import { updateStore } from "./stores/UpdateStore"
-import { invoke } from "@tauri-apps/api/core"
-import { listen } from "@tauri-apps/api/event"
+import { backend } from "./backend"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { confirm } from "@tauri-apps/plugin-dialog"
 
@@ -108,18 +107,18 @@ export default observer(function App() {
   useEffect(() => {
     // Show the window after React has mounted to avoid white flash
     // (window starts hidden via `visible: false` in tauri.conf.json)
-    invoke("show_main_window")
+    backend.invoke("show_main_window")
 
     // Check for updates on startup (non-blocking)
     updateStore.checkForUpdates()
 
-    const unlistenSettings = listen("menu:settings", () => {
+    const unlistenSettings = backend.listen("menu:settings", () => {
       configStore.setSettingsOpen(true)
     })
 
     // Handle window close: warn if chats are running, then flush to disk
     // The Rust side prevents default close and emits this event so we can handle it
-    const unlistenClose = listen("window-close-requested", handleWindowClose)
+    const unlistenClose = backend.listen("window-close-requested", handleWindowClose)
 
     return () => {
       unlistenSettings.then((fn) => fn())

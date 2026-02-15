@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { backend, type Unsubscribe } from "../backend"
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
 import { configStore } from "../stores/ConfigStore"
@@ -100,7 +99,7 @@ interface OpenCodeChat {
   running: boolean
   workingDir: string
   client: OpencodeClient | null
-  unlistenClose: UnlistenFn | null
+  unlistenClose: Unsubscribe | null
 }
 
 /**
@@ -139,10 +138,13 @@ class OpenCodeAgentService implements AgentService {
     const serverId = chat.serverId
 
     if (!chat.unlistenClose) {
-      chat.unlistenClose = await listen<{ code: number }>(`opencode:close:${serverId}`, () => {
-        chat.running = false
-        this.doneCallbacks.get(chatId)?.()
-      })
+      chat.unlistenClose = await backend.listen<{ code: number }>(
+        `opencode:close:${serverId}`,
+        () => {
+          chat.running = false
+          this.doneCallbacks.get(chatId)?.()
+        }
+      )
     }
   }
 
@@ -167,7 +169,7 @@ class OpenCodeAgentService implements AgentService {
 
       console.log(`Starting OpenCode server [${chatId}]`)
       try {
-        const result = await invoke<string>("start_opencode_server", {
+        const result = await backend.invoke<string>("start_opencode_server", {
           serverId: chat.serverId,
           opencodePath: configStore.opencodePath,
           port: 14096,
@@ -330,7 +332,7 @@ class OpenCodeAgentService implements AgentService {
 
     // Stop the server
     chat.running = false
-    await invoke("stop_opencode_server", { serverId: chat.serverId })
+    await backend.invoke("stop_opencode_server", { serverId: chat.serverId })
   }
 
   isRunning(chatId: string): boolean {
@@ -379,7 +381,7 @@ class OpenCodeAgentService implements AgentService {
     }
 
     try {
-      const models = await invoke<OpenCodeModel[]>("opencode_get_models", {
+      const models = await backend.invoke<OpenCodeModel[]>("opencode_get_models", {
         serverId: chat.serverId,
       })
 
@@ -405,7 +407,7 @@ export async function listOpencodeModels(
   agentShell: string | null
 ): Promise<AgentModel[]> {
   try {
-    const models = await invoke<OpenCodeModel[]>("opencode_list_models", {
+    const models = await backend.invoke<OpenCodeModel[]>("opencode_list_models", {
       opencodePath,
       agentShell,
     })

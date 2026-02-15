@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
+import { backend } from "../backend"
 
 /**
  * Overseer Actions Protocol
@@ -41,7 +41,7 @@ export interface ExtractOverseerBlocksResult {
  * Returns the cleaned content (with blocks removed) and the list of parsed actions.
  */
 export async function extractOverseerBlocks(content: string): Promise<ExtractOverseerBlocksResult> {
-  return invoke<ExtractOverseerBlocksResult>("extract_overseer_blocks_cmd", { content })
+  return backend.invoke<ExtractOverseerBlocksResult>("extract_overseer_blocks_cmd", { content })
 }
 
 /**

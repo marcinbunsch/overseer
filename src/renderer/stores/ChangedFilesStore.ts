@@ -1,5 +1,5 @@
 import { observable, action, computed, makeObservable, runInAction } from "mobx"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { backend, type Unsubscribe } from "../backend"
 import { gitService, type PrStatus } from "../services/git"
 import { projectRegistry } from "./ProjectRegistry"
 import { toastStore } from "./ToastStore"
@@ -27,7 +27,7 @@ export class ChangedFilesStore {
 
   private workspacePath: string
   private workspaceId: string
-  private unlisteners: UnlistenFn[] = []
+  private unlisteners: Unsubscribe[] = []
   private eventBusUnsubscribers: (() => void)[] = []
   private prevRunningCount = 0
   private disposed = false
@@ -343,14 +343,16 @@ export class ChangedFilesStore {
     const workspaceStore = projectRegistry.selectedWorkspaceStore
     const chats = workspaceStore?.activeChats ?? []
     for (const { chat } of chats) {
-      listen<unknown>(`claude:close:${chat.id}`, () => {
-        setTimeout(() => {
-          this.refresh()
-          this.refreshPr()
-        }, 500)
-      }).then((unlisten) => {
-        this.unlisteners.push(unlisten)
-      })
+      backend
+        .listen<unknown>(`claude:close:${chat.id}`, () => {
+          setTimeout(() => {
+            this.refresh()
+            this.refreshPr()
+          }, 500)
+        })
+        .then((unlisten) => {
+          this.unlisteners.push(unlisten)
+        })
     }
   }
 

@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { backend, type Unsubscribe } from "../backend"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
 import { getCommandPrefixes } from "../types"
 import { configStore } from "../stores/ConfigStore"
@@ -69,9 +68,9 @@ interface CopilotChat {
   buffer: string
   workingDir: string
   supportsLoadSession: boolean
-  unlistenStdout: UnlistenFn | null
-  unlistenStderr: UnlistenFn | null
-  unlistenClose: UnlistenFn | null
+  unlistenStdout: Unsubscribe | null
+  unlistenStderr: Unsubscribe | null
+  unlistenClose: Unsubscribe | null
   /** Track active tool calls for status updates */
   activeToolCalls: Map<string, { title: string; kind: string }>
   /** Currently active task for child tool grouping */
@@ -129,24 +128,33 @@ class CopilotAgentService implements AgentService {
     const serverId = chat.serverId
 
     if (!chat.unlistenStdout) {
-      chat.unlistenStdout = await listen<string>(`copilot:stdout:${serverId}`, (event) => {
-        const line = event.payload ?? ""
-        this.handleOutput(chatId, `${line}\n`)
-      })
+      chat.unlistenStdout = await backend.listen<string>(
+        `copilot:stdout:${serverId}`,
+        (payload) => {
+          const line = payload ?? ""
+          this.handleOutput(chatId, `${line}\n`)
+        }
+      )
     }
 
     if (!chat.unlistenStderr) {
-      chat.unlistenStderr = await listen<string>(`copilot:stderr:${serverId}`, (event) => {
-        const line = event.payload ?? ""
-        console.warn(`Copilot stderr [${chatId}]:`, line)
-      })
+      chat.unlistenStderr = await backend.listen<string>(
+        `copilot:stderr:${serverId}`,
+        (payload) => {
+          const line = payload ?? ""
+          console.warn(`Copilot stderr [${chatId}]:`, line)
+        }
+      )
     }
 
     if (!chat.unlistenClose) {
-      chat.unlistenClose = await listen<{ code: number }>(`copilot:close:${serverId}`, () => {
-        chat.running = false
-        this.doneCallbacks.get(chatId)?.()
-      })
+      chat.unlistenClose = await backend.listen<{ code: number }>(
+        `copilot:close:${serverId}`,
+        () => {
+          chat.running = false
+          this.doneCallbacks.get(chatId)?.()
+        }
+      )
     }
   }
 
@@ -174,7 +182,7 @@ class CopilotAgentService implements AgentService {
 
       console.log(`Starting Copilot ACP server [${chatId}]`)
       try {
-        await invoke("start_copilot_server", {
+        await backend.invoke("start_copilot_server", {
           serverId: chat.serverId,
           copilotPath: configStore.copilotPath,
           modelVersion: modelVersion ?? null,
@@ -251,7 +259,7 @@ class CopilotAgentService implements AgentService {
     if (!chat) return
 
     console.log(`Sending permission response [${chatId}]:`, response)
-    await invoke("copilot_stdin", {
+    await backend.invoke("copilot_stdin", {
       serverId: chat.serverId,
       data: response,
     })
@@ -273,7 +281,7 @@ class CopilotAgentService implements AgentService {
     await this.interruptTurn(chatId)
 
     chat.running = false
-    await invoke("stop_copilot_server", { serverId: chat.serverId })
+    await backend.invoke("stop_copilot_server", { serverId: chat.serverId })
   }
 
   isRunning(chatId: string): boolean {
@@ -324,7 +332,7 @@ class CopilotAgentService implements AgentService {
 
     return new Promise((resolve, reject) => {
       this.pendingResponses.set(id, { chatId, resolve, reject })
-      invoke("copilot_stdin", { serverId: chat.serverId, data: msg }).catch(reject)
+      backend.invoke("copilot_stdin", { serverId: chat.serverId, data: msg }).catch(reject)
     })
   }
 
@@ -333,7 +341,7 @@ class CopilotAgentService implements AgentService {
     if (!chat) return
 
     const msg = JSON.stringify({ jsonrpc: "2.0", method, params })
-    invoke("copilot_stdin", { serverId: chat.serverId, data: msg }).catch((err) => {
+    backend.invoke("copilot_stdin", { serverId: chat.serverId, data: msg }).catch((err) => {
       console.warn(`Failed to send copilot notification [${chatId}]:`, err)
     })
   }

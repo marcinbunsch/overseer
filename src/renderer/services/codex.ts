@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { backend, type Unsubscribe } from "../backend"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
 import { getCommandPrefixes } from "../types"
 import { configStore } from "../stores/ConfigStore"
@@ -71,8 +70,8 @@ interface CodexChat {
   running: boolean
   buffer: string
   workingDir: string
-  unlistenStdout: UnlistenFn | null
-  unlistenClose: UnlistenFn | null
+  unlistenStdout: Unsubscribe | null
+  unlistenClose: Unsubscribe | null
   /** Track whether we're currently streaming command output */
   inCommandExecution: boolean
 }
@@ -121,14 +120,14 @@ class CodexAgentService implements AgentService {
     const serverId = chat.serverId
 
     if (!chat.unlistenStdout) {
-      chat.unlistenStdout = await listen<string>(`codex:stdout:${serverId}`, (event) => {
-        const line = event.payload ?? ""
+      chat.unlistenStdout = await backend.listen<string>(`codex:stdout:${serverId}`, (payload) => {
+        const line = payload ?? ""
         this.handleOutput(chatId, `${line}\n`)
       })
     }
 
     if (!chat.unlistenClose) {
-      chat.unlistenClose = await listen<{ code: number }>(`codex:close:${serverId}`, () => {
+      chat.unlistenClose = await backend.listen<{ code: number }>(`codex:close:${serverId}`, () => {
         chat.running = false
         this.doneCallbacks.get(chatId)?.()
       })
@@ -159,7 +158,7 @@ class CodexAgentService implements AgentService {
 
       console.log(`Starting Codex app-server [${chatId}]`)
       try {
-        await invoke("start_codex_server", {
+        await backend.invoke("start_codex_server", {
           serverId: chat.serverId,
           codexPath: configStore.codexPath,
           modelVersion: modelVersion ?? null,
@@ -237,7 +236,7 @@ class CodexAgentService implements AgentService {
     if (!chat) return
 
     console.log(`Sending approval response [${chatId}]:`, response)
-    await invoke("codex_stdin", {
+    await backend.invoke("codex_stdin", {
       serverId: chat.serverId,
       data: response,
     })
@@ -259,7 +258,7 @@ class CodexAgentService implements AgentService {
     await this.interruptTurn(chatId)
 
     chat.running = false
-    await invoke("stop_codex_server", { serverId: chat.serverId })
+    await backend.invoke("stop_codex_server", { serverId: chat.serverId })
   }
 
   isRunning(chatId: string): boolean {
@@ -309,7 +308,7 @@ class CodexAgentService implements AgentService {
 
     return new Promise((resolve, reject) => {
       this.pendingResponses.set(id, { chatId, resolve, reject })
-      invoke("codex_stdin", { serverId: chat.serverId, data: msg }).catch(reject)
+      backend.invoke("codex_stdin", { serverId: chat.serverId, data: msg }).catch(reject)
     })
   }
 
@@ -318,7 +317,7 @@ class CodexAgentService implements AgentService {
     if (!chat) return
 
     const msg = JSON.stringify({ method, params })
-    invoke("codex_stdin", { serverId: chat.serverId, data: msg }).catch((err) => {
+    backend.invoke("codex_stdin", { serverId: chat.serverId, data: msg }).catch((err) => {
       console.warn(`Failed to send codex notification [${chatId}]:`, err)
     })
   }
@@ -426,7 +425,7 @@ class CodexAgentService implements AgentService {
     const response = JSON.stringify({ id: req.id, result: { decision: "accept" } })
     const chat = this.chats.get(chatId)
     if (chat) {
-      invoke("codex_stdin", { serverId: chat.serverId, data: response }).catch(() => {})
+      backend.invoke("codex_stdin", { serverId: chat.serverId, data: response }).catch(() => {})
     }
   }
 

@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { backend, type Unsubscribe } from "../backend"
 import type { ToolMeta } from "../types"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
 import { configStore } from "../stores/ConfigStore"
@@ -69,9 +68,9 @@ interface GeminiChat {
   running: boolean
   buffer: string
   workingDir: string
-  unlistenStdout: UnlistenFn | null
-  unlistenStderr: UnlistenFn | null
-  unlistenClose: UnlistenFn | null
+  unlistenStdout: Unsubscribe | null
+  unlistenStderr: Unsubscribe | null
+  unlistenClose: Unsubscribe | null
   /** Count of rate limit retries - used to detect death spirals */
   rateLimitCount: number
   /** True if the last emitted message was an info message (rate limit, etc.) */
@@ -122,18 +121,16 @@ class GeminiAgentService implements AgentService {
     const chat = this.getOrCreateChat(chatId)
 
     if (!chat.unlistenStdout) {
-      chat.unlistenStdout = await listen<string>(`gemini:stdout:${chatId}`, (event) => {
-        const line = event.payload ?? ""
+      chat.unlistenStdout = await backend.listen<string>(`gemini:stdout:${chatId}`, (payload) => {
+        const line = payload ?? ""
         this.handleOutput(chatId, `${line}\n`)
       })
     }
 
     if (!chat.unlistenStderr) {
-      chat.unlistenStderr = await listen<string>(`gemini:stderr:${chatId}`, (event) => {
-        if (event.payload) {
-          console.warn(`Gemini stderr [${chatId}]:`, event.payload)
-          // Detect quota limit / retry messages and show them as info messages
-          const payload = event.payload
+      chat.unlistenStderr = await backend.listen<string>(`gemini:stderr:${chatId}`, (payload) => {
+        if (payload) {
+          console.warn(`Gemini stderr [${chatId}]:`, payload)
           if (payload.includes("exhausted your capacity") || payload.includes("Retrying after")) {
             chat.rateLimitCount++
 
@@ -164,7 +161,7 @@ class GeminiAgentService implements AgentService {
     }
 
     if (!chat.unlistenClose) {
-      chat.unlistenClose = await listen<{ code: number }>(`gemini:close:${chatId}`, () => {
+      chat.unlistenClose = await backend.listen<{ code: number }>(`gemini:close:${chatId}`, () => {
         // Process any remaining buffered content
         if (chat.buffer.trim()) {
           this.parseLine(chatId, chat.buffer.trim())
@@ -214,7 +211,7 @@ class GeminiAgentService implements AgentService {
     )
 
     try {
-      await invoke("start_gemini_server", {
+      await backend.invoke("start_gemini_server", {
         serverId: chatId,
         geminiPath: configStore.geminiPath,
         prompt: messageText,
@@ -256,7 +253,7 @@ class GeminiAgentService implements AgentService {
     if (chat) {
       chat.running = false
     }
-    await invoke("stop_gemini_server", { serverId: chatId })
+    await backend.invoke("stop_gemini_server", { serverId: chatId })
   }
 
   isRunning(chatId: string): boolean {

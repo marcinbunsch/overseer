@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
+import { backend } from "../backend"
 
 /**
  * Parse a bash command into its command prefixes using the Rust backend.
@@ -10,7 +10,7 @@ import { invoke } from "@tauri-apps/api/core"
  * For multi-word commands (like `git status`), returns the command + subcommand.
  */
 export async function getCommandPrefixes(command: string): Promise<string[]> {
-  return invoke<string[]>("get_command_prefixes", { command })
+  return backend.invoke<string[]>("get_command_prefixes", { command })
 }
 
 /**
@@ -20,5 +20,5 @@ export async function getCommandPrefixes(command: string): Promise<string[]> {
  * are in the SAFE_COMMANDS set (e.g., git status, git diff, git log).
  */
 export async function areCommandsSafe(prefixes: string[]): Promise<boolean> {
-  return invoke<boolean>("are_commands_safe", { prefixes })
+  return backend.invoke<boolean>("are_commands_safe", { prefixes })
 }
