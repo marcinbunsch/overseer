@@ -59,7 +59,7 @@ pub fn start_agent(
 
     // Open log file
     let lid = log_id.as_deref().unwrap_or(&conversation_id);
-    let log_handle = open_log_file(&log_dir, lid);
+    let log_handle = open_log_file(log_dir.as_deref(), lid);
 
     // Build config using core
     let config = ClaudeConfig {

@@ -59,7 +59,7 @@ pub fn start_gemini_server(
 
     // Open log file
     let lid = log_id.as_deref().unwrap_or(&server_id);
-    let log_handle = open_log_file(&log_dir, lid);
+    let log_handle = open_log_file(log_dir.as_deref(), lid);
 
     // Build config using core
     let config = GeminiConfig {

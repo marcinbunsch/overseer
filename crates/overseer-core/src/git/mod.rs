@@ -381,6 +381,14 @@ mod tests {
     }
 
     #[test]
+    fn animals_list_has_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for animal in ANIMALS {
+            assert!(seen.insert(*animal), "Duplicate animal name: {}", animal);
+        }
+    }
+
+    #[test]
     fn git_error_display() {
         let err = GitError::CommandFailed(std::io::Error::new(
             std::io::ErrorKind::NotFound,

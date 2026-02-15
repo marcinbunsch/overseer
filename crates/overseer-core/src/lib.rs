@@ -16,6 +16,7 @@
 pub mod agents;
 pub mod approval;
 pub mod git;
+pub mod logging;
 pub mod overseer_actions;
 pub mod persistence;
 pub mod session;

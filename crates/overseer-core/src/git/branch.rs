@@ -108,23 +108,166 @@ pub async fn delete_branch(repo_path: &Path, branch_name: &str) -> Result<(), Gi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+    use tempfile::tempdir;
 
-    // Note: These tests would require a real git repository.
-    // Unit tests here focus on error condition logic.
+    /// Create an isolated git repository for testing.
+    fn init_temp_repo(branch_name: &str) -> tempfile::TempDir {
+        let dir = tempdir().unwrap();
+        let path = dir.path();
 
-    #[test]
-    fn rename_detects_main_branch() {
-        // We can't easily test the full function without a git repo,
-        // but we can verify the logic flow by examining the error types
+        // Use GIT_CONFIG_GLOBAL to isolate from user's global config
+        let empty_config = path.join(".gitconfig-empty");
+        std::fs::write(&empty_config, "").unwrap();
 
-        // The function should return GitError::Other for main/master
-        // This is tested indirectly through the implementation
+        Command::new("git")
+            .args(["init", "-b", branch_name])
+            .env("GIT_CONFIG_GLOBAL", &empty_config)
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .env("GIT_CONFIG_GLOBAL", &empty_config)
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .env("GIT_CONFIG_GLOBAL", &empty_config)
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        // Need at least one commit so HEAD is valid
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .env("GIT_CONFIG_GLOBAL", &empty_config)
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        dir
     }
 
     #[test]
     fn git_error_for_rename_failure() {
-        // Verify that GitError types are appropriate
         let err = GitError::Other("Cannot rename the main branch".to_string());
         assert!(err.to_string().contains("main branch"));
+    }
+
+    #[tokio::test]
+    async fn rename_branch_blocks_main() {
+        let dir = init_temp_repo("main");
+        let result = rename_branch(dir.path(), "new-name").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("main branch"));
+    }
+
+    #[tokio::test]
+    async fn rename_branch_blocks_master() {
+        let dir = init_temp_repo("master");
+        let result = rename_branch(dir.path(), "new-name").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("main branch"));
+    }
+
+    #[tokio::test]
+    async fn rename_branch_allows_feature_branch() {
+        let dir = init_temp_repo("feature-branch");
+        let result = rename_branch(dir.path(), "renamed-branch").await;
+        assert!(result.is_ok());
+
+        let output = Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_eq!(branch, "renamed-branch");
+    }
+
+    #[tokio::test]
+    async fn delete_branch_removes_merged_branch() {
+        let dir = init_temp_repo("main");
+        let path = dir.path();
+
+        // Create and checkout a feature branch
+        Command::new("git")
+            .args(["checkout", "-b", "feature-to-delete"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        // Make a commit on feature branch
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "feature commit"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        // Switch back to main and merge
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        Command::new("git")
+            .args(["merge", "feature-to-delete"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        // Now delete the branch
+        let result = delete_branch(path, "feature-to-delete").await;
+        assert!(result.is_ok());
+
+        // Verify branch no longer exists
+        let output = Command::new("git")
+            .args(["branch", "--list", "feature-to-delete"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_branch_fails_for_unmerged_branch() {
+        let dir = init_temp_repo("main");
+        let path = dir.path();
+
+        // Create a feature branch with unmerged changes
+        Command::new("git")
+            .args(["checkout", "-b", "unmerged-feature"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "unmerged commit"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        // Switch back to main (don't merge)
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        // Try to delete - should fail with -d (safe delete)
+        let result = delete_branch(path, "unmerged-feature").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn delete_branch_fails_for_nonexistent_branch() {
+        let dir = init_temp_repo("main");
+        let result = delete_branch(dir.path(), "nonexistent-branch").await;
+        assert!(result.is_err());
     }
 }
