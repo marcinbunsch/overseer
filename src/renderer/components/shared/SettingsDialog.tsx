@@ -500,10 +500,13 @@ export const SettingsDialog = observer(function SettingsDialog({
 }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general")
 
-  // Lazy-load OpenCode models when settings dialog opens
+  // Reset to General tab and refresh OpenCode models when dialog opens
   useEffect(() => {
-    if (open && configStore.isAgentEnabled("opencode")) {
-      configStore.refreshOpencodeModels()
+    if (open) {
+      setActiveTab("general")
+      if (configStore.isAgentEnabled("opencode")) {
+        configStore.refreshOpencodeModels()
+      }
     }
   }, [open])
 
