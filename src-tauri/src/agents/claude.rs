@@ -5,11 +5,13 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use tauri::Emitter;
 
 use crate::logging::{log_line, open_log_file, LogHandle};
 use overseer_core::agents::claude::{ClaudeConfig, ClaudeParser};
+use overseer_core::shell::AgentExit;
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
 
 struct AgentProcessEntry {
@@ -104,7 +106,7 @@ pub fn start_agent(
             let event = {
                 let guard = process_arc.lock().unwrap();
                 if let Some(ref process) = *guard {
-                    process.recv()
+                    process.try_recv()
                 } else {
                     break;
                 }
@@ -141,15 +143,34 @@ pub fn start_agent(
                     break;
                 }
                 None => {
-                    let parsed_events = {
-                        let mut parser = parser_arc.lock().unwrap();
-                        parser.flush()
+                    let still_running = {
+                        let guard = process_arc.lock().unwrap();
+                        guard
+                            .as_ref()
+                            .map(|process| process.is_running())
+                            .unwrap_or(false)
                     };
-                    for event in parsed_events {
-                        let _ = app.emit(&format!("agent:event:{}", conv_id), event);
+
+                    if !still_running {
+                        let parsed_events = {
+                            let mut parser = parser_arc.lock().unwrap();
+                            parser.flush()
+                        };
+                        for event in parsed_events {
+                            let _ = app.emit(&format!("agent:event:{}", conv_id), event);
+                        }
+                        let _ = app.emit(
+                            &format!("agent:close:{}", conv_id),
+                            AgentExit {
+                                code: 0,
+                                signal: None,
+                            },
+                        );
+                        process_arc.lock().unwrap().take();
+                        break;
                     }
-                    process_arc.lock().unwrap().take();
-                    break;
+
+                    std::thread::sleep(Duration::from_millis(10));
                 }
             }
         }
