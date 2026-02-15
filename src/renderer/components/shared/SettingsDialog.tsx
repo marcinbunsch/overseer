@@ -20,7 +20,6 @@ import { configStore } from "../../stores/ConfigStore"
 import { debugStore } from "../../stores/DebugStore"
 import { toolAvailabilityStore, type ToolStatus } from "../../stores/ToolAvailabilityStore"
 import { updateStore } from "../../stores/UpdateStore"
-import { getVersion } from "@tauri-apps/api/app"
 import type { AgentType } from "../../types"
 import { AgentIcon } from "../chat/AgentIcon"
 import { ModelSelector } from "../chat/ModelSelector"
@@ -401,19 +400,11 @@ const AdvancedTab = observer(function AdvancedTab() {
 })
 
 const UpdatesTab = observer(function UpdatesTab() {
-  const [currentVersion, setCurrentVersion] = useState<string | null>(null)
-
-  useEffect(() => {
-    getVersion().then(setCurrentVersion)
-  }, [])
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <span className="text-xs text-ovr-text-primary">
-            Current version: {currentVersion ?? "..."}
-          </span>
+          <span className="text-xs text-ovr-text-primary">Current version: {__APP_VERSION__}</span>
         </div>
         <button
           onClick={() => updateStore.checkForUpdates(false)}
