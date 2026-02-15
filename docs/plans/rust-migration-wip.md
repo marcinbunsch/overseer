@@ -7,40 +7,42 @@ This document tracks the current state of the Rust core migration. For the full 
 ### Completed
 
 #### Phase 1: Crate Structure Setup ✅
-- `overseer-core` crate created at `src-tauri/crates/overseer-core/`
+- `overseer-core` crate created at `crates/overseer-core/`
 - Workspace structure in place
 - No Tauri dependencies in core crate
 
-#### Phase 2: Tool Approval Logic ✅ (Partial - Rust side complete)
-The Rust side is complete, but the Tauri integration needs wiring:
+#### Phase 2: Tool Approval Logic ✅ (Rust side complete, wiring pending)
+The Rust side is complete, but the Tauri integration still needs wiring:
 
 **Rust implementation (`overseer-core/src/approval/`):**
 - `command_parser.rs` - Command prefix extraction for shell commands
 - `safe_commands.rs` - List of safe (auto-approvable) read-only commands
 - `context.rs` - `ApprovalContext` with `should_auto_approve()` method
 
-**Frontend cleanup (just completed):**
-- Removed ALL approval logic from frontend
+**Frontend cleanup:**
+- Removed frontend auto-approval decision logic
 - Deleted `src/renderer/services/approval.ts`
 - Removed `getCommandPrefixes`, `areCommandsSafe` from `src/renderer/types/index.ts`
 - Removed `commandPrefixes` from `toolApproval` event type
 - Removed `get_command_prefixes` Tauri command from `lib.rs`
-- ChatStore now just adds all `toolApproval` events to pending list - no auto-approval
+- ChatStore now just adds all `toolApproval` events to pending list (no auto-approval)
 
-**Key principle established:** The frontend is "dumb" - it assumes it can run everything unless the backend tells it otherwise. Auto-approval decisions happen in Rust before events reach the frontend.
+**Key principle established:** Auto-approval decisions belong in Rust. The frontend only renders approvals and sends user decisions back.
 
 #### Additional Completed Work
-- **Shell utilities** moved to `overseer-core/src/shell/`
-- **Git operations** moved to `overseer-core/src/git/`
-- **Logging** moved to `overseer-core/src/logging/`
-- **Agent spawning** moved to `overseer-core/src/agents/` with per-agent modules
-- **Overseer actions** parsing moved to `overseer-core/src/overseer_actions/`
-- **Backend abstraction layer** for Tauri/Web portability
+- **Shell utilities** moved to `crates/overseer-core/src/shell.rs`
+- **Git operations** moved to `crates/overseer-core/src/git/` (Tauri wrappers call core)
+- **Logging** moved to `crates/overseer-core/src/logging.rs` (re-exported in `src-tauri/src/logging.rs`)
+- **Agent spawning/config** moved to `crates/overseer-core/src/spawn.rs` and `crates/overseer-core/src/agents/*/spawn.rs`
+- **Agent protocol parsers** implemented in `crates/overseer-core/src/agents/*/parser.rs` (not wired yet)
+- **Overseer actions** parsing moved to `crates/overseer-core/src/overseer_actions/` and exposed via `extract_overseer_blocks_cmd`
+- **Session state + manager** implemented in `crates/overseer-core/src/session/`
+- **Persistence modules** implemented in `crates/overseer-core/src/persistence/` (approvals, chat, index, projects)
 
 ### In Progress
 
 #### Phase 2 Completion: Wire Approval to Backend
-The Rust `ApprovalContext` exists but isn't wired into the agent event handling yet. The flow should be:
+The Rust `ApprovalContext` exists but isn't wired into agent event handling yet. The flow should be:
 
 1. Agent process sends `control_request` for tool approval
 2. **Currently:** Event goes straight to frontend
@@ -49,51 +51,33 @@ The Rust `ApprovalContext` exists but isn't wired into the agent event handling 
    - If not safe → emit `toolApproval` event for frontend to show
 
 This requires:
-- Creating a session/state layer that holds `ApprovalContext` per session
+- Using the existing session/state layer to hold `ApprovalContext` per session
 - Intercepting `control_request` events in Rust before they reach the frontend
 - Responding to agent process from Rust when auto-approving
+- Keeping frontend approval UI + persistence (ProjectStore) as the presentation layer
 
-### Not Started
+#### Phase 3: Agent Protocol Parsing (Implemented in core, not wired)
+Core parsers exist for all agent backends, but Tauri still forwards raw stdout and the frontend still parses:
+- `crates/overseer-core/src/agents/claude/parser.rs`
+- `crates/overseer-core/src/agents/codex/parser.rs`
+- `crates/overseer-core/src/agents/copilot/parser.rs`
+- `crates/overseer-core/src/agents/gemini/parser.rs`
+- `crates/overseer-core/src/agents/opencode/parser.rs`
 
-#### Phase 3: Agent Protocol Parsing (Priority 2)
-Move ~1500 lines of TypeScript protocol parsing to Rust:
-- `src/renderer/services/claude.ts` → `overseer-core/src/agents/claude/`
-- `src/renderer/services/codex.ts` → `overseer-core/src/agents/codex/`
-- `src/renderer/services/copilot.ts` → `overseer-core/src/agents/copilot/`
-- etc.
+Integration work still needed:
+- Route agent stdout/stderr through core parsers and emit `AgentEvent` from Rust
+- Remove duplicate parsing paths in `src/renderer/services/*`
 
 #### Phase 4: Overseer Actions Execution
-The parser exists in Rust (`extract_overseer_blocks`), but execution still happens in TypeScript.
+Parsing is in Rust (`extract_overseer_blocks`), but execution still happens in TypeScript (`executeOverseerAction`).
 
 #### Phase 5: Chat Persistence
-Move file I/O from ChatStore/WorkspaceStore to Rust.
+Rust persistence modules exist, but file I/O still lives in TS stores:
+- `ProjectStore` reads/writes approvals
+- Chat/workspace persistence is still handled in the renderer
 
 #### Phase 6: SessionManager
-Create unified session management for process sharing across interfaces.
-
----
-
-## Recent Changes (This Session)
-
-### Files Modified
-| File | Change |
-|------|--------|
-| `src-tauri/src/lib.rs` | Removed `use overseer_core::approval;` import, removed `get_command_prefixes` command |
-| `src/renderer/services/approval.ts` | **Deleted** - no longer needed |
-| `src/renderer/services/types.ts` | Removed `commandPrefixes` from `toolApproval` event type |
-| `src/renderer/services/claude.ts` | Removed `getCommandPrefixes` import and usage |
-| `src/renderer/services/codex.ts` | Removed `getCommandPrefixes` import and usage |
-| `src/renderer/services/copilot.ts` | Removed `getCommandPrefixes` import and usage |
-| `src/renderer/types/index.ts` | Removed `getCommandPrefixes`, `getCommandPrefix`, `areCommandsSafe`, `SINGLE_WORD_COMMANDS`, `SAFE_COMMANDS` |
-| `src/renderer/stores/ChatStore.ts` | Removed approval logic - now just adds all tool approvals to pending list |
-| `src/renderer/stores/__tests__/ChatStore.test.ts` | Removed approval-related test mocks and expectations |
-| `src/renderer/services/__tests__/claude.test.ts` | Removed approval function mocks |
-| `src/renderer/services/__tests__/codex.test.ts` | Removed approval function mocks |
-| `src/renderer/services/__tests__/copilot.test.ts` | Removed approval function mocks |
-| `src/renderer/types/__tests__/commandPrefixes.test.ts` | **Deleted** - tests for removed TS functions |
-
-### Lines Removed
-Approximately **747 lines** of TypeScript code removed (approval logic, tests, command parsing).
+Session state + `SessionManager` exist in core, but aren't wired into Tauri yet.
 
 ---
 
@@ -102,8 +86,8 @@ Approximately **747 lines** of TypeScript code removed (approval logic, tests, c
 ### Immediate (To Complete Phase 2)
 
 1. **Create session state layer in Rust**
-   - `overseer-core/src/session/state.rs` - Per-session state including `ApprovalContext`
-   - Sessions need to persist approval context across turns
+   - Already exists (`crates/overseer-core/src/session/state.rs`)
+   - Wire it into the Tauri agent lifecycle so approval context persists across turns
 
 2. **Wire approval checking into agent event handling**
    - When `control_request` comes from agent, check `should_auto_approve()`
@@ -143,7 +127,7 @@ The frontend just:
 
 ### overseer-core Structure
 ```
-src-tauri/crates/overseer-core/src/
+crates/overseer-core/src/
 ├── lib.rs
 ├── approval/
 │   ├── mod.rs
@@ -152,19 +136,22 @@ src-tauri/crates/overseer-core/src/
 │   └── safe_commands.rs     # SAFE_COMMANDS, SINGLE_WORD_COMMANDS
 ├── agents/
 │   ├── mod.rs
-│   ├── claude.rs
-│   ├── codex.rs
-│   ├── copilot.rs
-│   ├── gemini.rs
-│   └── opencode.rs
+│   ├── event.rs
+│   ├── turn.rs
+│   ├── claude/
+│   ├── codex/
+│   ├── copilot/
+│   ├── gemini/
+│   └── opencode/
 ├── git/
 │   └── mod.rs               # Git operations (workspaces, diffs, merge)
-├── logging/
-│   └── mod.rs
+├── logging.rs
 ├── overseer_actions/
 │   └── mod.rs               # Parse <overseer-*> blocks
-└── shell/
-    └── mod.rs               # Login shell command building
+├── persistence/
+├── session/
+├── shell.rs                 # Login shell command building
+└── spawn.rs                 # Agent process spawning
 ```
 
 ---
