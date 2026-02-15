@@ -48,11 +48,11 @@ use std::path::Path;
 ///
 /// ```ignore
 /// // Rename current branch from "old-feature" to "new-feature"
-/// rename_branch(workspace_path, "new-feature")?;
+/// rename_branch(workspace_path, "new-feature").await?;
 /// ```
-pub fn rename_branch(workspace_path: &Path, new_name: &str) -> Result<(), GitError> {
+pub async fn rename_branch(workspace_path: &Path, new_name: &str) -> Result<(), GitError> {
     // Check current branch
-    let current_branch = get_current_branch(workspace_path)?;
+    let current_branch = get_current_branch(workspace_path).await?;
 
     // Prevent renaming main/master
     if current_branch == "main" || current_branch == "master" {
@@ -60,7 +60,7 @@ pub fn rename_branch(workspace_path: &Path, new_name: &str) -> Result<(), GitErr
     }
 
     // Rename using git branch -m
-    run_git_success(&["branch", "-m", new_name], workspace_path)?;
+    run_git_success(&["branch", "-m", new_name], workspace_path).await?;
 
     Ok(())
 }
@@ -94,10 +94,10 @@ pub fn rename_branch(workspace_path: &Path, new_name: &str) -> Result<(), GitErr
 ///
 /// ```ignore
 /// // Delete a merged feature branch
-/// delete_branch(repo_path, "feature-done")?;
+/// delete_branch(repo_path, "feature-done").await?;
 /// ```
-pub fn delete_branch(repo_path: &Path, branch_name: &str) -> Result<(), GitError> {
-    run_git_success(&["branch", "-d", branch_name], repo_path)?;
+pub async fn delete_branch(repo_path: &Path, branch_name: &str) -> Result<(), GitError> {
+    run_git_success(&["branch", "-d", branch_name], repo_path).await?;
     Ok(())
 }
 

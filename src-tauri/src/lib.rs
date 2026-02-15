@@ -278,10 +278,9 @@ pub fn run() {
 mod tests {
     use crate::agents::AgentExit;
     use crate::check_command_exists;
-    use crate::git::{
-        delete_branch, parse_diff_name_status, rename_branch, ChangedFile, MergeResult, PrStatus,
-        WorkspaceInfo, ANIMALS,
-    };
+    use crate::git::PrStatus;
+    // Git types are now in overseer_core::git
+    use overseer_core::git::{parse_diff_name_status, ChangedFile, MergeResult, WorkspaceInfo, ANIMALS};
     use std::process::Command;
 
     #[test]
@@ -464,23 +463,29 @@ mod tests {
     #[test]
     fn rename_branch_blocks_main() {
         let dir = init_temp_repo("main");
-        let result = rename_branch(dir.path().to_str().unwrap(), "new-name");
+        let result = tauri::async_runtime::block_on(
+            overseer_core::git::rename_branch(dir.path(), "new-name")
+        );
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Cannot rename the main branch");
+        assert!(result.unwrap_err().to_string().contains("main branch"));
     }
 
     #[test]
     fn rename_branch_blocks_master() {
         let dir = init_temp_repo("master");
-        let result = rename_branch(dir.path().to_str().unwrap(), "new-name");
+        let result = tauri::async_runtime::block_on(
+            overseer_core::git::rename_branch(dir.path(), "new-name")
+        );
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Cannot rename the main branch");
+        assert!(result.unwrap_err().to_string().contains("main branch"));
     }
 
     #[test]
     fn rename_branch_allows_feature_branch() {
         let dir = init_temp_repo("feature-branch");
-        let result = rename_branch(dir.path().to_str().unwrap(), "renamed-branch");
+        let result = tauri::async_runtime::block_on(
+            overseer_core::git::rename_branch(dir.path(), "renamed-branch")
+        );
         assert!(result.is_ok());
 
         let output = Command::new("git")
@@ -495,7 +500,7 @@ mod tests {
     #[test]
     fn delete_branch_removes_merged_branch() {
         let dir = init_temp_repo("main");
-        let path = dir.path().to_str().unwrap();
+        let path = dir.path();
 
         // Create and checkout a feature branch
         Command::new("git")
@@ -525,7 +530,9 @@ mod tests {
             .unwrap();
 
         // Now delete the branch
-        let result = delete_branch(path, "feature-to-delete");
+        let result = tauri::async_runtime::block_on(
+            overseer_core::git::delete_branch(path, "feature-to-delete")
+        );
         assert!(result.is_ok());
 
         // Verify branch no longer exists
@@ -540,7 +547,7 @@ mod tests {
     #[test]
     fn delete_branch_fails_for_unmerged_branch() {
         let dir = init_temp_repo("main");
-        let path = dir.path().to_str().unwrap();
+        let path = dir.path();
 
         // Create a feature branch with unmerged changes
         Command::new("git")
@@ -563,14 +570,18 @@ mod tests {
             .unwrap();
 
         // Try to delete - should fail with -d (safe delete)
-        let result = delete_branch(path, "unmerged-feature");
+        let result = tauri::async_runtime::block_on(
+            overseer_core::git::delete_branch(path, "unmerged-feature")
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn delete_branch_fails_for_nonexistent_branch() {
         let dir = init_temp_repo("main");
-        let result = delete_branch(dir.path().to_str().unwrap(), "nonexistent-branch");
+        let result = tauri::async_runtime::block_on(
+            overseer_core::git::delete_branch(dir.path(), "nonexistent-branch")
+        );
         assert!(result.is_err());
     }
 

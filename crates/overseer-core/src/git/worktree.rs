@@ -70,16 +70,16 @@ pub struct WorkspaceInfo {
 /// # Example
 ///
 /// ```ignore
-/// let workspaces = list_workspaces("/path/to/repo")?;
+/// let workspaces = list_workspaces("/path/to/repo").await?;
 /// for ws in workspaces {
 ///     println!("{}: {}", ws.branch, ws.path);
 /// }
 /// ```
-pub fn list_workspaces(repo_path: &Path) -> Result<Vec<WorkspaceInfo>, GitError> {
+pub async fn list_workspaces(repo_path: &Path) -> Result<Vec<WorkspaceInfo>, GitError> {
     // Run git worktree list in porcelain format for reliable parsing
-    let output = run_git(&["worktree", "list", "--porcelain"], repo_path)?;
+    let output = run_git(&["worktree", "list", "--porcelain"], repo_path).await?;
 
-    if !output.status.success() {
+    if !output.success {
         return Err(GitError::GitFailed {
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -260,7 +260,7 @@ pub fn pick_workspace_dir(repo_path: &Path) -> Result<PathBuf, GitError> {
 /// - Cannot pick a workspace directory
 /// - Git worktree creation fails
 /// - Cannot resolve the absolute path
-pub fn add_workspace(repo_path: &Path, branch: &str) -> Result<PathBuf, GitError> {
+pub async fn add_workspace(repo_path: &Path, branch: &str) -> Result<PathBuf, GitError> {
     let workspace_path = pick_workspace_dir(repo_path)?;
     let workspace_str = workspace_path.to_string_lossy();
 
@@ -268,13 +268,14 @@ pub fn add_workspace(repo_path: &Path, branch: &str) -> Result<PathBuf, GitError
     let output = run_git(
         &["worktree", "add", &workspace_str, "-b", branch],
         repo_path,
-    )?;
+    )
+    .await?;
 
-    if !output.status.success() {
+    if !output.success {
         // Branch might already exist - try without -b
-        let output2 = run_git(&["worktree", "add", &workspace_str, branch], repo_path)?;
+        let output2 = run_git(&["worktree", "add", &workspace_str, branch], repo_path).await?;
 
-        if !output2.status.success() {
+        if !output2.success {
             return Err(GitError::GitFailed {
                 stderr: String::from_utf8_lossy(&output2.stderr).to_string(),
                 stdout: String::from_utf8_lossy(&output2.stdout).to_string(),
@@ -309,13 +310,13 @@ pub fn add_workspace(repo_path: &Path, branch: &str) -> Result<PathBuf, GitError
 /// # Errors
 ///
 /// Returns an error if both normal and force removal fail.
-pub fn archive_workspace(repo_path: &Path, workspace_path: &Path) -> Result<(), GitError> {
+pub async fn archive_workspace(repo_path: &Path, workspace_path: &Path) -> Result<(), GitError> {
     let workspace_str = workspace_path.to_string_lossy();
 
     // Try normal removal first
-    let output = run_git(&["worktree", "remove", &workspace_str], repo_path)?;
+    let output = run_git(&["worktree", "remove", &workspace_str], repo_path).await?;
 
-    if output.status.success() {
+    if output.success {
         return Ok(());
     }
 
@@ -323,9 +324,10 @@ pub fn archive_workspace(repo_path: &Path, workspace_path: &Path) -> Result<(), 
     let output2 = run_git(
         &["worktree", "remove", "--force", &workspace_str],
         repo_path,
-    )?;
+    )
+    .await?;
 
-    if output2.status.success() {
+    if output2.success {
         Ok(())
     } else {
         Err(GitError::GitFailed {

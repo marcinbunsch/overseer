@@ -2,7 +2,7 @@
 //!
 //! # Overview
 //!
-//! This module provides pure Rust implementations of git operations
+//! This module provides async Rust implementations of git operations
 //! used by Overseer. It wraps the `git` CLI for maximum compatibility
 //! with user configurations (SSH keys, credentials, hooks, etc.).
 //!
@@ -38,13 +38,13 @@
 //! };
 //!
 //! // List all worktrees
-//! let workspaces = list_workspaces("/path/to/repo")?;
+//! let workspaces = list_workspaces("/path/to/repo").await?;
 //!
 //! // Get changed files in a workspace
-//! let changes = list_changed_files("/path/to/workspace")?;
+//! let changes = list_changed_files("/path/to/workspace").await?;
 //!
 //! // Check if merge would succeed
-//! let result = check_merge("/path/to/workspace")?;
+//! let result = check_merge("/path/to/workspace").await?;
 //! ```
 
 pub mod branch;
@@ -53,12 +53,14 @@ pub mod merge;
 pub mod worktree;
 
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::Stdio;
+use tokio::process::Command;
 
 // Re-export commonly used items
 pub use branch::{delete_branch, rename_branch};
 pub use diff::{
-    get_file_diff, get_uncommitted_diff, list_changed_files, ChangedFile, ChangedFilesResult,
+    get_file_diff, get_uncommitted_diff, list_changed_files, parse_diff_name_status, ChangedFile,
+    ChangedFilesResult,
 };
 pub use merge::{check_merge, merge_into_main, MergeResult};
 pub use worktree::{
@@ -112,15 +114,44 @@ impl From<std::io::Error> for GitError {
 }
 
 // ============================================================================
+// OUTPUT TYPE
+// ============================================================================
+
+/// Output from a git command.
+///
+/// Similar to `std::process::Output` but owned strings for convenience.
+#[derive(Debug)]
+pub struct GitOutput {
+    /// Whether the command succeeded (exit code 0)
+    pub success: bool,
+    /// The stdout output
+    pub stdout: Vec<u8>,
+    /// The stderr output
+    pub stderr: Vec<u8>,
+}
+
+impl GitOutput {
+    /// Get stdout as a string (lossy UTF-8 conversion)
+    pub fn stdout_str(&self) -> String {
+        String::from_utf8_lossy(&self.stdout).to_string()
+    }
+
+    /// Get stderr as a string (lossy UTF-8 conversion)
+    pub fn stderr_str(&self) -> String {
+        String::from_utf8_lossy(&self.stderr).to_string()
+    }
+}
+
+// ============================================================================
 // COMMON UTILITIES
 // ============================================================================
 
-/// Run a git command and return the output.
+/// Run a git command asynchronously and return the output.
 ///
 /// This is the core helper used by all git operations. It:
 /// 1. Runs the command in the specified directory
 /// 2. Captures stdout and stderr
-/// 3. Returns the raw Output for further processing
+/// 3. Returns the output for further processing
 ///
 /// # Arguments
 ///
@@ -129,18 +160,25 @@ impl From<std::io::Error> for GitError {
 ///
 /// # Returns
 ///
-/// The raw `Output` from the command, or `GitError` if the command failed to run.
-pub fn run_git(args: &[&str], cwd: &Path) -> Result<Output, GitError> {
-    Command::new("git")
+/// The `GitOutput` from the command, or `GitError` if the command failed to run.
+pub async fn run_git(args: &[&str], cwd: &Path) -> Result<GitOutput, GitError> {
+    let output = Command::new("git")
         .args(args)
         .current_dir(cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .map_err(GitError::CommandFailed)
+        .await
+        .map_err(GitError::CommandFailed)?;
+
+    Ok(GitOutput {
+        success: output.status.success(),
+        stdout: output.stdout,
+        stderr: output.stderr,
+    })
 }
 
-/// Run a git command and check for success.
+/// Run a git command asynchronously and check for success.
 ///
 /// Convenience wrapper that returns the stdout as a string if successful,
 /// or an error with stderr if the command failed.
@@ -153,10 +191,10 @@ pub fn run_git(args: &[&str], cwd: &Path) -> Result<Output, GitError> {
 /// # Returns
 ///
 /// The stdout as a trimmed string, or `GitError` on failure.
-pub fn run_git_success(args: &[&str], cwd: &Path) -> Result<String, GitError> {
-    let output = run_git(args, cwd)?;
+pub async fn run_git_success(args: &[&str], cwd: &Path) -> Result<String, GitError> {
+    let output = run_git(args, cwd).await?;
 
-    if output.status.success() {
+    if output.success {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
         Err(GitError::GitFailed {
@@ -166,7 +204,7 @@ pub fn run_git_success(args: &[&str], cwd: &Path) -> Result<String, GitError> {
     }
 }
 
-/// Check if a git ref exists.
+/// Check if a git ref exists (async).
 ///
 /// Uses `git rev-parse --verify` to check if a ref is valid.
 ///
@@ -178,18 +216,19 @@ pub fn run_git_success(args: &[&str], cwd: &Path) -> Result<String, GitError> {
 /// # Returns
 ///
 /// `true` if the ref exists, `false` otherwise.
-pub fn ref_exists(ref_name: &str, cwd: &Path) -> bool {
-    Command::new("git")
+pub async fn ref_exists(ref_name: &str, cwd: &Path) -> bool {
+    let output = Command::new("git")
         .args(["rev-parse", "--verify", ref_name])
         .current_dir(cwd)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .await;
+
+    output.map(|s| s.success()).unwrap_or(false)
 }
 
-/// Get the current branch name.
+/// Get the current branch name (async).
 ///
 /// # Arguments
 ///
@@ -198,11 +237,11 @@ pub fn ref_exists(ref_name: &str, cwd: &Path) -> bool {
 /// # Returns
 ///
 /// The current branch name, or "HEAD" if in detached HEAD state.
-pub fn get_current_branch(cwd: &Path) -> Result<String, GitError> {
-    run_git_success(&["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+pub async fn get_current_branch(cwd: &Path) -> Result<String, GitError> {
+    run_git_success(&["rev-parse", "--abbrev-ref", "HEAD"], cwd).await
 }
 
-/// Detect the default branch (main, master, etc.).
+/// Detect the default branch (main, master, etc.) (async).
 ///
 /// Checks for local branches first, then remote tracking branches.
 /// Falls back to "main" if none found.
@@ -214,10 +253,10 @@ pub fn get_current_branch(cwd: &Path) -> Result<String, GitError> {
 /// # Returns
 ///
 /// The default branch name (e.g., "main", "master", "origin/main").
-pub fn get_default_branch(cwd: &Path) -> String {
+pub async fn get_default_branch(cwd: &Path) -> String {
     // Check candidates in order of preference
     for candidate in &["main", "master", "origin/main", "origin/master"] {
-        if ref_exists(candidate, cwd) {
+        if ref_exists(candidate, cwd).await {
             return (*candidate).to_string();
         }
     }
@@ -226,17 +265,18 @@ pub fn get_default_branch(cwd: &Path) -> String {
     "main".to_string()
 }
 
-/// Check if the current branch is the default branch.
+/// Check if the current branch is the default branch (async).
 ///
 /// Returns true if on main, master, or in detached HEAD state.
-pub fn is_on_default_branch(cwd: &Path) -> Result<bool, GitError> {
-    let branch = get_current_branch(cwd)?;
+pub async fn is_on_default_branch(cwd: &Path) -> Result<bool, GitError> {
+    let branch = get_current_branch(cwd).await?;
     Ok(branch == "main" || branch == "master" || branch == "HEAD")
 }
 
 /// Check if a path is inside a git repository.
 ///
 /// Simply checks for the presence of a `.git` directory.
+/// This is synchronous since it's just a filesystem check.
 pub fn is_git_repo(path: &Path) -> bool {
     path.join(".git").exists()
 }

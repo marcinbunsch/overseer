@@ -83,16 +83,16 @@ pub struct MergeResult {
 /// # Example
 ///
 /// ```ignore
-/// let result = check_merge(workspace_path)?;
+/// let result = check_merge(workspace_path).await?;
 /// if result.success {
 ///     println!("Merge would succeed: {}", result.message);
 /// } else if !result.conflicts.is_empty() {
 ///     println!("Conflicts in: {:?}", result.conflicts);
 /// }
 /// ```
-pub fn check_merge(workspace_path: &Path) -> Result<MergeResult, GitError> {
+pub async fn check_merge(workspace_path: &Path) -> Result<MergeResult, GitError> {
     // Get current branch (the feature branch)
-    let feature_branch = get_current_branch(workspace_path)?;
+    let feature_branch = get_current_branch(workspace_path).await?;
 
     // Check if already on default branch
     if feature_branch == "main" || feature_branch == "master" {
@@ -104,7 +104,7 @@ pub fn check_merge(workspace_path: &Path) -> Result<MergeResult, GitError> {
     }
 
     // Get default branch, stripping origin/ prefix if present
-    let default_remote = get_default_branch(workspace_path);
+    let default_remote = get_default_branch(workspace_path).await;
     let default_branch = default_remote
         .strip_prefix("origin/")
         .unwrap_or(&default_remote)
@@ -120,9 +120,10 @@ pub fn check_merge(workspace_path: &Path) -> Result<MergeResult, GitError> {
             &feature_branch,
         ],
         workspace_path,
-    )?;
+    )
+    .await?;
 
-    if is_ancestor.status.success() {
+    if is_ancestor.success {
         return Ok(MergeResult {
             success: true,
             conflicts: vec![],
@@ -142,9 +143,10 @@ pub fn check_merge(workspace_path: &Path) -> Result<MergeResult, GitError> {
             &feature_branch,
         ],
         workspace_path,
-    )?;
+    )
+    .await?;
 
-    if merge_tree.status.success() {
+    if merge_tree.success {
         return Ok(MergeResult {
             success: true,
             conflicts: vec![],
@@ -209,9 +211,9 @@ pub fn check_merge(workspace_path: &Path) -> Result<MergeResult, GitError> {
 ///
 /// If the merge fails due to conflicts, the function automatically
 /// runs `git merge --abort` to leave the main workspace clean.
-pub fn merge_into_main(workspace_path: &Path) -> Result<MergeResult, GitError> {
+pub async fn merge_into_main(workspace_path: &Path) -> Result<MergeResult, GitError> {
     // Get current branch (the feature branch)
-    let feature_branch = get_current_branch(workspace_path)?;
+    let feature_branch = get_current_branch(workspace_path).await?;
 
     // Check if already on default branch
     if feature_branch == "main" || feature_branch == "master" {
@@ -223,7 +225,7 @@ pub fn merge_into_main(workspace_path: &Path) -> Result<MergeResult, GitError> {
     }
 
     // Get default branch name (without origin/ prefix)
-    let default_remote = get_default_branch(workspace_path);
+    let default_remote = get_default_branch(workspace_path).await;
     let default_branch = default_remote
         .strip_prefix("origin/")
         .unwrap_or(&default_remote)
@@ -231,7 +233,7 @@ pub fn merge_into_main(workspace_path: &Path) -> Result<MergeResult, GitError> {
 
     // Find the workspace checked out on the default branch
     // We need to run the merge FROM that workspace
-    let wt_output = run_git(&["worktree", "list", "--porcelain"], workspace_path)?;
+    let wt_output = run_git(&["worktree", "list", "--porcelain"], workspace_path).await?;
     let wt_stdout = String::from_utf8_lossy(&wt_output.stdout);
 
     let mut main_workspace_path: Option<String> = None;
@@ -272,9 +274,10 @@ pub fn merge_into_main(workspace_path: &Path) -> Result<MergeResult, GitError> {
             &format!("Merge branch '{feature_branch}'"),
         ],
         main_path,
-    )?;
+    )
+    .await?;
 
-    if merge_output.status.success() {
+    if merge_output.success {
         return Ok(MergeResult {
             success: true,
             conflicts: vec![],
@@ -294,7 +297,7 @@ pub fn merge_into_main(workspace_path: &Path) -> Result<MergeResult, GitError> {
         .collect();
 
     // Abort the merge to leave the repository clean
-    let _ = run_git(&["merge", "--abort"], main_path);
+    let _ = run_git(&["merge", "--abort"], main_path).await;
 
     if !conflicts.is_empty() {
         return Ok(MergeResult {

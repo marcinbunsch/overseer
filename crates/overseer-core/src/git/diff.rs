@@ -131,18 +131,18 @@ pub fn parse_diff_name_status(stdout: &str) -> Vec<ChangedFile> {
 /// - Branch changes (`files`) are sorted alphabetically by path
 /// - Uncommitted changes are sorted with tracked changes first, then
 ///   untracked files, both groups sorted alphabetically
-pub fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesResult, GitError> {
+pub async fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesResult, GitError> {
     let mut files: Vec<ChangedFile> = Vec::new();
     let mut uncommitted: Vec<ChangedFile> = Vec::new();
 
     // Get current branch
-    let current_branch = get_current_branch(workspace_path)?;
+    let current_branch = get_current_branch(workspace_path).await?;
 
     let is_default_branch =
         current_branch == "main" || current_branch == "master" || current_branch == "HEAD";
 
     // === Uncommitted changes (staged + unstaged against HEAD) ===
-    let uncommitted_output = run_git(&["diff", "--name-status", "HEAD"], workspace_path)?;
+    let uncommitted_output = run_git(&["diff", "--name-status", "HEAD"], workspace_path).await?;
     uncommitted.extend(parse_diff_name_status(&String::from_utf8_lossy(
         &uncommitted_output.stdout,
     )));
@@ -151,7 +151,8 @@ pub fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesResult, G
     let untracked = run_git(
         &["ls-files", "--others", "--exclude-standard"],
         workspace_path,
-    )?;
+    )
+    .await?;
 
     let untracked_stdout = String::from_utf8_lossy(&untracked.stdout);
     for line in untracked_stdout.lines() {
@@ -173,12 +174,12 @@ pub fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesResult, G
 
     // === Branch changes (committed changes vs default branch) ===
     if !is_default_branch {
-        let default_branch = get_default_branch(workspace_path);
+        let default_branch = get_default_branch(workspace_path).await;
 
         // Find the merge base (common ancestor)
-        let merge_base = run_git(&["merge-base", "HEAD", &default_branch], workspace_path)?;
+        let merge_base = run_git(&["merge-base", "HEAD", &default_branch], workspace_path).await?;
 
-        if merge_base.status.success() {
+        if merge_base.success {
             let base_ref = String::from_utf8_lossy(&merge_base.stdout)
                 .trim()
                 .to_string();
@@ -187,7 +188,8 @@ pub fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesResult, G
             let output = run_git(
                 &["diff", "--name-status", &base_ref, "HEAD"],
                 workspace_path,
-            )?;
+            )
+            .await?;
 
             files.extend(parse_diff_name_status(&String::from_utf8_lossy(
                 &output.stdout,
@@ -230,7 +232,7 @@ pub fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesResult, G
 /// - Untracked files (`?`): Uses `git diff --no-index /dev/null <file>`
 /// - Added files (`A`): Same as untracked
 /// - Other statuses: Uses standard diff against merge-base or HEAD
-pub fn get_file_diff(
+pub async fn get_file_diff(
     workspace_path: &Path,
     file_path: &str,
     file_status: &str,
@@ -240,14 +242,15 @@ pub fn get_file_diff(
         let output = run_git(
             &["diff", "--no-index", "/dev/null", file_path],
             workspace_path,
-        )?;
+        )
+        .await?;
 
         // Note: git diff --no-index exits with 1 when files differ (expected)
         return Ok(String::from_utf8_lossy(&output.stdout).to_string());
     }
 
     // Get current branch to determine base ref
-    let current_branch = get_current_branch(workspace_path)?;
+    let current_branch = get_current_branch(workspace_path).await?;
 
     let is_default_branch =
         current_branch == "main" || current_branch == "master" || current_branch == "HEAD";
@@ -255,12 +258,12 @@ pub fn get_file_diff(
     let base_ref = if is_default_branch {
         "HEAD".to_string()
     } else {
-        let default_branch = get_default_branch(workspace_path);
+        let default_branch = get_default_branch(workspace_path).await;
 
         // Get merge-base for comparison
-        let merge_base = run_git(&["merge-base", "HEAD", &default_branch], workspace_path)?;
+        let merge_base = run_git(&["merge-base", "HEAD", &default_branch], workspace_path).await?;
 
-        if merge_base.status.success() {
+        if merge_base.success {
             String::from_utf8_lossy(&merge_base.stdout)
                 .trim()
                 .to_string()
@@ -269,7 +272,7 @@ pub fn get_file_diff(
         }
     };
 
-    let output = run_git(&["diff", &base_ref, "--", file_path], workspace_path)?;
+    let output = run_git(&["diff", &base_ref, "--", file_path], workspace_path).await?;
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
@@ -292,7 +295,7 @@ pub fn get_file_diff(
 ///
 /// - [`get_file_diff`]: Shows committed changes compared to default branch
 /// - [`get_uncommitted_diff`]: Shows uncommitted changes compared to HEAD
-pub fn get_uncommitted_diff(
+pub async fn get_uncommitted_diff(
     workspace_path: &Path,
     file_path: &str,
     file_status: &str,
@@ -302,14 +305,15 @@ pub fn get_uncommitted_diff(
         let output = run_git(
             &["diff", "--no-index", "/dev/null", file_path],
             workspace_path,
-        )?;
+        )
+        .await?;
 
         // Note: exit code 1 is expected when files differ
         return Ok(String::from_utf8_lossy(&output.stdout).to_string());
     }
 
     // Diff against HEAD for uncommitted changes
-    let output = run_git(&["diff", "HEAD", "--", file_path], workspace_path)?;
+    let output = run_git(&["diff", "HEAD", "--", file_path], workspace_path).await?;
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
