@@ -12,7 +12,6 @@ import type {
   PendingPlanApproval,
   AgentType,
 } from "../types"
-import { areCommandsSafe } from "../types"
 import { groupMessagesIntoTurns } from "../utils/groupMessagesIntoTurns"
 import { getAgentService } from "../services/agentRegistry"
 import type { AgentEvent, AgentService } from "../services/types"
@@ -531,32 +530,11 @@ export class ChatStore {
         }
 
         case "toolApproval": {
-          // Auto-approve if user previously chose "Approve All Like This"
-          const approvedTools = this.context.getApprovedToolNames()
-          const approvedPrefixes = this.context.getApprovedCommandPrefixes()
-
-          // Check if all commands are safe (read-only operations)
-          const isSafeCommand = areCommandsSafe(event.commandPrefixes)
-
-          // For Bash commands with chained commands, ALL prefixes must be approved
-          const allPrefixesApproved =
-            event.name === "Bash" &&
-            event.commandPrefixes?.length &&
-            event.commandPrefixes.every((p) => approvedPrefixes.has(p))
-
-          const autoApproved = approvedTools.has(event.name) || allPrefixesApproved || isSafeCommand
-
-          if (autoApproved && this.service) {
-            this.service.sendToolApproval(this.chat.id, event.id, true, event.input)
-            return
-          }
-
           this.pendingToolUses.push({
             id: event.id,
             name: event.name,
             input: event.displayInput,
             rawInput: event.input,
-            commandPrefixes: event.commandPrefixes,
           })
           break
         }

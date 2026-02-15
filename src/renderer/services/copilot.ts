@@ -1,6 +1,5 @@
 import { backend, type Unsubscribe } from "../backend"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
-import { getCommandPrefixes } from "../types"
 import { configStore } from "../stores/ConfigStore"
 import { toolAvailabilityStore } from "../stores/ToolAvailabilityStore"
 
@@ -428,12 +427,6 @@ class CopilotAgentService implements AgentService {
       // Convert kind to tool name
       const toolName = this.kindToToolName(kind, title)
 
-      // Extract command prefixes for Bash approvals (handles chained commands)
-      let commandPrefixes: string[] | undefined
-      if (toolName === "Bash" && rawInput.command) {
-        commandPrefixes = getCommandPrefixes({ command: rawInput.command })
-      }
-
       // Build display input based on tool type
       let displayInput: string
       if (toolName === "Bash" && rawInput.command) {
@@ -452,7 +445,6 @@ class CopilotAgentService implements AgentService {
         name: toolName,
         input: rawInput,
         displayInput,
-        commandPrefixes,
         // Include options for potential future use (allow_always support)
         options: options.map((o) => ({ id: o.optionId, name: o.name, kind: o.kind })),
       })

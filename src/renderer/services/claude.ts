@@ -1,6 +1,5 @@
 import { backend, type Unsubscribe } from "../backend"
 import type { QuestionItem, ToolMeta } from "../types"
-import { getCommandPrefixes } from "../types"
 import type { AgentService, AgentEventCallback, AgentDoneCallback } from "./types"
 import { configStore } from "../stores/ConfigStore"
 import { toolAvailabilityStore } from "../stores/ToolAvailabilityStore"
@@ -403,7 +402,6 @@ class ClaudeAgentService implements AgentService {
       const toolInput = event.request.input ?? {}
       const displayInput =
         Object.keys(toolInput).length > 0 ? JSON.stringify(toolInput, null, 2) : ""
-      const cmdPrefixes = toolName === "Bash" ? getCommandPrefixes(toolInput) : undefined
 
       this.emitEvent(chatId, {
         kind: "toolApproval",
@@ -411,7 +409,6 @@ class ClaudeAgentService implements AgentService {
         name: toolName,
         input: toolInput,
         displayInput,
-        commandPrefixes: cmdPrefixes,
       })
       return
     }

@@ -3,7 +3,6 @@ mod git;
 mod logging;
 mod pty;
 
-use overseer_core::approval;
 use overseer_core::shell::build_login_shell_command;
 use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -22,21 +21,6 @@ async fn is_debug_mode() -> bool {
 #[tauri::command]
 async fn is_demo_mode() -> bool {
     std::env::var("OVERSEER_DEMO").is_ok()
-}
-
-/// Parse a bash command into its command prefixes.
-///
-/// For chained commands like `git status && npm test`, returns
-/// `["git status", "npm test"]`.
-#[tauri::command]
-fn get_command_prefixes(command: String) -> Vec<String> {
-    approval::parse_command_prefixes(&command)
-}
-
-/// Check if all command prefixes are safe (read-only operations).
-#[tauri::command]
-fn are_commands_safe(prefixes: Vec<String>) -> bool {
-    approval::are_commands_safe(&prefixes)
 }
 
 /// Result of extracting overseer action blocks from content.
@@ -246,8 +230,6 @@ pub fn run() {
             show_main_window,
             is_debug_mode,
             is_demo_mode,
-            get_command_prefixes,
-            are_commands_safe,
             extract_overseer_blocks_cmd,
             pty::pty_spawn,
             pty::pty_write,

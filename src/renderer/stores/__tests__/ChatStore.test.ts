@@ -302,17 +302,14 @@ describe("ChatStore", () => {
       name: "Bash",
       input: { command: "git commit -m 'test'" },
       displayInput: '{"command": "git commit -m \'test\'"}',
-      commandPrefixes: ["git commit"],
     })
 
     expect(store.pendingToolUses).toHaveLength(1)
     expect(store.pendingToolUses[0].name).toBe("Bash")
-    expect(store.pendingToolUses[0].commandPrefixes).toEqual(["git commit"])
   })
 
-  it("handleAgentEvent auto-approves tools in the approved set", () => {
-    const approvedToolNames = new Set(["Read"])
-    const store = createChatStore(undefined, { approvedToolNames })
+  it("handleAgentEvent adds non-Bash tools to pending list", () => {
+    const store = createChatStore()
 
     const eventCall = mockAgentService.onEvent.mock.calls.find(
       (c: unknown[]) => c[0] === "test-chat-id"
@@ -327,124 +324,9 @@ describe("ChatStore", () => {
       displayInput: '{"path": "/tmp/file.txt"}',
     })
 
-    // Should auto-approve, not add to pending
-    expect(store.pendingToolUses).toHaveLength(0)
-    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-1", true, {
-      path: "/tmp/file.txt",
-    })
-  })
-
-  it("handleAgentEvent auto-approves Bash when all command prefixes are approved", () => {
-    const approvedCommandPrefixes = new Set(["cd", "pnpm install"])
-    const store = createChatStore(undefined, { approvedCommandPrefixes })
-
-    const eventCall = mockAgentService.onEvent.mock.calls.find(
-      (c: unknown[]) => c[0] === "test-chat-id"
-    )
-    const eventCallback = eventCall![1]
-
-    eventCallback({
-      kind: "toolApproval",
-      id: "req-1",
-      name: "Bash",
-      input: { command: "cd /foo && pnpm install" },
-      displayInput: '{"command": "cd /foo && pnpm install"}',
-      commandPrefixes: ["cd", "pnpm install"],
-    })
-
-    // Should auto-approve since both prefixes are approved
-    expect(store.pendingToolUses).toHaveLength(0)
-    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-1", true, {
-      command: "cd /foo && pnpm install",
-    })
-  })
-
-  it("handleAgentEvent does NOT auto-approve Bash when only some prefixes are approved", () => {
-    const approvedCommandPrefixes = new Set(["cd"]) // pnpm install not approved
-    const store = createChatStore(undefined, { approvedCommandPrefixes })
-
-    const eventCall = mockAgentService.onEvent.mock.calls.find(
-      (c: unknown[]) => c[0] === "test-chat-id"
-    )
-    const eventCallback = eventCall![1]
-
-    eventCallback({
-      kind: "toolApproval",
-      id: "req-1",
-      name: "Bash",
-      input: { command: "cd /foo && pnpm install" },
-      displayInput: '{"command": "cd /foo && pnpm install"}',
-      commandPrefixes: ["cd", "pnpm install"],
-    })
-
-    // Should NOT auto-approve since pnpm install is not approved
+    // Should add to pending list (no auto-approval in frontend)
     expect(store.pendingToolUses).toHaveLength(1)
-    expect(store.pendingToolUses[0].commandPrefixes).toEqual(["cd", "pnpm install"])
-    expect(mockAgentService.sendToolApproval).not.toHaveBeenCalled()
-  })
-
-  it("handleAgentEvent auto-approves single-command Bash when prefix is approved", () => {
-    const approvedCommandPrefixes = new Set(["git commit"])
-    const store = createChatStore(undefined, { approvedCommandPrefixes })
-
-    const eventCall = mockAgentService.onEvent.mock.calls.find(
-      (c: unknown[]) => c[0] === "test-chat-id"
-    )
-    const eventCallback = eventCall![1]
-
-    eventCallback({
-      kind: "toolApproval",
-      id: "req-1",
-      name: "Bash",
-      input: { command: "git commit -m 'test'" },
-      displayInput: '{"command": "git commit -m \'test\'"}',
-      commandPrefixes: ["git commit"],
-    })
-
-    // Should auto-approve
-    expect(store.pendingToolUses).toHaveLength(0)
-    expect(mockAgentService.sendToolApproval).toHaveBeenCalled()
-  })
-
-  it("handleAgentEvent auto-approves safe git commands without prior approval", () => {
-    const store = createChatStore()
-
-    const eventCall = mockAgentService.onEvent.mock.calls.find(
-      (c: unknown[]) => c[0] === "test-chat-id"
-    )
-    const eventCallback = eventCall![1]
-
-    // Test git status (safe command)
-    eventCallback({
-      kind: "toolApproval",
-      id: "req-1",
-      name: "Bash",
-      input: { command: "git status" },
-      displayInput: '{"command": "git status"}',
-      commandPrefixes: ["git status"],
-    })
-
-    // Should auto-approve without prior approval
-    expect(store.pendingToolUses).toHaveLength(0)
-    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-1", true, {
-      command: "git status",
-    })
-
-    // Test git diff (safe command)
-    eventCallback({
-      kind: "toolApproval",
-      id: "req-2",
-      name: "Bash",
-      input: { command: "git diff" },
-      displayInput: '{"command": "git diff"}',
-      commandPrefixes: ["git diff"],
-    })
-
-    // Should auto-approve
-    expect(store.pendingToolUses).toHaveLength(0)
-    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-2", true, {
-      command: "git diff",
-    })
+    expect(store.pendingToolUses[0].name).toBe("Read")
   })
 
   it("handleAgentEvent processes question events", () => {

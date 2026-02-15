@@ -249,7 +249,7 @@ describe("CopilotAgentService", () => {
       return { service: copilotAgentService, eventCb, stdoutHandler: stdoutHandler! }
     }
 
-    it("parses Bash permission request with command prefix", async () => {
+    it("parses Bash permission request", async () => {
       const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
 
       const permissionRequest = {
@@ -277,13 +277,13 @@ describe("CopilotAgentService", () => {
 
       stdoutHandler({ payload: JSON.stringify(permissionRequest) })
 
+      // Command prefixes are computed by ChatStore, not the service
       expect(eventCb).toHaveBeenCalledWith({
         kind: "toolApproval",
         id: "5",
         name: "Bash",
         input: { command: "pnpm add -D oxlint" },
         displayInput: "pnpm add -D oxlint",
-        commandPrefixes: ["pnpm add"],
         options: [
           { id: "allow_once", name: "Allow once", kind: "allow_once" },
           { id: "allow_always", name: "Always allow", kind: "allow_always" },
@@ -320,7 +320,6 @@ describe("CopilotAgentService", () => {
         name: "WebFetch",
         input: { url: "https://oxc.rs/docs" },
         displayInput: "https://oxc.rs/docs",
-        commandPrefix: undefined,
         options: [{ id: "allow_once", name: "Allow once", kind: "allow_once" }],
       })
     })
@@ -353,40 +352,8 @@ describe("CopilotAgentService", () => {
         name: "Read",
         input: { path: "/Users/test/file.ts" },
         displayInput: "/Users/test/file.ts",
-        commandPrefix: undefined,
         options: [{ id: "allow_once", name: "Allow once", kind: "allow_once" }],
       })
-    })
-
-    it("extracts command prefix correctly for multi-word commands", async () => {
-      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
-
-      const permissionRequest = {
-        jsonrpc: "2.0",
-        id: 7,
-        method: "session/request_permission",
-        params: {
-          sessionId: "sess-123",
-          toolCall: {
-            toolCallId: "shell-permission",
-            title: "Run git",
-            kind: "execute",
-            status: "pending",
-            rawInput: { command: "git commit -m 'fix: something'" },
-          },
-          options: [{ optionId: "allow_once", kind: "allow_once", name: "Allow once" }],
-        },
-      }
-
-      stdoutHandler({ payload: JSON.stringify(permissionRequest) })
-
-      expect(eventCb).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: "Bash",
-          commandPrefixes: ["git commit"],
-          displayInput: "git commit -m 'fix: something'",
-        })
-      )
     })
 
     it("falls back to JSON for unknown input types", async () => {
@@ -446,7 +413,6 @@ describe("CopilotAgentService", () => {
           name: "Bash",
           input: {},
           displayInput: "{}",
-          commandPrefixes: undefined,
         })
       )
     })

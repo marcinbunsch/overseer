@@ -1,6 +1,5 @@
 import { backend, type Unsubscribe } from "../backend"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
-import { getCommandPrefixes } from "../types"
 import { configStore } from "../stores/ConfigStore"
 import { toolAvailabilityStore } from "../stores/ToolAvailabilityStore"
 
@@ -392,7 +391,6 @@ class CodexAgentService implements AgentService {
         name: "Bash",
         input: params,
         displayInput: command,
-        commandPrefixes: getCommandPrefixes({ command }),
       })
       return
     }

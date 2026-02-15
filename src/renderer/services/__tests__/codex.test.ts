@@ -509,7 +509,7 @@ describe("CodexAgentService", () => {
     service.stopChat("chat-1")
   })
 
-  it("handleServerRequest emits toolApproval with commandPrefixes for Bash commands", async () => {
+  it("handleServerRequest emits toolApproval for Bash commands", async () => {
     const service = await freshService()
     const eventCb = vi.fn()
     service.onEvent("chat-1", eventCb)
@@ -541,51 +541,13 @@ describe("CodexAgentService", () => {
       }),
     })
 
+    // Command prefixes are computed by ChatStore, not the service
     expect(eventCb).toHaveBeenCalledWith({
       kind: "toolApproval",
       id: "123",
       name: "Bash",
       input: { command: "cd /foo && pnpm install" },
       displayInput: "cd /foo && pnpm install",
-      commandPrefixes: ["cd", "pnpm install"],
-    })
-  })
-
-  it("handleServerRequest emits toolApproval with single commandPrefix for simple commands", async () => {
-    const service = await freshService()
-    const eventCb = vi.fn()
-    service.onEvent("chat-1", eventCb)
-
-    // @ts-expect-error - accessing private method for testing
-    const chat = service.getOrCreateChat("chat-1")
-    chat.running = true
-
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
-    vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
-      }
-      return vi.fn() as unknown as () => void
-    })
-
-    // @ts-expect-error - accessing private method for testing
-    await service.attachListeners("chat-1")
-
-    stdoutHandler!({
-      payload: JSON.stringify({
-        id: 456,
-        method: "item/commandExecution/requestApproval",
-        params: { command: "git status" },
-      }),
-    })
-
-    expect(eventCb).toHaveBeenCalledWith({
-      kind: "toolApproval",
-      id: "456",
-      name: "Bash",
-      input: { command: "git status" },
-      displayInput: "git status",
-      commandPrefixes: ["git status"],
     })
   })
 

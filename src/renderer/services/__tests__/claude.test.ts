@@ -279,7 +279,7 @@ describe("ClaudeAgentService", () => {
     expect(service.getSessionId("conv-1")).toBe("sess-abc")
   })
 
-  it("handleOutput emits toolApproval with commandPrefixes for Bash commands", async () => {
+  it("handleOutput emits toolApproval for Bash commands", async () => {
     const service = await freshService()
     const eventCallback = vi.fn()
     service.onEvent("conv-1", eventCallback)
@@ -309,54 +309,17 @@ describe("ClaudeAgentService", () => {
       }),
     })
 
+    // Command prefixes are computed by ChatStore, not the service
     expect(eventCallback).toHaveBeenCalledWith({
       kind: "toolApproval",
       id: "req-bash-1",
       name: "Bash",
       input: { command: "cd /foo && pnpm install" },
       displayInput: '{\n  "command": "cd /foo && pnpm install"\n}',
-      commandPrefixes: ["cd", "pnpm install"],
     })
   })
 
-  it("handleOutput emits toolApproval with single commandPrefix for simple Bash commands", async () => {
-    const service = await freshService()
-    const eventCallback = vi.fn()
-    service.onEvent("conv-1", eventCallback)
-
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
-    vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
-      }
-      return vi.fn() as unknown as () => void
-    })
-
-    await service.sendMessage("conv-1", "hello", "/tmp")
-
-    stdoutHandler!({
-      payload: JSON.stringify({
-        type: "control_request",
-        request_id: "req-bash-2",
-        request: {
-          subtype: "can_use_tool",
-          tool_name: "Bash",
-          input: { command: "git status" },
-        },
-      }),
-    })
-
-    expect(eventCallback).toHaveBeenCalledWith({
-      kind: "toolApproval",
-      id: "req-bash-2",
-      name: "Bash",
-      input: { command: "git status" },
-      displayInput: '{\n  "command": "git status"\n}',
-      commandPrefixes: ["git status"],
-    })
-  })
-
-  it("handleOutput emits toolApproval with undefined commandPrefixes for non-Bash tools", async () => {
+  it("handleOutput emits toolApproval for non-Bash tools", async () => {
     const service = await freshService()
     const eventCallback = vi.fn()
     service.onEvent("conv-1", eventCallback)
@@ -389,7 +352,6 @@ describe("ClaudeAgentService", () => {
       name: "Read",
       input: { path: "/tmp/file.txt" },
       displayInput: '{\n  "path": "/tmp/file.txt"\n}',
-      commandPrefixes: undefined,
     })
   })
 
