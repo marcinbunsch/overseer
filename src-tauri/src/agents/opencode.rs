@@ -10,20 +10,21 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader},
     net::TcpListener,
-    process::{Child, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
 };
 use tauri::Emitter;
 
-use super::shared::{build_login_shell_command, AgentExit};
 use crate::logging::{log_line, open_log_file, LogHandle};
+use overseer_core::agents::opencode::OpenCodeConfig;
+use overseer_core::shell::build_login_shell_command;
+use overseer_core::spawn::{AgentProcess, ProcessEvent};
+use std::process::Stdio;
 
 struct OpenCodeServerEntry {
-    child: Arc<Mutex<Option<Child>>>,
+    process: Arc<Mutex<Option<AgentProcess>>>,
     port: u16,
     password: String,
     log_file: LogHandle,
@@ -33,7 +34,7 @@ struct OpenCodeServerEntry {
 impl Default for OpenCodeServerEntry {
     fn default() -> Self {
         Self {
-            child: Arc::new(Mutex::new(None)),
+            process: Arc::new(Mutex::new(None)),
             port: 0,
             password: String::new(),
             log_file: Arc::new(Mutex::new(None)),
@@ -82,10 +83,6 @@ fn generate_password() -> String {
 }
 
 /// Start an `opencode serve` process for a given server_id.
-///
-/// The server runs as an HTTP server on the specified port (or finds an available one).
-/// stdout/stderr are logged to the log file.
-/// Returns a JSON string with the port and password: {"port": 14096, "password": "..."}
 #[tauri::command]
 pub fn start_opencode_server(
     app: tauri::AppHandle,
@@ -101,8 +98,8 @@ pub fn start_opencode_server(
     {
         let map = state.servers.lock().unwrap();
         if let Some(entry) = map.get(&server_id) {
-            if let Some(mut child) = entry.child.lock().unwrap().take() {
-                let _ = child.kill();
+            if let Some(process) = entry.process.lock().unwrap().take() {
+                process.kill();
             }
         }
     }
@@ -113,104 +110,68 @@ pub fn start_opencode_server(
     // Generate a random password
     let password = generate_password();
 
-    let args = vec![
-        "serve".to_string(),
-        "--port".to_string(),
-        actual_port.to_string(),
-        "--cors".to_string(),
-        "http://localhost:1420".to_string(),
-    ];
-
-    let mut cmd = build_login_shell_command(&opencode_path, &args, None, agent_shell.as_deref())?;
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    // Note: We intentionally don't set OPENCODE_SERVER_PASSWORD because the
-    // OpenCode server doesn't exempt CORS preflight (OPTIONS) requests from
-    // authentication, causing 401 errors from the browser. Since the server
-    // only listens on 127.0.0.1, running without password is reasonably safe.
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn opencode serve: {}", e))?;
-
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Failed to capture opencode stdout".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "Failed to capture opencode stderr".to_string())?;
-
-    // Open log file if log_dir provided
+    // Open log file
     let lid = log_id.as_deref().unwrap_or(&server_id);
     let log_handle = open_log_file(&log_dir, lid);
 
+    // Build config using core
+    let config = OpenCodeConfig {
+        binary_path: opencode_path,
+        port: actual_port,
+        shell_prefix: agent_shell,
+    };
+
+    // Spawn the process
+    let process = AgentProcess::spawn(config.build())?;
+
+    // Store the process entry
     let mut entry = OpenCodeServerEntry::default();
     entry.log_file = Arc::clone(&log_handle);
     entry.port = actual_port;
     entry.password = password.clone();
-    *entry.child.lock().unwrap() = Some(child);
+    *entry.process.lock().unwrap() = Some(process);
 
-    let child_arc = Arc::clone(&entry.child);
+    let process_arc = Arc::clone(&entry.process);
 
     {
         let mut map = state.servers.lock().unwrap();
         map.insert(server_id.clone(), entry);
     }
 
-    // stdout reader — log only
-    let sid_stdout = server_id.clone();
-    let log_stdout = Arc::clone(&log_handle);
+    // Spawn event forwarding thread
+    let sid = server_id.clone();
+    let log_file = Arc::clone(&log_handle);
     std::thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines().flatten() {
-            log::debug!("opencode stdout [{}]: {}", sid_stdout, line);
-            log_line(&log_stdout, "STDOUT", &line);
-        }
-    });
-
-    // stderr reader — log only
-    let sid_stderr = server_id.clone();
-    let log_stderr = Arc::clone(&log_handle);
-    std::thread::spawn(move || {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines().flatten() {
-            log::warn!("opencode stderr [{}]: {}", sid_stderr, line);
-            log_line(&log_stderr, "STDERR", &line);
-        }
-    });
-
-    // exit watcher
-    let sid_exit = server_id.clone();
-    let app_exit = app.clone();
-    std::thread::spawn(move || loop {
-        let mut guard = child_arc.lock().unwrap();
-        if let Some(child) = guard.as_mut() {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    let _ = app_exit.emit(
-                        &format!("opencode:close:{}", sid_exit),
-                        AgentExit {
-                            code: status.code().unwrap_or_default(),
-                            signal: None,
-                        },
-                    );
-                    guard.take();
+        loop {
+            let event = {
+                let guard = process_arc.lock().unwrap();
+                if let Some(ref process) = *guard {
+                    process.recv()
+                } else {
                     break;
                 }
-                Ok(None) => {}
-                Err(_) => {
-                    guard.take();
+            };
+
+            match event {
+                Some(ProcessEvent::Stdout(line)) => {
+                    log::debug!("opencode stdout [{}]: {}", sid, line);
+                    log_line(&log_file, "STDOUT", &line);
+                }
+                Some(ProcessEvent::Stderr(line)) => {
+                    log::warn!("opencode stderr [{}]: {}", sid, line);
+                    log_line(&log_file, "STDERR", &line);
+                }
+                Some(ProcessEvent::Exit(exit)) => {
+                    let _ = app.emit(&format!("opencode:close:{}", sid), exit);
+                    process_arc.lock().unwrap().take();
+                    break;
+                }
+                None => {
+                    process_arc.lock().unwrap().take();
                     break;
                 }
             }
-        } else {
-            break;
         }
-        drop(guard);
-        std::thread::sleep(Duration::from_millis(100));
     });
 
     // Return JSON with port and password
@@ -256,15 +217,14 @@ pub fn stop_opencode_server(
     if let Some(entry) = map.get(&server_id) {
         // Stop SSE subscription
         entry.sse_active.store(false, Ordering::SeqCst);
-        if let Some(mut child) = entry.child.lock().unwrap().take() {
-            let _ = child.kill();
+        if let Some(process) = entry.process.lock().unwrap().take() {
+            process.kill();
         }
     }
     Ok(())
 }
 
 /// Fetch available models from the OpenCode server.
-/// Returns a list of models with their provider info.
 #[tauri::command(async)]
 pub fn opencode_get_models(
     state: tauri::State<OpenCodeServerMap>,
@@ -323,7 +283,6 @@ pub fn opencode_get_models(
 }
 
 /// Subscribe to SSE events from the OpenCode server.
-/// Events are emitted to the frontend via Tauri events with the pattern `opencode:event:{server_id}`.
 #[tauri::command]
 pub fn opencode_subscribe_events(
     app: tauri::AppHandle,
@@ -444,8 +403,6 @@ pub fn opencode_unsubscribe_events(
 }
 
 /// Fetch available models by running `opencode models` CLI command.
-/// This works without a running server - it uses the CLI directly.
-/// Returns a list of models with their provider info.
 #[tauri::command(async)]
 pub fn opencode_list_models(
     opencode_path: String,

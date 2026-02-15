@@ -3,7 +3,7 @@
 //! This module provides thin async wrappers around `overseer_core::git` functions.
 //! Since the core functions are already async, these wrappers simply call them directly.
 
-use crate::agents::build_login_shell_command;
+use overseer_core::shell::build_login_shell_command;
 use ignore::WalkBuilder;
 use serde::Serialize;
 use std::path::Path;

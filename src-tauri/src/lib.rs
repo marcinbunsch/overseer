@@ -3,8 +3,8 @@ mod git;
 mod logging;
 mod pty;
 
-use crate::agents::build_login_shell_command;
 use overseer_core::approval;
+use overseer_core::shell::build_login_shell_command;
 use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, WindowEvent};
@@ -276,11 +276,11 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use crate::agents::AgentExit;
     use crate::check_command_exists;
     use crate::git::PrStatus;
-    // Git types are now in overseer_core::git
+    // Types are now in overseer_core
     use overseer_core::git::{parse_diff_name_status, ChangedFile, MergeResult, WorkspaceInfo, ANIMALS};
+    use overseer_core::shell::AgentExit;
     use std::process::Command;
 
     #[test]

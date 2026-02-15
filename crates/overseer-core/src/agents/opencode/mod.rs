@@ -54,7 +54,9 @@
 //! ```
 
 mod parser;
+pub mod spawn;
 mod types;
 
 pub use parser::OpenCodeParser;
+pub use spawn::OpenCodeConfig;
 pub use types::*;

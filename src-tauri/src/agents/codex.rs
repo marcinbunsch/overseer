@@ -1,30 +1,26 @@
 //! Codex CLI process management.
 //!
-//! Handles spawning and communication with the Codex app-server using JSON-RPC.
+//! Thin wrapper around overseer-core spawn for Tauri event forwarding.
 
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Write},
-    process::{Child, ChildStdin, Stdio},
     sync::{Arc, Mutex},
-    time::Duration,
 };
 use tauri::Emitter;
 
-use super::shared::{build_login_shell_command, AgentExit};
 use crate::logging::{log_line, open_log_file, LogHandle};
+use overseer_core::agents::codex::CodexConfig;
+use overseer_core::spawn::{AgentProcess, ProcessEvent};
 
 struct CodexServerEntry {
-    child: Arc<Mutex<Option<Child>>>,
-    stdin: Arc<Mutex<Option<ChildStdin>>>,
+    process: Arc<Mutex<Option<AgentProcess>>>,
     log_file: LogHandle,
 }
 
 impl Default for CodexServerEntry {
     fn default() -> Self {
         Self {
-            child: Arc::new(Mutex::new(None)),
-            stdin: Arc::new(Mutex::new(None)),
+            process: Arc::new(Mutex::new(None)),
             log_file: Arc::new(Mutex::new(None)),
         }
     }
@@ -35,10 +31,7 @@ pub struct CodexServerMap {
     servers: Mutex<HashMap<String, CodexServerEntry>>,
 }
 
-/// Start a `codex app-server` process for a given server_id (typically workspace id).
-///
-/// The process is long-lived and communicates via newline-delimited JSON-RPC on stdio.
-/// stdout lines are emitted as `codex:stdout:{server_id}` events.
+/// Start a `codex app-server` process for a given server_id.
 #[tauri::command]
 pub fn start_codex_server(
     app: tauri::AppHandle,
@@ -54,116 +47,73 @@ pub fn start_codex_server(
     {
         let map = state.servers.lock().unwrap();
         if let Some(entry) = map.get(&server_id) {
-            entry.stdin.lock().unwrap().take();
-            if let Some(mut child) = entry.child.lock().unwrap().take() {
-                let _ = child.kill();
+            if let Some(process) = entry.process.lock().unwrap().take() {
+                process.kill();
             }
         }
     }
 
-    let mut args: Vec<String> = vec!["app-server".to_string()];
-    if let Some(ref model) = model_version {
-        if !model.is_empty() {
-            args.push("-c".to_string());
-            args.push(format!("model=\"{}\"", model));
-        }
-    }
-
-    let mut cmd = build_login_shell_command(&codex_path, &args, None, agent_shell.as_deref())?;
-    cmd.stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn codex app-server: {}", e))?;
-
-    let child_stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "Failed to capture codex stdin".to_string())?;
-
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Failed to capture codex stdout".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "Failed to capture codex stderr".to_string())?;
-
-    // Open log file if log_dir provided
+    // Open log file
     let lid = log_id.as_deref().unwrap_or(&server_id);
     let log_handle = open_log_file(&log_dir, lid);
 
+    // Build config using core
+    let config = CodexConfig {
+        binary_path: codex_path,
+        model: model_version,
+        shell_prefix: agent_shell,
+    };
+
+    // Spawn the process
+    let process = AgentProcess::spawn(config.build())?;
+
+    // Store the process entry
     let mut entry = CodexServerEntry::default();
     entry.log_file = Arc::clone(&log_handle);
-    *entry.stdin.lock().unwrap() = Some(child_stdin);
-    *entry.child.lock().unwrap() = Some(child);
+    *entry.process.lock().unwrap() = Some(process);
 
-    let child_arc = Arc::clone(&entry.child);
-    let stdin_arc = Arc::clone(&entry.stdin);
+    let process_arc = Arc::clone(&entry.process);
 
     {
         let mut map = state.servers.lock().unwrap();
         map.insert(server_id.clone(), entry);
     }
 
-    // stdout reader — emit each line as a Tauri event
-    let sid_stdout = server_id.clone();
-    let app_stdout = app.clone();
-    let log_stdout = Arc::clone(&log_handle);
+    // Spawn event forwarding thread
+    let sid = server_id.clone();
+    let log_file = Arc::clone(&log_handle);
     std::thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines().flatten() {
-            log::debug!("codex stdout [{}]: {}", sid_stdout, line);
-            log_line(&log_stdout, "STDOUT", &line);
-            let _ = app_stdout.emit(&format!("codex:stdout:{}", sid_stdout), line);
-        }
-    });
-
-    // stderr reader — log only
-    let sid_stderr = server_id.clone();
-    let log_stderr = Arc::clone(&log_handle);
-    std::thread::spawn(move || {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines().flatten() {
-            log::warn!("codex stderr [{}]: {}", sid_stderr, line);
-            log_line(&log_stderr, "STDERR", &line);
-        }
-    });
-
-    // exit watcher
-    let sid_exit = server_id.clone();
-    let app_exit = app.clone();
-    std::thread::spawn(move || loop {
-        let mut guard = child_arc.lock().unwrap();
-        if let Some(child) = guard.as_mut() {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    let _ = app_exit.emit(
-                        &format!("codex:close:{}", sid_exit),
-                        AgentExit {
-                            code: status.code().unwrap_or_default(),
-                            signal: None,
-                        },
-                    );
-                    guard.take();
-                    stdin_arc.lock().unwrap().take();
+        loop {
+            let event = {
+                let guard = process_arc.lock().unwrap();
+                if let Some(ref process) = *guard {
+                    process.recv()
+                } else {
                     break;
                 }
-                Ok(None) => {}
-                Err(_) => {
-                    guard.take();
-                    stdin_arc.lock().unwrap().take();
+            };
+
+            match event {
+                Some(ProcessEvent::Stdout(line)) => {
+                    log::debug!("codex stdout [{}]: {}", sid, line);
+                    log_line(&log_file, "STDOUT", &line);
+                    let _ = app.emit(&format!("codex:stdout:{}", sid), line);
+                }
+                Some(ProcessEvent::Stderr(line)) => {
+                    log::warn!("codex stderr [{}]: {}", sid, line);
+                    log_line(&log_file, "STDERR", &line);
+                }
+                Some(ProcessEvent::Exit(exit)) => {
+                    let _ = app.emit(&format!("codex:close:{}", sid), exit);
+                    process_arc.lock().unwrap().take();
+                    break;
+                }
+                None => {
+                    process_arc.lock().unwrap().take();
                     break;
                 }
             }
-        } else {
-            break;
         }
-        drop(guard);
-        std::thread::sleep(Duration::from_millis(100));
     });
 
     Ok(())
@@ -181,14 +131,10 @@ pub fn codex_stdin(
         .get(&server_id)
         .ok_or_else(|| format!("No codex server for {}", server_id))?;
     log_line(&entry.log_file, "STDIN", &data);
-    let mut guard = entry.stdin.lock().unwrap();
-    if let Some(ref mut stdin) = *guard {
-        writeln!(stdin, "{}", data)
-            .map_err(|e| format!("Failed to write to codex stdin: {}", e))?;
-        stdin
-            .flush()
-            .map_err(|e| format!("Failed to flush codex stdin: {}", e))?;
-        Ok(())
+
+    let guard = entry.process.lock().unwrap();
+    if let Some(ref process) = *guard {
+        process.write_stdin(&data)
     } else {
         Err(format!("No active stdin for codex server {}", server_id))
     }
@@ -202,9 +148,8 @@ pub fn stop_codex_server(
 ) -> Result<(), String> {
     let map = state.servers.lock().unwrap();
     if let Some(entry) = map.get(&server_id) {
-        entry.stdin.lock().unwrap().take();
-        if let Some(mut child) = entry.child.lock().unwrap().take() {
-            let _ = child.kill();
+        if let Some(process) = entry.process.lock().unwrap().take() {
+            process.kill();
         }
     }
     Ok(())

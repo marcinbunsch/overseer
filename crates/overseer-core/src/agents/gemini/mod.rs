@@ -41,7 +41,9 @@
 //! ```
 
 mod parser;
+pub mod spawn;
 mod types;
 
 pub use parser::GeminiParser;
+pub use spawn::GeminiConfig;
 pub use types::*;

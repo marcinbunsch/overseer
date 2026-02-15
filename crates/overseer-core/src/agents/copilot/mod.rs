@@ -1,4 +1,4 @@
-//! Copilot protocol parser.
+//! Copilot protocol parser and spawn configuration.
 //!
 //! Parses Copilot's ACP (Agent Communication Protocol) output format and converts to AgentEvents.
 //!
@@ -33,7 +33,9 @@
 //! ```
 
 mod parser;
+pub mod spawn;
 mod types;
 
 pub use parser::{CopilotParser, ServerRequestPending};
+pub use spawn::CopilotConfig;
 pub use types::*;

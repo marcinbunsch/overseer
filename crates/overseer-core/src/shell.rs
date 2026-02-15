@@ -26,7 +26,7 @@
 use std::process::Command;
 
 /// Exit status emitted when an agent process terminates.
-#[derive(Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct AgentExit {
     pub code: i32,
     pub signal: Option<i32>,
