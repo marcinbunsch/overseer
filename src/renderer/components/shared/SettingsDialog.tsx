@@ -507,19 +507,6 @@ export const SettingsDialog = observer(function SettingsDialog({
     }
   }, [open])
 
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case "general":
-        return <GeneralTab />
-      case "agents":
-        return <AgentsTab />
-      case "advanced":
-        return <AdvancedTab />
-      case "updates":
-        return <UpdatesTab />
-    }
-  }
-
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
       <AlertDialog.Portal>
@@ -566,9 +553,20 @@ export const SettingsDialog = observer(function SettingsDialog({
               ))}
             </nav>
 
-            {/* Content */}
+            {/* Content - render all tabs, hide inactive ones to preserve state */}
             <div className="flex-1 overflow-y-auto bg-ovr-bg-app px-6 py-4">
-              {renderTabContent()}
+              <div className={activeTab === "general" ? "" : "hidden"}>
+                <GeneralTab />
+              </div>
+              <div className={activeTab === "agents" ? "" : "hidden"}>
+                <AgentsTab />
+              </div>
+              <div className={activeTab === "advanced" ? "" : "hidden"}>
+                <AdvancedTab />
+              </div>
+              <div className={activeTab === "updates" ? "" : "hidden"}>
+                <UpdatesTab />
+              </div>
             </div>
           </div>
 
