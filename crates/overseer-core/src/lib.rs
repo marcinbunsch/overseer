@@ -19,6 +19,7 @@ pub mod git;
 pub mod overseer_actions;
 pub mod persistence;
 pub mod session;
+pub mod shell;
 
 // Re-export commonly used types
 pub use agents::event::AgentEvent;
