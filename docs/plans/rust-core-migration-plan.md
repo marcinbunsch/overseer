@@ -615,9 +615,88 @@ This ensures:
 
 ## Testing Strategy
 
-1. **Unit tests in `overseer-core`** - Test pure logic
-2. **Integration tests in Tauri** - Test command wrappers
-3. **Manual verification** - You test each step before TS removal
+**CRITICAL: The Rust code must be EXTENSIVELY tested before moving to the next phase.**
+
+### Test Requirements Per Module
+
+#### 1. `approval/` Module - Security Critical
+- **command_parser.rs**:
+  - All separator types (&&, ||, ;, |)
+  - Nested/complex chains
+  - Edge cases (empty, whitespace, quotes, escapes)
+  - Single-word vs multi-word command detection
+  - Flag handling (simple flags, flags with arguments)
+  - Real-world commands from TypeScript tests
+
+- **safe_commands.rs**:
+  - All safe commands are present
+  - No dangerous commands accidentally included
+  - Single-word command list is accurate
+
+- **context.rs**:
+  - Auto-approve for safe commands
+  - Auto-approve for user-approved tools
+  - Auto-approve for user-approved prefixes
+  - Deny for unsafe commands
+  - Mixed chains (some safe, some not)
+  - Add/remove tool/prefix operations
+  - Serialization/deserialization
+
+#### 2. `session/` Module
+- **manager.rs**:
+  - Create session
+  - Get session by ID
+  - Attach/detach subscribers
+  - Remove session
+  - List sessions
+  - Error cases (not found, already exists)
+
+- **state.rs**:
+  - Session creation
+  - SessionId uniqueness
+  - Default values
+
+#### 3. `agents/` Module
+- **event.rs**:
+  - Serialization round-trip for all AgentEvent variants
+  - JSON format matches TypeScript expectations
+
+- **turn.rs**:
+  - Turn creation and lifecycle
+  - Event addition
+  - Status transitions
+  - Resolution tracking
+  - Find event by ID
+
+#### 4. `overseer_actions/` Module
+- Single action extraction
+- Multiple actions extraction
+- Invalid JSON handling
+- Content cleaning (whitespace normalization)
+- All action types (OpenPr, MergeBranch, RenameChat)
+- Edge cases (no blocks, malformed blocks)
+
+### Test Coverage Goals
+
+- **Line coverage**: >90% for security-critical modules (approval/)
+- **Branch coverage**: All if/else paths tested
+- **Edge cases**: Empty inputs, malformed data, boundary conditions
+- **Real-world data**: Use actual command examples from TypeScript codebase
+
+### Running Tests
+
+```bash
+# Run all overseer-core tests with coverage
+cargo test -p overseer-core
+
+# Run specific module tests
+cargo test -p overseer-core approval::
+cargo test -p overseer-core session::
+cargo test -p overseer-core agents::
+
+# Run with output for debugging
+cargo test -p overseer-core -- --nocapture
+```
 
 ---
 

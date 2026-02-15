@@ -10,3 +10,5 @@ src-tauri/target/
 .vscode/
 .idea/
 *.iml
+
+target
