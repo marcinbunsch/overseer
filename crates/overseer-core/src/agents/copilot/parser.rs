@@ -218,11 +218,10 @@ impl CopilotParser {
             "session/update" => {
                 // ACP nests update data under params.update
                 let update_value = params.get("update").cloned().unwrap_or(params.clone());
-                let update: SessionUpdate =
-                    match serde_json::from_value(update_value) {
-                        Ok(u) => u,
-                        Err(_) => return Vec::new(),
-                    };
+                let update: SessionUpdate = match serde_json::from_value(update_value) {
+                    Ok(u) => u,
+                    Err(_) => return Vec::new(),
+                };
 
                 self.handle_session_update(&update)
             }
@@ -291,8 +290,8 @@ impl CopilotParser {
                             }
                         }
 
-                        let input_str = serde_json::to_string_pretty(&transformed_input)
-                            .unwrap_or_default();
+                        let input_str =
+                            serde_json::to_string_pretty(&transformed_input).unwrap_or_default();
 
                         return vec![AgentEvent::Message {
                             content: format!("[Task]\n{input_str}"),

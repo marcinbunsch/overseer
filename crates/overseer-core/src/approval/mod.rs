@@ -20,9 +20,7 @@ pub fn are_commands_safe(prefixes: &[String]) -> bool {
     if prefixes.is_empty() {
         return false;
     }
-    prefixes
-        .iter()
-        .all(|p| SAFE_COMMANDS.contains(p.as_str()))
+    prefixes.iter().all(|p| SAFE_COMMANDS.contains(p.as_str()))
 }
 
 #[cfg(test)]

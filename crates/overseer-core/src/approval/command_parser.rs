@@ -10,8 +10,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 /// Regex for single-letter flags like -c, -v, -x
-static SINGLE_LETTER_FLAG: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^-[a-zA-Z]$").unwrap());
+static SINGLE_LETTER_FLAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-[a-zA-Z]$").unwrap());
 
 /// Parse a bash command into its command prefixes.
 ///
@@ -131,18 +130,12 @@ mod tests {
 
         #[test]
         fn cd_with_path() {
-            assert_eq!(
-                parse_command_prefixes("cd /some/path"),
-                vec!["cd"]
-            );
+            assert_eq!(parse_command_prefixes("cd /some/path"), vec!["cd"]);
         }
 
         #[test]
         fn zsh_with_flags() {
-            assert_eq!(
-                parse_command_prefixes("zsh -l -c 'echo foo'"),
-                vec!["zsh"]
-            );
+            assert_eq!(parse_command_prefixes("zsh -l -c 'echo foo'"), vec!["zsh"]);
         }
 
         #[test]
@@ -155,10 +148,7 @@ mod tests {
 
         #[test]
         fn ls_with_flags() {
-            assert_eq!(
-                parse_command_prefixes("ls -la /some/dir"),
-                vec!["ls"]
-            );
+            assert_eq!(parse_command_prefixes("ls -la /some/dir"), vec!["ls"]);
         }
 
         #[test]
@@ -171,18 +161,12 @@ mod tests {
 
         #[test]
         fn python3_with_script() {
-            assert_eq!(
-                parse_command_prefixes("python3 script.py"),
-                vec!["python3"]
-            );
+            assert_eq!(parse_command_prefixes("python3 script.py"), vec!["python3"]);
         }
 
         #[test]
         fn node_with_script() {
-            assert_eq!(
-                parse_command_prefixes("node index.js"),
-                vec!["node"]
-            );
+            assert_eq!(parse_command_prefixes("node index.js"), vec!["node"]);
         }
 
         #[test]
@@ -192,18 +176,12 @@ mod tests {
 
         #[test]
         fn touch_file() {
-            assert_eq!(
-                parse_command_prefixes("touch file.txt"),
-                vec!["touch"]
-            );
+            assert_eq!(parse_command_prefixes("touch file.txt"), vec!["touch"]);
         }
 
         #[test]
         fn mkdir_with_flag() {
-            assert_eq!(
-                parse_command_prefixes("mkdir -p dir"),
-                vec!["mkdir"]
-            );
+            assert_eq!(parse_command_prefixes("mkdir -p dir"), vec!["mkdir"]);
         }
 
         #[test]
@@ -223,26 +201,17 @@ mod tests {
 
         #[test]
         fn chmod_file() {
-            assert_eq!(
-                parse_command_prefixes("chmod 755 file"),
-                vec!["chmod"]
-            );
+            assert_eq!(parse_command_prefixes("chmod 755 file"), vec!["chmod"]);
         }
 
         #[test]
         fn deno_run() {
-            assert_eq!(
-                parse_command_prefixes("deno run app.ts"),
-                vec!["deno"]
-            );
+            assert_eq!(parse_command_prefixes("deno run app.ts"), vec!["deno"]);
         }
 
         #[test]
         fn bun_run() {
-            assert_eq!(
-                parse_command_prefixes("bun run script.ts"),
-                vec!["bun"]
-            );
+            assert_eq!(parse_command_prefixes("bun run script.ts"), vec!["bun"]);
         }
 
         #[test]
@@ -262,10 +231,7 @@ mod tests {
 
         #[test]
         fn grep_pattern() {
-            assert_eq!(
-                parse_command_prefixes("grep pattern file"),
-                vec!["grep"]
-            );
+            assert_eq!(parse_command_prefixes("grep pattern file"), vec!["grep"]);
         }
 
         #[test]
@@ -286,10 +252,7 @@ mod tests {
 
         #[test]
         fn ruby_script() {
-            assert_eq!(
-                parse_command_prefixes("ruby script.rb"),
-                vec!["ruby"]
-            );
+            assert_eq!(parse_command_prefixes("ruby script.rb"), vec!["ruby"]);
         }
 
         #[test]
@@ -299,34 +262,22 @@ mod tests {
 
         #[test]
         fn fish_shell() {
-            assert_eq!(
-                parse_command_prefixes("fish -c 'echo'"),
-                vec!["fish"]
-            );
+            assert_eq!(parse_command_prefixes("fish -c 'echo'"), vec!["fish"]);
         }
 
         #[test]
         fn source_bashrc() {
-            assert_eq!(
-                parse_command_prefixes("source ~/.bashrc"),
-                vec!["source"]
-            );
+            assert_eq!(parse_command_prefixes("source ~/.bashrc"), vec!["source"]);
         }
 
         #[test]
         fn eval_command() {
-            assert_eq!(
-                parse_command_prefixes("eval 'echo test'"),
-                vec!["eval"]
-            );
+            assert_eq!(parse_command_prefixes("eval 'echo test'"), vec!["eval"]);
         }
 
         #[test]
         fn sh_script() {
-            assert_eq!(
-                parse_command_prefixes("sh script.sh"),
-                vec!["sh"]
-            );
+            assert_eq!(parse_command_prefixes("sh script.sh"), vec!["sh"]);
         }
     }
 
@@ -339,10 +290,7 @@ mod tests {
 
         #[test]
         fn git_status() {
-            assert_eq!(
-                parse_command_prefixes("git status"),
-                vec!["git status"]
-            );
+            assert_eq!(parse_command_prefixes("git status"), vec!["git status"]);
         }
 
         #[test]
@@ -371,10 +319,7 @@ mod tests {
 
         #[test]
         fn git_add() {
-            assert_eq!(
-                parse_command_prefixes("git add ."),
-                vec!["git add"]
-            );
+            assert_eq!(parse_command_prefixes("git add ."), vec!["git add"]);
         }
 
         #[test]
@@ -387,10 +332,7 @@ mod tests {
 
         #[test]
         fn npm_run() {
-            assert_eq!(
-                parse_command_prefixes("npm run build"),
-                vec!["npm run"]
-            );
+            assert_eq!(parse_command_prefixes("npm run build"), vec!["npm run"]);
         }
 
         #[test]
@@ -400,10 +342,7 @@ mod tests {
 
         #[test]
         fn pnpm_install() {
-            assert_eq!(
-                parse_command_prefixes("pnpm install"),
-                vec!["pnpm install"]
-            );
+            assert_eq!(parse_command_prefixes("pnpm install"), vec!["pnpm install"]);
         }
 
         #[test]
@@ -416,18 +355,12 @@ mod tests {
 
         #[test]
         fn pnpm_run() {
-            assert_eq!(
-                parse_command_prefixes("pnpm run dev"),
-                vec!["pnpm run"]
-            );
+            assert_eq!(parse_command_prefixes("pnpm run dev"), vec!["pnpm run"]);
         }
 
         #[test]
         fn yarn_add() {
-            assert_eq!(
-                parse_command_prefixes("yarn add react"),
-                vec!["yarn add"]
-            );
+            assert_eq!(parse_command_prefixes("yarn add react"), vec!["yarn add"]);
         }
 
         #[test]
@@ -496,10 +429,7 @@ mod tests {
 
         #[test]
         fn cargo_test() {
-            assert_eq!(
-                parse_command_prefixes("cargo test"),
-                vec!["cargo test"]
-            );
+            assert_eq!(parse_command_prefixes("cargo test"), vec!["cargo test"]);
         }
 
         #[test]
@@ -512,10 +442,7 @@ mod tests {
 
         #[test]
         fn gh_issue() {
-            assert_eq!(
-                parse_command_prefixes("gh issue list"),
-                vec!["gh issue"]
-            );
+            assert_eq!(parse_command_prefixes("gh issue list"), vec!["gh issue"]);
         }
     }
 
@@ -608,10 +535,7 @@ mod tests {
 
         #[test]
         fn git_only_flags_no_subcommand() {
-            assert_eq!(
-                parse_command_prefixes("git --version"),
-                vec!["git"]
-            );
+            assert_eq!(parse_command_prefixes("git --version"), vec!["git"]);
         }
 
         #[test]
@@ -643,10 +567,7 @@ mod tests {
 
         #[test]
         fn leading_whitespace() {
-            assert_eq!(
-                parse_command_prefixes("  cd /foo"),
-                vec!["cd"]
-            );
+            assert_eq!(parse_command_prefixes("  cd /foo"), vec!["cd"]);
         }
 
         #[test]
@@ -656,10 +577,7 @@ mod tests {
 
         #[test]
         fn unknown_command_one_word() {
-            assert_eq!(
-                parse_command_prefixes("mycommand"),
-                vec!["mycommand"]
-            );
+            assert_eq!(parse_command_prefixes("mycommand"), vec!["mycommand"]);
         }
 
         #[test]
@@ -682,10 +600,7 @@ mod tests {
         #[test]
         fn trailing_operator() {
             // Invalid shell syntax, but handle gracefully
-            assert_eq!(
-                parse_command_prefixes("cd /foo &&"),
-                vec!["cd"]
-            );
+            assert_eq!(parse_command_prefixes("cd /foo &&"), vec!["cd"]);
         }
 
         #[test]
@@ -711,18 +626,12 @@ mod tests {
 
         #[test]
         fn double_ampersand() {
-            assert_eq!(
-                split_on_separators("a && b"),
-                vec!["a ", " b"]
-            );
+            assert_eq!(split_on_separators("a && b"), vec!["a ", " b"]);
         }
 
         #[test]
         fn double_pipe() {
-            assert_eq!(
-                split_on_separators("a || b"),
-                vec!["a ", " b"]
-            );
+            assert_eq!(split_on_separators("a || b"), vec!["a ", " b"]);
         }
 
         #[test]

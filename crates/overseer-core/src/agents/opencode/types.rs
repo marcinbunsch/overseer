@@ -160,7 +160,8 @@ mod tests {
 
     #[test]
     fn parse_tool_info() {
-        let json = r#"{"name":"write","input":{"path":"test.txt","content":"hello"},"output":null}"#;
+        let json =
+            r#"{"name":"write","input":{"path":"test.txt","content":"hello"},"output":null}"#;
         let tool: ToolInfo = serde_json::from_str(json).unwrap();
         assert_eq!(tool.name, "write");
         assert!(tool.input.is_some());

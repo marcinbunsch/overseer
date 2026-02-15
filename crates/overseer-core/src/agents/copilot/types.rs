@@ -226,8 +226,7 @@ mod tests {
 
     #[test]
     fn parse_notification() {
-        let json =
-            r#"{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk"}}}"#;
+        let json = r#"{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk"}}}"#;
         let msg: JsonRpcMessage = serde_json::from_str(json).unwrap();
         assert!(matches!(msg, JsonRpcMessage::Notification(_)));
     }
@@ -248,11 +247,15 @@ mod tests {
 
     #[test]
     fn parse_session_update_message_chunk() {
-        let json = r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello"}}"#;
+        let json =
+            r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello"}}"#;
         let update: SessionUpdate = serde_json::from_str(json).unwrap();
         assert_eq!(update.get_type(), Some("agent_message_chunk"));
         assert!(update.content.is_some());
-        assert_eq!(update.content.as_ref().unwrap().text, Some("Hello".to_string()));
+        assert_eq!(
+            update.content.as_ref().unwrap().text,
+            Some("Hello".to_string())
+        );
     }
 
     #[test]

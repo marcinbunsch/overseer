@@ -107,10 +107,9 @@ mod tests {
     fn deny_when_one_prefix_not_approved() {
         let mut ctx = ApprovalContext::new();
         ctx.add_prefix("npm install".to_string());
-        assert!(!ctx.should_auto_approve(
-            "Bash",
-            &["npm install".to_string(), "rm -rf".to_string()]
-        ));
+        assert!(
+            !ctx.should_auto_approve("Bash", &["npm install".to_string(), "rm -rf".to_string()])
+        );
     }
 
     #[test]

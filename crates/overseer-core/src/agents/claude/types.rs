@@ -489,10 +489,7 @@ mod tests {
         }"#;
 
         let event: ClaudeStreamEvent = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            event.parent_tool_use_id,
-            Some("parent-task-id".to_string())
-        );
+        assert_eq!(event.parent_tool_use_id, Some("parent-task-id".to_string()));
     }
 
     /// Test parsing AskUserQuestion input.

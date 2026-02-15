@@ -380,8 +380,8 @@ impl CodexParser {
                         // Format command like Claude's Bash tool
                         let command = item.command.as_deref().unwrap_or("");
                         let input = serde_json::json!({ "command": command });
-                        let input_str =
-                            serde_json::to_string_pretty(&input).unwrap_or_else(|_| "{}".to_string());
+                        let input_str = serde_json::to_string_pretty(&input)
+                            .unwrap_or_else(|_| "{}".to_string());
 
                         vec![AgentEvent::Message {
                             content: format!("[Bash]\n{input_str}"),
@@ -411,8 +411,8 @@ impl CodexParser {
                             "old_string": "",
                             "new_string": diff
                         });
-                        let input_str =
-                            serde_json::to_string_pretty(&input).unwrap_or_else(|_| "{}".to_string());
+                        let input_str = serde_json::to_string_pretty(&input)
+                            .unwrap_or_else(|_| "{}".to_string());
 
                         vec![AgentEvent::Message {
                             content: format!("[Edit]\n{input_str}"),
@@ -613,9 +613,7 @@ mod tests {
         let line = r#"{"method":"turn/completed","params":{}}"#;
         let (events, _) = parser.feed(&format!("{line}\n"));
 
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::TurnComplete)));
+        assert!(events.iter().any(|e| matches!(e, AgentEvent::TurnComplete)));
     }
 
     #[test]
@@ -689,8 +687,7 @@ mod tests {
     #[test]
     fn parse_agent_message_completed() {
         let mut parser = CodexParser::new();
-        let line =
-            r#"{"method":"item/completed","params":{"item":{"type":"agentMessage","text":"Response text"}}}"#;
+        let line = r#"{"method":"item/completed","params":{"item":{"type":"agentMessage","text":"Response text"}}}"#;
         let (events, _) = parser.feed(&format!("{line}\n"));
 
         assert!(events.iter().any(|e| matches!(
@@ -718,8 +715,7 @@ mod tests {
     #[test]
     fn parse_file_change_approval_request() {
         let mut parser = CodexParser::new();
-        let line =
-            r#"{"method":"item/fileChange/requestApproval","id":"req-1","params":{"file":"test.txt"}}"#;
+        let line = r#"{"method":"item/fileChange/requestApproval","id":"req-1","params":{"file":"test.txt"}}"#;
         let (events, pending) = parser.feed(&format!("{line}\n"));
 
         assert_eq!(pending.len(), 1);
@@ -732,7 +728,8 @@ mod tests {
     #[test]
     fn parse_user_input_request() {
         let mut parser = CodexParser::new();
-        let line = r#"{"method":"item/tool/requestUserInput","id":10,"params":{"prompt":"Enter value"}}"#;
+        let line =
+            r#"{"method":"item/tool/requestUserInput","id":10,"params":{"prompt":"Enter value"}}"#;
         let (events, pending) = parser.feed(&format!("{line}\n"));
 
         assert_eq!(pending.len(), 1);
@@ -757,7 +754,8 @@ mod tests {
     #[test]
     fn parse_reasoning_delta() {
         let mut parser = CodexParser::new();
-        let line = r#"{"method":"item/reasoning/summaryTextDelta","params":{"delta":"thinking..."}}"#;
+        let line =
+            r#"{"method":"item/reasoning/summaryTextDelta","params":{"delta":"thinking..."}}"#;
         let (events, _) = parser.feed(&format!("{line}\n"));
 
         assert!(events.iter().any(|e| matches!(

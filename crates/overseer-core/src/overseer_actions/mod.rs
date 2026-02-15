@@ -271,9 +271,15 @@ Text after."#;
         let (_, actions) = extract_overseer_blocks(content);
 
         assert_eq!(actions.len(), 3);
-        assert!(matches!(&actions[0], OverseerAction::RenameChat { params } if params.title == "First"));
-        assert!(matches!(&actions[1], OverseerAction::MergeBranch { params } if params.into == "main"));
-        assert!(matches!(&actions[2], OverseerAction::OpenPr { params } if params.title == "Third"));
+        assert!(
+            matches!(&actions[0], OverseerAction::RenameChat { params } if params.title == "First")
+        );
+        assert!(
+            matches!(&actions[1], OverseerAction::MergeBranch { params } if params.into == "main")
+        );
+        assert!(
+            matches!(&actions[2], OverseerAction::OpenPr { params } if params.title == "Third")
+        );
     }
 
     #[test]

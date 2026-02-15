@@ -197,7 +197,8 @@ mod tests {
     #[test]
     fn unknown_fields_ignored() {
         // Gemini may add new fields; we should ignore them gracefully
-        let json = r#"{"type":"message","role":"assistant","content":"Hi","unknown_field":"value"}"#;
+        let json =
+            r#"{"type":"message","role":"assistant","content":"Hi","unknown_field":"value"}"#;
         let event: GeminiStreamEvent = serde_json::from_str(json).unwrap();
         assert_eq!(event.event_type, "message");
         assert_eq!(event.content, Some("Hi".to_string()));

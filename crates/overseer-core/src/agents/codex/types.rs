@@ -389,8 +389,7 @@ mod tests {
     /// or it would wrongly match as Response (which also has id).
     #[test]
     fn parse_server_request() {
-        let json =
-            r#"{"method":"item/commandExecution/requestApproval","id":5,"params":{"command":"ls"}}"#;
+        let json = r#"{"method":"item/commandExecution/requestApproval","id":5,"params":{"command":"ls"}}"#;
         let msg: JsonRpcMessage = serde_json::from_str(json).unwrap();
 
         // Verify it's ServerRequest, NOT Response

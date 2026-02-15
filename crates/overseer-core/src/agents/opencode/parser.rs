@@ -279,7 +279,9 @@ mod tests {
         let events = parser.parse_parts(&parts);
 
         // Should have both Message and BashOutput
-        assert!(events.iter().any(|e| matches!(e, AgentEvent::Message { .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Message { .. })));
         assert!(events.iter().any(|e| matches!(
             e,
             AgentEvent::BashOutput { text } if text.contains("file.txt")

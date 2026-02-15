@@ -88,10 +88,7 @@ pub enum AgentEvent {
     },
 
     /// Agent wants user to approve a plan.
-    PlanApproval {
-        request_id: String,
-        content: String,
-    },
+    PlanApproval { request_id: String, content: String },
 
     // === Session lifecycle ===
     /// Agent reported its session ID.
@@ -168,7 +165,9 @@ mod tests {
 
             let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
             match parsed {
-                AgentEvent::Message { content, tool_meta, .. } => {
+                AgentEvent::Message {
+                    content, tool_meta, ..
+                } => {
                     assert_eq!(content, "I'll help you with that.");
                     assert!(tool_meta.is_none());
                 }
@@ -194,7 +193,13 @@ mod tests {
             let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
 
             match parsed {
-                AgentEvent::Message { content, tool_meta, parent_tool_use_id, tool_use_id, is_info } => {
+                AgentEvent::Message {
+                    content,
+                    tool_meta,
+                    parent_tool_use_id,
+                    tool_use_id,
+                    is_info,
+                } => {
                     assert_eq!(content, "Edit complete.");
                     let meta = tool_meta.unwrap();
                     assert_eq!(meta.tool_name, "Edit");
@@ -220,7 +225,11 @@ mod tests {
             let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
 
             match parsed {
-                AgentEvent::ToolResult { tool_use_id, content, is_error } => {
+                AgentEvent::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                } => {
                     assert_eq!(tool_use_id, "tool-123");
                     assert_eq!(content, "File created successfully");
                     assert!(!is_error);
@@ -260,7 +269,13 @@ mod tests {
             let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
 
             match parsed {
-                AgentEvent::ToolApproval { request_id, name, input, display_input, prefixes } => {
+                AgentEvent::ToolApproval {
+                    request_id,
+                    name,
+                    input,
+                    display_input,
+                    prefixes,
+                } => {
                     assert_eq!(request_id, "req-123");
                     assert_eq!(name, "Bash");
                     assert_eq!(input["command"], "rm -rf /tmp/test");
@@ -275,30 +290,31 @@ mod tests {
         fn question_event() {
             let event = AgentEvent::Question {
                 request_id: "req-456".to_string(),
-                questions: vec![
-                    QuestionItem {
-                        question: "Which framework?".to_string(),
-                        header: "Framework".to_string(),
-                        options: vec![
-                            QuestionOption {
-                                label: "React".to_string(),
-                                description: "Popular UI library".to_string(),
-                            },
-                            QuestionOption {
-                                label: "Vue".to_string(),
-                                description: "Progressive framework".to_string(),
-                            },
-                        ],
-                        multi_select: false,
-                    }
-                ],
+                questions: vec![QuestionItem {
+                    question: "Which framework?".to_string(),
+                    header: "Framework".to_string(),
+                    options: vec![
+                        QuestionOption {
+                            label: "React".to_string(),
+                            description: "Popular UI library".to_string(),
+                        },
+                        QuestionOption {
+                            label: "Vue".to_string(),
+                            description: "Progressive framework".to_string(),
+                        },
+                    ],
+                    multi_select: false,
+                }],
             };
 
             let json = serde_json::to_string(&event).unwrap();
             let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
 
             match parsed {
-                AgentEvent::Question { request_id, questions } => {
+                AgentEvent::Question {
+                    request_id,
+                    questions,
+                } => {
                     assert_eq!(request_id, "req-456");
                     assert_eq!(questions.len(), 1);
                     assert_eq!(questions[0].question, "Which framework?");
@@ -320,7 +336,10 @@ mod tests {
             let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
 
             match parsed {
-                AgentEvent::PlanApproval { request_id, content } => {
+                AgentEvent::PlanApproval {
+                    request_id,
+                    content,
+                } => {
                     assert_eq!(request_id, "req-789");
                     assert!(content.contains("Create component"));
                 }
@@ -481,7 +500,11 @@ mod tests {
             };
 
             let json = serde_json::to_string(&meta).unwrap();
-            assert!(json.contains("\"linesAdded\":10") || json.contains("\"lines_added\":10") || json.contains("linesAdded"));
+            assert!(
+                json.contains("\"linesAdded\":10")
+                    || json.contains("\"lines_added\":10")
+                    || json.contains("linesAdded")
+            );
         }
     }
 

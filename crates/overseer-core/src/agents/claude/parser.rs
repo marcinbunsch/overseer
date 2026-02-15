@@ -229,7 +229,7 @@ impl ClaudeParser {
         // serde_json::from_str::<ClaudeStreamEvent> tells Rust what type to parse into
         // The turbofish syntax ::<T> specifies type parameters explicitly
         let event: ClaudeStreamEvent = match serde_json::from_str(line) {
-            Ok(e) => e,        // Parsing succeeded, bind result to `e`
+            Ok(e) => e,                  // Parsing succeeded, bind result to `e`
             Err(_) => return Vec::new(), // Parsing failed, return empty vec
         };
 
@@ -388,20 +388,16 @@ impl ClaudeParser {
                                             //
                                             // .split('\n').count() gives number of lines
                                             // `as u32` casts usize to u32
-                                            lines_added: Some(
-                                                if new_str.is_empty() {
-                                                    0
-                                                } else {
-                                                    new_str.split('\n').count() as u32
-                                                },
-                                            ),
-                                            lines_removed: Some(
-                                                if old_str.is_empty() {
-                                                    0
-                                                } else {
-                                                    old_str.split('\n').count() as u32
-                                                },
-                                            ),
+                                            lines_added: Some(if new_str.is_empty() {
+                                                0
+                                            } else {
+                                                new_str.split('\n').count() as u32
+                                            }),
+                                            lines_removed: Some(if old_str.is_empty() {
+                                                0
+                                            } else {
+                                                old_str.split('\n').count() as u32
+                                            }),
                                         }
                                     })
                                 } else {
@@ -409,8 +405,11 @@ impl ClaudeParser {
                                 };
 
                                 // For Task tools, include the block id for child grouping
-                                let tool_use_id =
-                                    if tool_name == "Task" { block.id.clone() } else { None };
+                                let tool_use_id = if tool_name == "Task" {
+                                    block.id.clone()
+                                } else {
+                                    None
+                                };
 
                                 // Format the content as [ToolName]\n{input}
                                 //
@@ -583,7 +582,7 @@ impl ClaudeParser {
                     input
                         .get("command")
                         .and_then(|v| v.as_str())
-                        .map(|cmd| parse_command_prefixes(cmd))
+                        .map(parse_command_prefixes)
                 } else {
                     None
                 };
@@ -660,8 +659,7 @@ mod tests {
     #[test]
     fn emit_session_id_event() {
         let mut parser = ClaudeParser::new();
-        let line =
-            r#"{"type":"assistant","session_id":"sess-456","message":{"role":"assistant","content":[]}}"#;
+        let line = r#"{"type":"assistant","session_id":"sess-456","message":{"role":"assistant","content":[]}}"#;
         let events = parser.feed(&format!("{line}\n"));
 
         assert!(events.iter().any(|e| matches!(
@@ -735,11 +733,13 @@ mod tests {
         let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"test.txt","old_string":"line1\nline2","new_string":"new1\nnew2\nnew3"}}]}}"#;
         let events = parser.feed(&format!("{line}\n"));
 
-        let edit_event = events.iter().find(|e| matches!(
-            e,
-            AgentEvent::Message { tool_meta: Some(meta), .. }
-            if meta.tool_name == "Edit"
-        ));
+        let edit_event = events.iter().find(|e| {
+            matches!(
+                e,
+                AgentEvent::Message { tool_meta: Some(meta), .. }
+                if meta.tool_name == "Edit"
+            )
+        });
 
         assert!(edit_event.is_some());
         if let Some(AgentEvent::Message {
@@ -780,7 +780,8 @@ mod tests {
     #[test]
     fn parse_content_block_delta() {
         let mut parser = ClaudeParser::new();
-        let line = r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"streaming"}}"#;
+        let line =
+            r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"streaming"}}"#;
         let events = parser.feed(&format!("{line}\n"));
 
         assert!(events.iter().any(|e| matches!(
@@ -894,7 +895,9 @@ mod tests {
 
         // Send newline
         let events3 = parser.feed("\n");
-        assert!(events3.iter().any(|e| matches!(e, AgentEvent::TurnComplete)));
+        assert!(events3
+            .iter()
+            .any(|e| matches!(e, AgentEvent::TurnComplete)));
     }
 
     #[test]

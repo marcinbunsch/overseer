@@ -118,7 +118,11 @@ mod tests {
         #[test]
         fn new_initializes_correctly() {
             let id = SessionId("test-session".to_string());
-            let session = Session::new(id.clone(), "/home/user/project".to_string(), "claude".to_string());
+            let session = Session::new(
+                id.clone(),
+                "/home/user/project".to_string(),
+                "claude".to_string(),
+            );
 
             assert_eq!(session.id, id);
             assert_eq!(session.working_dir, "/home/user/project");
@@ -132,7 +136,9 @@ mod tests {
             let session = Session::new(id, "/tmp".to_string(), "codex".to_string());
 
             // ApprovalContext should start with no approved tools or prefixes
-            assert!(!session.approval_context.should_auto_approve("WriteFile", &[]));
+            assert!(!session
+                .approval_context
+                .should_auto_approve("WriteFile", &[]));
         }
 
         #[test]

@@ -479,7 +479,8 @@ mod tests {
         let mut parser = GeminiParser::new();
 
         // Start read tool
-        let tool_use = r#"{"type":"tool_use","tool_name":"read_file","parameters":{"path":"test.txt"}}"#;
+        let tool_use =
+            r#"{"type":"tool_use","tool_name":"read_file","parameters":{"path":"test.txt"}}"#;
         let _ = parser.feed(&format!("{tool_use}\n"));
 
         // Result should be skipped
