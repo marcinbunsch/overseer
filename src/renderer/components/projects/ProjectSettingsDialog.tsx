@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import * as AlertDialog from "@radix-ui/react-alert-dialog"
 import { observer } from "mobx-react-lite"
 import { X, Trash2 } from "lucide-react"
@@ -27,6 +27,13 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
   const [useGithub, setUseGithub] = useState(project.useGithub !== false)
   const [allowMergeToMain, setAllowMergeToMain] = useState(project.allowMergeToMain !== false)
   const [pendingArchive, setPendingArchive] = useState(false)
+
+  // Load fresh approvals from Rust when dialog opens
+  useEffect(() => {
+    if (open) {
+      project.loadApprovals(true)
+    }
+  }, [open, project])
 
   // Approval display (derived from project store)
   const approvedTools = Array.from(project.approvedToolNames)
