@@ -221,9 +221,7 @@ pub static SINGLE_WORD_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new
         "ruby",
         "perl",
         "php",
-        "go",
         "rustc",
-        "cargo",
         "make",
         "cmake",
         "gcc",
@@ -232,8 +230,9 @@ pub static SINGLE_WORD_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new
         "clang++",
         "javac",
         "java",
-        "mvn",
-        "gradle",
+        // NOTE: cargo, go, mvn, gradle are intentionally NOT here.
+        // They have subcommands like "cargo test", "go build", "mvn install"
+        // that we want to track separately.
         // NOTE: Package managers (npm, yarn, pnpm, pip, gem, brew, apt, etc.)
         // are intentionally NOT here. We want their subcommands like
         // "npm install", "yarn add", "brew install", etc.
