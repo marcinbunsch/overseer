@@ -9,12 +9,13 @@ use std::{
 use tauri::Emitter;
 
 use crate::logging::{log_line, open_log_file, LogHandle};
-use overseer_core::agents::claude::ClaudeConfig;
+use overseer_core::agents::claude::{ClaudeConfig, ClaudeParser};
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
 
 struct AgentProcessEntry {
     process: Arc<Mutex<Option<AgentProcess>>>,
     log_file: LogHandle,
+    parser: Arc<Mutex<ClaudeParser>>,
 }
 
 impl Default for AgentProcessEntry {
@@ -22,6 +23,7 @@ impl Default for AgentProcessEntry {
         Self {
             process: Arc::new(Mutex::new(None)),
             log_file: Arc::new(Mutex::new(None)),
+            parser: Arc::new(Mutex::new(ClaudeParser::new())),
         }
     }
 }
@@ -87,6 +89,7 @@ pub fn start_agent(
     *entry.process.lock().unwrap() = Some(process);
 
     let process_arc = Arc::clone(&entry.process);
+    let parser_arc = Arc::clone(&entry.parser);
 
     {
         let mut map = state.processes.lock().unwrap();
@@ -111,7 +114,14 @@ pub fn start_agent(
                 Some(ProcessEvent::Stdout(line)) => {
                     log::debug!("agent stdout [{}]: {}", conv_id, line);
                     log_line(&log_file, "STDOUT", &line);
-                    let _ = app.emit(&format!("agent:stdout:{}", conv_id), line);
+                    let _ = app.emit(&format!("agent:stdout:{}", conv_id), &line);
+                    let parsed_events = {
+                        let mut parser = parser_arc.lock().unwrap();
+                        parser.feed(&format!("{line}\n"))
+                    };
+                    for event in parsed_events {
+                        let _ = app.emit(&format!("agent:event:{}", conv_id), event);
+                    }
                 }
                 Some(ProcessEvent::Stderr(line)) => {
                     log::warn!("agent stderr [{}]: {}", conv_id, line);
@@ -119,11 +129,25 @@ pub fn start_agent(
                     let _ = app.emit(&format!("agent:stderr:{}", conv_id), line);
                 }
                 Some(ProcessEvent::Exit(exit)) => {
+                    let parsed_events = {
+                        let mut parser = parser_arc.lock().unwrap();
+                        parser.flush()
+                    };
+                    for event in parsed_events {
+                        let _ = app.emit(&format!("agent:event:{}", conv_id), event);
+                    }
                     let _ = app.emit(&format!("agent:close:{}", conv_id), exit);
                     process_arc.lock().unwrap().take();
                     break;
                 }
                 None => {
+                    let parsed_events = {
+                        let mut parser = parser_arc.lock().unwrap();
+                        parser.flush()
+                    };
+                    for event in parsed_events {
+                        let _ = app.emit(&format!("agent:event:{}", conv_id), event);
+                    }
                     process_arc.lock().unwrap().take();
                     break;
                 }

@@ -202,34 +202,39 @@ describe("ClaudeAgentService", () => {
 
     await service.sendMessage("conv-1", "hello", "/tmp")
 
-    // Should have called listen 3 times for stdout, stderr, close
+    // Should have called listen 4 times for stdout, stderr, event, close
     expect(listen).toHaveBeenCalledWith("agent:stdout:conv-1", expect.any(Function))
     expect(listen).toHaveBeenCalledWith("agent:stderr:conv-1", expect.any(Function))
+    expect(listen).toHaveBeenCalledWith("agent:event:conv-1", expect.any(Function))
     expect(listen).toHaveBeenCalledWith("agent:close:conv-1", expect.any(Function))
   })
 
-  it("handleOutput parses JSON lines and dispatches AgentEvents", async () => {
+  it("handleBackendEvent dispatches AgentEvents from Rust parser", async () => {
     const service = await freshService()
     const eventCallback = vi.fn()
     service.onEvent("conv-1", eventCallback)
 
-    // Capture the stdout listener callback
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
+    // Capture the agent event listener callback
+    let eventHandler:
+      | ((event: { payload: { kind: string; [key: string]: unknown } }) => void)
+      | null = null
     vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
+      if (typeof eventName === "string" && eventName.includes("agent:event")) {
+        eventHandler = handler as typeof eventHandler
       }
       return vi.fn() as unknown as () => void
     })
 
     await service.sendMessage("conv-1", "hello", "/tmp")
 
-    expect(stdoutHandler).not.toBeNull()
+    expect(eventHandler).not.toBeNull()
 
-    // Simulate receiving a JSON line via stdout
-    stdoutHandler!({
-      payload:
-        '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}',
+    // Simulate receiving a parsed agent event
+    eventHandler!({
+      payload: {
+        kind: "message",
+        content: "hi",
+      },
     })
 
     // Should emit an AgentEvent of kind "message"
@@ -238,75 +243,101 @@ describe("ClaudeAgentService", () => {
     )
   })
 
-  it("handleOutput ignores non-JSON lines", async () => {
+  it("maps question events from Rust to frontend shape", async () => {
     const service = await freshService()
     const eventCallback = vi.fn()
     service.onEvent("conv-1", eventCallback)
 
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
+    let eventHandler:
+      | ((event: { payload: { kind: string; [key: string]: unknown } }) => void)
+      | null = null
     vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
+      if (typeof eventName === "string" && eventName.includes("agent:event")) {
+        eventHandler = handler as typeof eventHandler
       }
       return vi.fn() as unknown as () => void
     })
 
     await service.sendMessage("conv-1", "hello", "/tmp")
 
-    stdoutHandler!({ payload: "not json at all" })
+    eventHandler!({
+      payload: {
+        kind: "question",
+        request_id: "req-1",
+        questions: [
+          {
+            question: "Pick one",
+            header: "Choice",
+            options: [{ label: "A", description: "Option A" }],
+            multi_select: false,
+          },
+        ],
+        raw_input: { questions: [] },
+      },
+    })
 
-    // Should not call the event callback for non-JSON
-    expect(eventCallback).not.toHaveBeenCalled()
+    expect(eventCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "question",
+        id: "req-1",
+        questions: [
+          expect.objectContaining({
+            multiSelect: false,
+          }),
+        ],
+      })
+    )
   })
 
-  it("handleOutput captures session_id from first event", async () => {
+  it("handles sessionId events from Rust parser", async () => {
     const service = await freshService()
 
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
+    let eventHandler:
+      | ((event: { payload: { kind: string; [key: string]: unknown } }) => void)
+      | null = null
     vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
+      if (typeof eventName === "string" && eventName.includes("agent:event")) {
+        eventHandler = handler as typeof eventHandler
       }
       return vi.fn() as unknown as () => void
     })
 
     await service.sendMessage("conv-1", "hello", "/tmp")
 
-    stdoutHandler!({
-      payload: '{"type":"system","session_id":"sess-abc"}',
+    eventHandler!({
+      payload: { kind: "sessionId", session_id: "sess-abc" },
     })
 
     expect(service.getSessionId("conv-1")).toBe("sess-abc")
   })
 
-  it("handleOutput emits toolApproval for Bash commands", async () => {
+  it("handles toolApproval events for Bash commands from Rust parser", async () => {
     const service = await freshService()
     const eventCallback = vi.fn()
     service.onEvent("conv-1", eventCallback)
 
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
+    let eventHandler:
+      | ((event: { payload: { kind: string; [key: string]: unknown } }) => void)
+      | null = null
     vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
+      if (typeof eventName === "string" && eventName.includes("agent:event")) {
+        eventHandler = handler as typeof eventHandler
       }
       return vi.fn() as unknown as () => void
     })
 
     await service.sendMessage("conv-1", "hello", "/tmp")
 
-    expect(stdoutHandler).not.toBeNull()
+    expect(eventHandler).not.toBeNull()
 
-    // Simulate Bash tool approval request
-    stdoutHandler!({
-      payload: JSON.stringify({
-        type: "control_request",
+    eventHandler!({
+      payload: {
+        kind: "toolApproval",
         request_id: "req-bash-1",
-        request: {
-          subtype: "can_use_tool",
-          tool_name: "Bash",
-          input: { command: "cd /foo && pnpm install" },
-        },
-      }),
+        name: "Bash",
+        input: { command: "cd /foo && pnpm install" },
+        display_input: "cd /foo && pnpm install",
+      },
     })
 
     // Command prefixes are computed by ChatStore, not the service
@@ -315,35 +346,35 @@ describe("ClaudeAgentService", () => {
       id: "req-bash-1",
       name: "Bash",
       input: { command: "cd /foo && pnpm install" },
-      displayInput: '{\n  "command": "cd /foo && pnpm install"\n}',
+      displayInput: "cd /foo && pnpm install",
     })
   })
 
-  it("handleOutput emits toolApproval for non-Bash tools", async () => {
+  it("handles toolApproval events for non-Bash tools from Rust parser", async () => {
     const service = await freshService()
     const eventCallback = vi.fn()
     service.onEvent("conv-1", eventCallback)
 
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
+    let eventHandler:
+      | ((event: { payload: { kind: string; [key: string]: unknown } }) => void)
+      | null = null
     vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
+      if (typeof eventName === "string" && eventName.includes("agent:event")) {
+        eventHandler = handler as typeof eventHandler
       }
       return vi.fn() as unknown as () => void
     })
 
     await service.sendMessage("conv-1", "hello", "/tmp")
 
-    stdoutHandler!({
-      payload: JSON.stringify({
-        type: "control_request",
+    eventHandler!({
+      payload: {
+        kind: "toolApproval",
         request_id: "req-read-1",
-        request: {
-          subtype: "can_use_tool",
-          tool_name: "Read",
-          input: { path: "/tmp/file.txt" },
-        },
-      }),
+        name: "Read",
+        input: { path: "/tmp/file.txt" },
+        display_input: '{"path":"/tmp/file.txt"}',
+      },
     })
 
     expect(eventCallback).toHaveBeenCalledWith({
@@ -351,38 +382,36 @@ describe("ClaudeAgentService", () => {
       id: "req-read-1",
       name: "Read",
       input: { path: "/tmp/file.txt" },
-      displayInput: '{\n  "path": "/tmp/file.txt"\n}',
+      displayInput: '{"path":"/tmp/file.txt"}',
     })
   })
 
-  it("handleOutput emits planApproval event with plan content for ExitPlanMode", async () => {
+  it("handles planApproval event with plan content for ExitPlanMode", async () => {
     const service = await freshService()
     const eventCallback = vi.fn()
     service.onEvent("conv-1", eventCallback)
 
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
+    let eventHandler:
+      | ((event: { payload: { kind: string; [key: string]: unknown } }) => void)
+      | null = null
     vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
+      if (typeof eventName === "string" && eventName.includes("agent:event")) {
+        eventHandler = handler as typeof eventHandler
       }
       return vi.fn() as unknown as () => void
     })
 
     await service.sendMessage("conv-1", "hello", "/tmp")
 
-    expect(stdoutHandler).not.toBeNull()
+    expect(eventHandler).not.toBeNull()
 
     const planContent = "# My Plan\n\n## Step 1\nDo something\n\n## Step 2\nDo something else"
-    stdoutHandler!({
-      payload: JSON.stringify({
-        type: "control_request",
+    eventHandler!({
+      payload: {
+        kind: "planApproval",
         request_id: "req-plan-1",
-        request: {
-          subtype: "can_use_tool",
-          tool_name: "ExitPlanMode",
-          input: { plan: planContent },
-        },
-      }),
+        content: planContent,
+      },
     })
 
     expect(eventCallback).toHaveBeenCalledWith({
@@ -392,31 +421,29 @@ describe("ClaudeAgentService", () => {
     })
   })
 
-  it("handleOutput emits planApproval with empty string when plan is missing", async () => {
+  it("handles planApproval with empty string when plan is missing", async () => {
     const service = await freshService()
     const eventCallback = vi.fn()
     service.onEvent("conv-1", eventCallback)
 
-    let stdoutHandler: ((event: { payload: string }) => void) | null = null
+    let eventHandler:
+      | ((event: { payload: { kind: string; [key: string]: unknown } }) => void)
+      | null = null
     vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-      if (typeof eventName === "string" && eventName.includes("stdout")) {
-        stdoutHandler = handler as typeof stdoutHandler
+      if (typeof eventName === "string" && eventName.includes("agent:event")) {
+        eventHandler = handler as typeof eventHandler
       }
       return vi.fn() as unknown as () => void
     })
 
     await service.sendMessage("conv-1", "hello", "/tmp")
 
-    stdoutHandler!({
-      payload: JSON.stringify({
-        type: "control_request",
+    eventHandler!({
+      payload: {
+        kind: "planApproval",
         request_id: "req-plan-2",
-        request: {
-          subtype: "can_use_tool",
-          tool_name: "ExitPlanMode",
-          input: {},
-        },
-      }),
+        content: "",
+      },
     })
 
     expect(eventCallback).toHaveBeenCalledWith({

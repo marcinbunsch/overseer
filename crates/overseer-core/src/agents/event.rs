@@ -85,6 +85,8 @@ pub enum AgentEvent {
     Question {
         request_id: String,
         questions: Vec<QuestionItem>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        raw_input: Option<serde_json::Value>,
     },
 
     /// Agent wants user to approve a plan.
@@ -305,6 +307,7 @@ mod tests {
                     ],
                     multi_select: false,
                 }],
+                raw_input: None,
             };
 
             let json = serde_json::to_string(&event).unwrap();
@@ -314,6 +317,7 @@ mod tests {
                 AgentEvent::Question {
                     request_id,
                     questions,
+                    ..
                 } => {
                     assert_eq!(request_id, "req-456");
                     assert_eq!(questions.len(), 1);

@@ -57,56 +57,57 @@ Current path: ${agentPath}`
   return errorStr
 }
 
-interface ClaudeStreamEvent {
-  type: string
-  subtype?: string
-  session_id?: string
-  request_id?: string
-  /** ID of parent Task tool_use - for subagent messages */
-  parent_tool_use_id?: string | null
-  request?: {
-    subtype: string
-    tool_name: string
-    input: Record<string, unknown> & { questions?: QuestionItem[] }
-    tool_use_id?: string
-    decision_reason?: string
-  }
-  message?: {
-    role: string
-    content: Array<{
-      type: string
-      text?: string
-      thinking?: string
-      id?: string
-      name?: string
-      input?: {
-        questions?: QuestionItem[]
-        [key: string]: unknown
-      }
-    }>
-  }
-  content_block?: {
-    type: string
-    text?: string
-    id?: string
-    name?: string
-    input?: unknown
-  }
-  delta?: {
-    type: string
-    text?: string
-  }
-  result?: string
+type BackendToolMeta = {
+  tool_name: string
+  lines_added?: number | null
+  lines_removed?: number | null
 }
+
+type BackendQuestionItem = {
+  question: string
+  header: string
+  options: Array<{ label: string; description: string }>
+  multi_select?: boolean
+}
+
+type BackendAgentEvent =
+  | { kind: "text"; text: string }
+  | { kind: "bashOutput"; text: string }
+  | {
+      kind: "message"
+      content: string
+      tool_meta?: BackendToolMeta | null
+      parent_tool_use_id?: string | null
+      tool_use_id?: string | null
+      is_info?: boolean | null
+    }
+  | {
+      kind: "toolApproval"
+      request_id: string
+      name: string
+      input: Record<string, unknown>
+      display_input: string
+    }
+  | {
+      kind: "question"
+      request_id: string
+      questions: BackendQuestionItem[]
+      raw_input?: Record<string, unknown>
+    }
+  | { kind: "planApproval"; request_id: string; content: string }
+  | { kind: "sessionId"; session_id: string }
+  | { kind: "turnComplete" }
+  | { kind: "done" }
+  | { kind: "error"; message: string }
 
 interface ConversationProcess {
   sessionId: string | null
   running: boolean
-  buffer: string
   rawOutput: string
   unlistenStdout: Unsubscribe | null
   unlistenStderr: Unsubscribe | null
   unlistenClose: Unsubscribe | null
+  unlistenEvent: Unsubscribe | null
 }
 
 class ClaudeAgentService implements AgentService {
@@ -120,11 +121,11 @@ class ClaudeAgentService implements AgentService {
       conv = {
         sessionId: null,
         running: false,
-        buffer: "",
         rawOutput: "",
         unlistenStdout: null,
         unlistenStderr: null,
         unlistenClose: null,
+        unlistenEvent: null,
       }
       this.conversations.set(chatId, conv)
     }
@@ -140,7 +141,6 @@ class ClaudeAgentService implements AgentService {
         if (conv.rawOutput.length < 4096) {
           conv.rawOutput += payload
         }
-        this.handleOutput(chatId, `${payload}\n`)
       })
     }
 
@@ -152,12 +152,17 @@ class ClaudeAgentService implements AgentService {
       })
     }
 
+    if (!conv.unlistenEvent) {
+      conv.unlistenEvent = await backend.listen<BackendAgentEvent>(
+        `agent:event:${chatId}`,
+        (event) => {
+          this.handleBackendEvent(chatId, event)
+        }
+      )
+    }
+
     if (!conv.unlistenClose) {
       conv.unlistenClose = await backend.listen<{ code: number }>(`agent:close:${chatId}`, () => {
-        if (conv.buffer.trim()) {
-          this.parseLine(chatId, conv.buffer.trim())
-          conv.buffer = ""
-        }
         if (!conv.rawOutput.trim()) {
           console.warn(`Claude exited with no output [${chatId}]`)
         } else if (!conv.rawOutput.includes("{")) {
@@ -200,7 +205,6 @@ class ClaudeAgentService implements AgentService {
 
     // Otherwise start a new process
     await this.stopChat(chatId)
-    conv.buffer = ""
     conv.rawOutput = ""
 
     // Prepend initPrompt to the first message (meta instruction)
@@ -259,161 +263,88 @@ class ClaudeAgentService implements AgentService {
     })
   }
 
-  private handleOutput(chatId: string, data: string): void {
+  private handleBackendEvent(chatId: string, event: BackendAgentEvent): void {
     const conv = this.conversations.get(chatId)
     if (!conv) return
 
-    conv.buffer += data
-    const lines = conv.buffer.split("\n")
-    conv.buffer = lines.pop() || ""
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed) {
-        this.parseLine(chatId, trimmed)
-      }
-    }
-  }
-
-  private parseLine(chatId: string, line: string): void {
-    try {
-      const event = JSON.parse(line) as ClaudeStreamEvent
-      const conv = this.conversations.get(chatId)
-
-      if (event.session_id && conv && !conv.sessionId) {
-        conv.sessionId = event.session_id
-        this.emitEvent(chatId, { kind: "sessionId", sessionId: event.session_id })
-      }
-
-      this.translateEvent(chatId, event)
-    } catch {
-      // Not valid JSON, ignore
-    }
-  }
-
-  /** Translate Claude-specific stream events into generic AgentEvents. */
-  private translateEvent(chatId: string, event: ClaudeStreamEvent): void {
-    // Get parent_tool_use_id for subagent message grouping
-    const parentToolUseId = event.parent_tool_use_id
-
-    // assistant event — one message per content block
-    if (event.type === "assistant" && event.message?.content) {
-      for (const block of event.message.content) {
-        if (block.type === "thinking" && block.thinking) {
-          // Extended thinking block — emit as collapsible tool-style message
-          this.emitEvent(chatId, {
-            kind: "message",
-            content: block.thinking,
-            toolMeta: { toolName: "Thinking", linesAdded: 0, linesRemoved: 0 },
-            parentToolUseId,
-          })
-        } else if (block.type === "text" && block.text) {
-          this.emitEvent(chatId, {
-            kind: "message",
-            content: block.text.trim(),
-            parentToolUseId,
-          })
-        } else if (
-          block.type === "tool_use" &&
-          (block.name === "AskUserQuestion" || block.name === "ExitPlanMode")
-        ) {
-          // Skip — handled via control_request
-        } else if (block.type === "tool_use") {
-          const input = block.input != null ? JSON.stringify(block.input, null, 2) : ""
-          let toolMeta: ToolMeta | undefined
-          if (block.name === "Edit" && block.input) {
-            const oldStr = typeof block.input.old_string === "string" ? block.input.old_string : ""
-            const newStr = typeof block.input.new_string === "string" ? block.input.new_string : ""
-            toolMeta = {
-              toolName: block.name,
-              linesAdded: newStr ? newStr.split("\n").length : 0,
-              linesRemoved: oldStr ? oldStr.split("\n").length : 0,
-            }
-          }
-          // For Task tools, include the block.id so child messages can reference it
-          const toolUseId = block.name === "Task" ? block.id : undefined
-          this.emitEvent(chatId, {
-            kind: "message",
-            content: input ? `[${block.name}]\n${input}` : `[${block.name}]`,
-            toolMeta,
-            parentToolUseId,
-            toolUseId,
-          })
+    switch (event.kind) {
+      case "sessionId": {
+        if (event.session_id && !conv.sessionId) {
+          conv.sessionId = event.session_id
+          this.emitEvent(chatId, { kind: "sessionId", sessionId: event.session_id })
         }
+        return
       }
-      return
-    }
-
-    // content_block_start — progressive tool display
-    if (event.type === "content_block_start" && event.content_block) {
-      if (event.content_block.type === "tool_use" && event.content_block.name) {
+      case "text":
+      case "bashOutput":
+      case "turnComplete":
+      case "done": {
+        this.emitEvent(chatId, event as import("./types").AgentEvent)
+        return
+      }
+      case "message": {
+        const toolMeta: ToolMeta | undefined = event.tool_meta
+          ? {
+              toolName: event.tool_meta.tool_name,
+              linesAdded: event.tool_meta.lines_added ?? undefined,
+              linesRemoved: event.tool_meta.lines_removed ?? undefined,
+            }
+          : undefined
         this.emitEvent(chatId, {
-          kind: "text",
-          text: `\n[${event.content_block.name}] ...`,
+          kind: "message",
+          content: event.content,
+          toolMeta,
+          parentToolUseId: event.parent_tool_use_id ?? undefined,
+          toolUseId: event.tool_use_id ?? undefined,
+          isInfo: event.is_info ?? undefined,
         })
+        return
       }
-      return
-    }
-
-    // content_block_delta — streaming text
-    if (event.type === "content_block_delta" && event.delta?.text) {
-      this.emitEvent(chatId, { kind: "text", text: event.delta.text })
-      return
-    }
-
-    // result — turn complete
-    if (event.type === "result") {
-      this.emitEvent(chatId, { kind: "turnComplete" })
-      return
-    }
-
-    // control_request — tool approval or question
-    if (
-      event.type === "control_request" &&
-      event.request_id &&
-      event.request?.subtype === "can_use_tool"
-    ) {
-      const toolName = event.request.tool_name
-
-      // AskUserQuestion
-      if (toolName === "AskUserQuestion" && event.request.input?.questions) {
+      case "toolApproval": {
+        this.emitEvent(chatId, {
+          kind: "toolApproval",
+          id: event.request_id,
+          name: event.name,
+          input: event.input ?? {},
+          displayInput: event.display_input ?? "",
+        })
+        return
+      }
+      case "question": {
+        const questions: QuestionItem[] = event.questions.map((item) => ({
+          question: item.question,
+          header: item.header,
+          options: item.options,
+          multiSelect: item.multi_select ?? false,
+        }))
         this.emitEvent(chatId, {
           kind: "question",
           id: event.request_id,
-          questions: event.request.input.questions as QuestionItem[],
-          rawInput: event.request.input,
+          questions,
+          rawInput: event.raw_input ?? {},
         })
         return
       }
-
-      // ExitPlanMode
-      if (toolName === "ExitPlanMode") {
-        const planContent =
-          typeof event.request.input?.plan === "string" ? event.request.input.plan : ""
+      case "planApproval": {
         this.emitEvent(chatId, {
           kind: "planApproval",
           id: event.request_id,
-          planContent,
+          planContent: event.content ?? "",
         })
         return
       }
-
-      // Regular tool approval
-      const toolInput = event.request.input ?? {}
-      const displayInput =
-        Object.keys(toolInput).length > 0 ? JSON.stringify(toolInput, null, 2) : ""
-
-      this.emitEvent(chatId, {
-        kind: "toolApproval",
-        id: event.request_id,
-        name: toolName,
-        input: toolInput,
-        displayInput,
-      })
-      return
+      case "error": {
+        console.error(`Claude event error [${chatId}]:`, event.message)
+        this.emitEvent(chatId, {
+          kind: "message",
+          content: event.message,
+          isInfo: true,
+        })
+        return
+      }
+      default:
+        return
     }
-
-    // Everything else — ignore
   }
 
   private emitEvent(chatId: string, event: import("./types").AgentEvent): void {
@@ -452,6 +383,7 @@ class ClaudeAgentService implements AgentService {
       conv.unlistenStdout?.()
       conv.unlistenStderr?.()
       conv.unlistenClose?.()
+      conv.unlistenEvent?.()
     }
     this.conversations.delete(chatId)
     this.eventCallbacks.delete(chatId)

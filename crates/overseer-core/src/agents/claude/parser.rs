@@ -529,6 +529,7 @@ impl ClaudeParser {
                             return vec![AgentEvent::Question {
                                 request_id,
                                 questions: parsed.questions,
+                                raw_input: Some(input.clone()),
                             }];
                         }
                     }
@@ -837,7 +838,11 @@ mod tests {
 
         assert!(events.iter().any(|e| matches!(
             e,
-            AgentEvent::Question { request_id, questions }
+            AgentEvent::Question {
+                request_id,
+                questions,
+                ..
+            }
             if request_id == "req-789" && questions.len() == 1
         )));
     }
