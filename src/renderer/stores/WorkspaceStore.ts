@@ -458,6 +458,11 @@ export class WorkspaceStore {
   }
 
   @action
+  async denyToolUseWithExplanation(toolId: string, explanation: string): Promise<void> {
+    await this.activeChat?.denyToolUseWithExplanation(toolId, explanation)
+  }
+
+  @action
   async answerQuestion(requestId: string, answers: Record<string, string>): Promise<void> {
     await this.activeChat?.answerQuestion(requestId, answers)
   }

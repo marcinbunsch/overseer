@@ -543,6 +543,72 @@ describe("ChatStore", () => {
     })
   })
 
+  describe("denyToolUseWithExplanation", () => {
+    it("sends denial with explanation message to agent", async () => {
+      const store = createChatStore()
+
+      runInAction(() => {
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Write",
+          input: '{"path": "/tmp/file.txt"}',
+          rawInput: { path: "/tmp/file.txt" },
+        })
+      })
+
+      await store.denyToolUseWithExplanation("tool-1", "Please use Edit instead")
+
+      expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
+        "test-chat-id",
+        "tool-1",
+        false,
+        { path: "/tmp/file.txt" },
+        "User denied this tool use and requested something different:\n\nPlease use Edit instead"
+      )
+      expect(store.pendingToolUses).toHaveLength(0)
+    })
+
+    it("adds user message to chat when explanation provided", async () => {
+      const store = createChatStore()
+
+      runInAction(() => {
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Bash",
+          input: '{"command": "rm -rf /"}',
+          rawInput: { command: "rm -rf /" },
+        })
+      })
+
+      const initialMessageCount = store.chat.messages.length
+      await store.denyToolUseWithExplanation("tool-1", "Don't delete everything")
+
+      expect(store.chat.messages.length).toBe(initialMessageCount + 1)
+      expect(store.chat.messages[store.chat.messages.length - 1]).toMatchObject({
+        role: "user",
+        content: "Don't delete everything",
+      })
+    })
+
+    it("does not add user message when explanation is empty", async () => {
+      const store = createChatStore()
+
+      runInAction(() => {
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Bash",
+          input: '{"command": "ls"}',
+          rawInput: { command: "ls" },
+        })
+      })
+
+      const initialMessageCount = store.chat.messages.length
+      await store.denyToolUseWithExplanation("tool-1", "   ")
+
+      expect(store.chat.messages.length).toBe(initialMessageCount)
+    })
+  })
+
   it("rename updates the label and triggers persistence", () => {
     const saveIndex = vi.fn()
     const store = createChatStore(undefined, { saveIndex })

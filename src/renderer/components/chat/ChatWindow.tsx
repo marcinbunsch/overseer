@@ -220,6 +220,9 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                 onApprove={(toolId) => workspaceStore.approveToolUse(toolId, true)}
                 onApproveAll={(toolId, scope) => workspaceStore.approveToolUseAll(toolId, scope)}
                 onDeny={(toolId) => workspaceStore.approveToolUse(toolId, false)}
+                onDenyWithExplanation={(toolId, explanation) =>
+                  workspaceStore.denyToolUseWithExplanation(toolId, explanation)
+                }
               />
 
               <PlanApprovalPanel

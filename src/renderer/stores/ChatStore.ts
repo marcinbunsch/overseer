@@ -226,6 +226,38 @@ export class ChatStore {
     })
   }
 
+  @action async denyToolUseWithExplanation(toolId: string, explanation: string): Promise<void> {
+    if (!this.service) return
+    const tool = this.pendingToolUses.find((t) => t.id === toolId)
+    const denyMessage = explanation.trim()
+      ? `User denied this tool use and requested something different:\n\n${explanation.trim()}`
+      : "User denied this tool use"
+    try {
+      await this.service.sendToolApproval(
+        this.chat.id,
+        toolId,
+        false,
+        tool?.rawInput ?? {},
+        denyMessage
+      )
+    } catch (err) {
+      console.error("Error sending tool denial with explanation:", err)
+    }
+    runInAction(() => {
+      this.pendingToolUses = this.pendingToolUses.filter((t) => t.id !== toolId)
+      this.clearUnreadStatus()
+      if (explanation.trim()) {
+        this.chat.messages.push({
+          id: crypto.randomUUID(),
+          role: "user",
+          content: explanation.trim(),
+          timestamp: new Date(),
+        })
+        this.scheduleSave()
+      }
+    })
+  }
+
   @action async approveToolUseAll(
     toolId: string,
     scope: "tool" | "command" = "tool"
