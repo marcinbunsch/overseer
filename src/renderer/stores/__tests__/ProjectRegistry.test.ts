@@ -128,10 +128,11 @@ describe("ProjectRegistry", () => {
       ],
     }
 
-    vi.mocked(exists)
-      .mockResolvedValueOnce(true) // configDir
-      .mockResolvedValueOnce(true) // configPath
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify(savedRepos))
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "load_project_registry") return Promise.resolve(savedRepos)
+      if (cmd === "save_project_registry") return Promise.resolve(undefined)
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
