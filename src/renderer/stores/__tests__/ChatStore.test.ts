@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
+import { invoke } from "@tauri-apps/api/core"
 import { runInAction } from "mobx"
 import type { Chat } from "../../types"
 import { ChatStore, type ChatStoreContext } from "../ChatStore"
@@ -29,23 +30,6 @@ vi.mock("../ConfigStore", () => ({
     claudePermissionMode: "default",
     codexApprovalPolicy: "untrusted",
     loaded: true,
-  },
-}))
-
-// Mock Tauri filesystem
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  readTextFile: vi.fn(),
-  writeTextFile: vi.fn(() => Promise.resolve()),
-  exists: vi.fn(() => Promise.resolve(false)),
-  mkdir: vi.fn(() => Promise.resolve()),
-  remove: vi.fn(() => Promise.resolve()),
-}))
-
-// Mock backend for approval commands
-const mockBackendInvoke: Mock = vi.fn(() => Promise.resolve())
-vi.mock("../../backend", () => ({
-  backend: {
-    invoke: (cmd: string, args: unknown) => mockBackendInvoke(cmd, args),
   },
 }))
 
@@ -105,6 +89,7 @@ describe("ChatStore", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    vi.mocked(invoke).mockResolvedValue(undefined)
   })
 
   it("initializes with correct defaults", () => {
@@ -370,7 +355,7 @@ describe("ChatStore", () => {
 
   describe("approveToolUseAll", () => {
     beforeEach(() => {
-      mockBackendInvoke.mockClear()
+      vi.mocked(invoke).mockClear()
     })
 
     it("calls backend to add tool approval when scope is tool", async () => {
@@ -387,7 +372,7 @@ describe("ChatStore", () => {
 
       await store.approveToolUseAll("tool-1", "tool")
 
-      expect(mockBackendInvoke).toHaveBeenCalledWith("add_approval", {
+      expect(invoke).toHaveBeenCalledWith("add_approval", {
         projectName: "test-project",
         toolOrPrefix: "Read",
         isPrefix: false,
@@ -409,12 +394,12 @@ describe("ChatStore", () => {
 
       await store.approveToolUseAll("tool-1", "command")
 
-      expect(mockBackendInvoke).toHaveBeenCalledWith("add_approval", {
+      expect(invoke).toHaveBeenCalledWith("add_approval", {
         projectName: "test-project",
         toolOrPrefix: "cd",
         isPrefix: true,
       })
-      expect(mockBackendInvoke).toHaveBeenCalledWith("add_approval", {
+      expect(invoke).toHaveBeenCalledWith("add_approval", {
         projectName: "test-project",
         toolOrPrefix: "pnpm install",
         isPrefix: true,
@@ -972,7 +957,6 @@ describe("ChatStore", () => {
 
   describe("save timing", () => {
     it("message events trigger scheduleSave", async () => {
-      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
       const store = createChatStore()
 
       const eventCall = mockAgentService.onEvent.mock.calls.find(
@@ -991,15 +975,14 @@ describe("ChatStore", () => {
       // Wait for the scheduled save
       await vi.waitFor(
         () => {
-          expect(writeTextFile).toHaveBeenCalled()
+          expect(invoke).toHaveBeenCalledWith("save_chat", expect.anything())
         },
         { timeout: 2000 }
       )
     })
 
     it("text events trigger scheduleSave", async () => {
-      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
-      vi.mocked(writeTextFile).mockClear()
+      vi.mocked(invoke).mockClear()
 
       const store = createChatStore()
 
@@ -1018,15 +1001,14 @@ describe("ChatStore", () => {
       // Wait for the scheduled save
       await vi.waitFor(
         () => {
-          expect(writeTextFile).toHaveBeenCalled()
+          expect(invoke).toHaveBeenCalledWith("save_chat", expect.anything())
         },
         { timeout: 2000 }
       )
     })
 
     it("turnComplete triggers immediate save", async () => {
-      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
-      vi.mocked(writeTextFile).mockClear()
+      vi.mocked(invoke).mockClear()
 
       const store = createChatStore()
 
@@ -1050,13 +1032,12 @@ describe("ChatStore", () => {
 
       // Save should be triggered immediately (not after 1 second delay)
       await vi.waitFor(() => {
-        expect(writeTextFile).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("save_chat", expect.anything())
       })
     })
 
     it("onDone callback triggers immediate save", async () => {
-      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
-      vi.mocked(writeTextFile).mockClear()
+      vi.mocked(invoke).mockClear()
 
       const store = createChatStore()
 
@@ -1082,7 +1063,7 @@ describe("ChatStore", () => {
 
       // Save should be triggered immediately
       await vi.waitFor(() => {
-        expect(writeTextFile).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("save_chat", expect.anything())
       })
 
       expect(store.isSending).toBe(false)

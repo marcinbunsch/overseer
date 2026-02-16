@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 
+// Mock ConfigStore to avoid async load side effects
+vi.mock("../../stores/ConfigStore", () => ({
+  configStore: {
+    claudePath: "claude",
+    agentShell: null,
+    loaded: true,
+  },
+}))
+
 describe("ClaudeAgentService", () => {
   beforeEach(() => {
     vi.clearAllMocks()

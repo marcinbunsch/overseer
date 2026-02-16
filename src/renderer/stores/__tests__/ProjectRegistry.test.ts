@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { readTextFile, writeTextFile, exists } from "@tauri-apps/plugin-fs"
-import { homeDir } from "@tauri-apps/api/path"
+import { invoke } from "@tauri-apps/api/core"
 
 // Mock git and terminal services to avoid their own Tauri dependencies
 vi.mock("../../services/git", () => ({
@@ -51,18 +50,21 @@ vi.mock("../WorkspaceHistoryStore", () => ({
 describe("ProjectRegistry", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(homeDir).mockResolvedValue("/home/testuser/")
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "load_project_registry") return Promise.resolve({ projects: [] })
+      if (cmd === "save_project_registry") return Promise.resolve(undefined)
+      return Promise.resolve(undefined)
+    })
   })
 
   it("initializes with empty repos", async () => {
-    vi.mocked(exists).mockResolvedValue(false)
 
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
 
     // Wait for loadFromFile to complete
     await vi.waitFor(() => {
-      expect(exists).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
     })
 
     expect(projectRegistry.projects).toEqual([])
@@ -89,10 +91,11 @@ describe("ProjectRegistry", () => {
       },
     ]
 
-    vi.mocked(exists)
-      .mockResolvedValueOnce(true) // configDir
-      .mockResolvedValueOnce(true) // configPath
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify(savedRepos))
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "load_project_registry") return Promise.resolve({ projects: savedRepos })
+      if (cmd === "save_project_registry") return Promise.resolve(undefined)
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
@@ -106,13 +109,12 @@ describe("ProjectRegistry", () => {
   })
 
   it("selectProject sets selectedProjectId and clears workspace", async () => {
-    vi.mocked(exists).mockResolvedValue(false)
 
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
 
     await vi.waitFor(() => {
-      expect(exists).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
     })
 
     projectRegistry.selectProject("repo-1")
@@ -121,13 +123,12 @@ describe("ProjectRegistry", () => {
   })
 
   it("selectWorkspace sets selectedWorkspaceId", async () => {
-    vi.mocked(exists).mockResolvedValue(false)
 
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
 
     await vi.waitFor(() => {
-      expect(exists).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
     })
 
     projectRegistry.selectWorkspace("wt-1")
@@ -135,14 +136,13 @@ describe("ProjectRegistry", () => {
   })
 
   it("removeProject removes the repo and clears selection if active", async () => {
-    vi.mocked(exists).mockResolvedValue(false)
 
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
     const { runInAction } = await import("mobx")
 
     await vi.waitFor(() => {
-      expect(exists).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
     })
 
     runInAction(() => {
@@ -161,14 +161,13 @@ describe("ProjectRegistry", () => {
   })
 
   it("removeProject does not clear selection if different repo removed", async () => {
-    vi.mocked(exists).mockResolvedValue(false)
 
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
     const { runInAction } = await import("mobx")
 
     await vi.waitFor(() => {
-      expect(exists).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
     })
 
     runInAction(() => {
@@ -185,14 +184,13 @@ describe("ProjectRegistry", () => {
   })
 
   it("selectedProject computed returns the correct repo", async () => {
-    vi.mocked(exists).mockResolvedValue(false)
 
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
     const { runInAction } = await import("mobx")
 
     await vi.waitFor(() => {
-      expect(exists).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
     })
 
     runInAction(() => {
@@ -206,27 +204,25 @@ describe("ProjectRegistry", () => {
   })
 
   it("selectedProject returns undefined when no repo selected", async () => {
-    vi.mocked(exists).mockResolvedValue(false)
 
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
 
     await vi.waitFor(() => {
-      expect(exists).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
     })
 
     expect(projectRegistry.selectedProject).toBeUndefined()
   })
 
   it("addProject calls gitService.listWorkspaces and adds repo", async () => {
-    vi.mocked(exists).mockResolvedValue(false)
 
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
     const { gitService } = await import("../../services/git")
 
     await vi.waitFor(() => {
-      expect(exists).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
     })
 
     vi.mocked(gitService.listWorkspaces).mockResolvedValue([
@@ -244,7 +240,6 @@ describe("ProjectRegistry", () => {
 
   describe("ProjectStore cache", () => {
     it("returns ProjectStore instances from repos computed", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -252,7 +247,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -265,14 +260,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("maintains referential stability for ProjectStore instances", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -288,14 +282,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("clears cache when repo is removed", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -315,14 +308,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("clears cache when setProjects is called", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -347,7 +339,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("syncs workspaces to ProjectStore when adding a workspace", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -355,7 +346,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       vi.mocked(gitService.addWorkspace).mockResolvedValue("/test/feature")
@@ -378,14 +369,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("syncs settings to ProjectStore when updateProject is called", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -408,14 +398,13 @@ describe("ProjectRegistry", () => {
 
   describe("switchToMainWorkspace", () => {
     it("switches to main branch workspace", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -455,14 +444,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("switches to master branch workspace", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -502,14 +490,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("does nothing if main workspace is archived", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -549,14 +536,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("does nothing if repo not found", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -572,7 +558,6 @@ describe("ProjectRegistry", () => {
 
   describe("archiveWorkspace with deleteBranch", () => {
     it("deletes branch when deleteBranch is true", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -580,7 +565,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -610,7 +595,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("does not delete branch when deleteBranch is false", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -618,7 +602,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -648,7 +632,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("does not delete branch by default", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -656,7 +639,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -686,7 +669,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("still archives successfully if branch deletion fails", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -694,7 +676,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       vi.mocked(gitService.deleteBranch).mockRejectedValue(new Error("Branch not found"))
@@ -729,44 +711,48 @@ describe("ProjectRegistry", () => {
 
   describe("persistence timing", () => {
     it("addProject awaits saveToFile before returning", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       vi.mocked(gitService.listWorkspaces).mockResolvedValue([
         { path: "/home/user/myrepo", branch: "main" },
       ])
 
-      // Track when writeTextFile is called
+      // Track when save_project_registry completes
       let writeCompleted = false
-      vi.mocked(writeTextFile).mockImplementation(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 10))
-        writeCompleted = true
+      vi.mocked(invoke).mockImplementation((cmd: string) => {
+        if (cmd === "load_project_registry") return Promise.resolve({ projects: [] })
+        if (cmd === "save_project_registry") {
+          return new Promise((resolve) => {
+            setTimeout(() => {
+              writeCompleted = true
+              resolve(undefined)
+            }, 10)
+          })
+        }
+        return Promise.resolve(undefined)
       })
 
       await projectRegistry.addProject("/home/user/myrepo")
 
       // After addProject returns, save should have completed
       expect(writeCompleted).toBe(true)
-      expect(writeTextFile).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("save_project_registry", expect.anything())
     })
 
     it("addWorkspace triggers saveToFile without blocking", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       vi.mocked(gitService.addWorkspace).mockResolvedValue("/test/feature")
@@ -781,14 +767,13 @@ describe("ProjectRegistry", () => {
 
       // Save is fire-and-forget, so we wait for it to be called
       await vi.waitFor(() => {
-        expect(writeTextFile).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("save_project_registry", expect.anything())
       })
     })
   })
 
   describe("addWorkspace postCreate", () => {
     it("executes postCreate script via terminal.write when provided", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -797,7 +782,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       vi.mocked(gitService.addWorkspace).mockResolvedValue("/test/feature")
@@ -831,7 +816,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("does not write to terminal when no postCreate script", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -840,7 +824,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       vi.mocked(gitService.addWorkspace).mockResolvedValue("/test/feature")
@@ -862,14 +846,13 @@ describe("ProjectRegistry", () => {
 
   describe("selectPreviousWorkspace and selectNextWorkspace", () => {
     it("skips filtered workspaces when navigating", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -926,14 +909,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("navigates correctly when no filter is set", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -975,14 +957,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("skips archived workspaces", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -1030,14 +1011,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("does nothing when no workspaces available", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -1064,7 +1044,6 @@ describe("ProjectRegistry", () => {
 
   describe("goBackInHistory and goForwardInHistory", () => {
     it("goBackInHistory navigates to previous workspace from history", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -1072,7 +1051,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -1115,7 +1094,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("goBackInHistory does nothing when no history", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -1123,7 +1101,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -1157,7 +1135,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("goForwardInHistory navigates to next workspace from history", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -1165,7 +1142,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -1208,7 +1185,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("goBackInHistory skips archived workspaces", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
@@ -1216,7 +1192,7 @@ describe("ProjectRegistry", () => {
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -1265,27 +1241,25 @@ describe("ProjectRegistry", () => {
 
   describe("hasRunningChats", () => {
     it("returns false when no projects exist", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       expect(projectRegistry.hasRunningChats()).toBe(false)
     })
 
     it("returns false when no workspace stores are cached", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {
@@ -1316,13 +1290,12 @@ describe("ProjectRegistry", () => {
 
   describe("flushAllChats", () => {
     it("does nothing when no projects exist", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       // Should not throw
@@ -1330,14 +1303,13 @@ describe("ProjectRegistry", () => {
     })
 
     it("does nothing when no workspace stores are cached", async () => {
-      vi.mocked(exists).mockResolvedValue(false)
 
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
       })
 
       runInAction(() => {

@@ -1,17 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { invoke } from "@tauri-apps/api/core"
 
 // Mock Tauri APIs before importing WorkspaceStore
 vi.mock("@tauri-apps/api/path", () => ({
   homeDir: vi.fn(() => Promise.resolve("/home/testuser/")),
-}))
-
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  readTextFile: vi.fn(() => Promise.resolve("{}")),
-  writeTextFile: vi.fn(() => Promise.resolve()),
-  exists: vi.fn(() => Promise.resolve(false)),
-  mkdir: vi.fn(() => Promise.resolve()),
-  remove: vi.fn(() => Promise.resolve()),
-  rename: vi.fn(() => Promise.resolve()),
 }))
 
 vi.mock("../ConfigStore", () => ({
@@ -37,7 +29,6 @@ vi.mock("../../services/agentRegistry", () => ({
 }))
 
 import { WorkspaceStore } from "../WorkspaceStore"
-import { exists, remove } from "@tauri-apps/plugin-fs"
 import type { Workspace, Chat } from "../../types"
 
 describe("WorkspaceStore", () => {
@@ -52,6 +43,7 @@ describe("WorkspaceStore", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(invoke).mockResolvedValue(undefined)
   })
 
   describe("runningCount", () => {
@@ -207,9 +199,7 @@ describe("WorkspaceStore", () => {
       expect(mockRemoveChat).toHaveBeenCalledWith("chat-1")
     })
 
-    it("deletes chat file from disk when it exists", async () => {
-      vi.mocked(exists).mockResolvedValueOnce(true)
-
+    it("deletes chat file from disk", async () => {
       const store = new WorkspaceStore(mockWorkspace, "myrepo")
 
       const mockChat1 = {
@@ -221,24 +211,11 @@ describe("WorkspaceStore", () => {
 
       await store.deleteChat("chat-1")
 
-      expect(remove).toHaveBeenCalledWith(expect.stringContaining("chat-1.json"))
-    })
-
-    it("does not call remove when chat file does not exist", async () => {
-      vi.mocked(exists).mockResolvedValueOnce(false)
-
-      const store = new WorkspaceStore(mockWorkspace, "myrepo")
-
-      const mockChat1 = {
-        id: "chat-1",
-        chat: { id: "chat-1", status: "idle", isArchived: true } as Chat,
-      } as never
-      // @ts-expect-error - accessing private property for testing
-      store._chats = [mockChat1]
-
-      await store.deleteChat("chat-1")
-
-      expect(remove).not.toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("delete_chat", {
+        projectName: "myrepo",
+        workspaceName: "myrepo",
+        chatId: "chat-1",
+      })
     })
 
     it("does nothing when chat does not exist", async () => {

@@ -1,24 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { exists, mkdir } from "@tauri-apps/plugin-fs"
-import { homeDir } from "@tauri-apps/api/path"
-
-vi.mock("@tauri-apps/api/path", () => ({
-  homeDir: vi.fn(() => Promise.resolve("/home/testuser/")),
-}))
-
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  readTextFile: vi.fn(() => Promise.resolve("{}")),
-  writeTextFile: vi.fn(() => Promise.resolve()),
-  exists: vi.fn(() => Promise.resolve(false)),
-  mkdir: vi.fn(() => Promise.resolve()),
-}))
+import { invoke } from "@tauri-apps/api/core"
 
 describe("WorkspaceHistoryStore", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(homeDir).mockResolvedValue("/home/testuser/")
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(mkdir).mockResolvedValue()
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ history: [], historyIndex: -1 })
+      }
+      if (cmd === "save_json_config") return Promise.resolve(undefined)
+      return Promise.resolve(undefined)
+    })
   })
 
   describe("push", () => {
@@ -27,7 +19,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -43,7 +35,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -60,7 +52,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -78,7 +70,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -103,7 +95,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -126,7 +118,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -141,7 +133,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -161,7 +153,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -181,7 +173,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -196,7 +188,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -219,7 +211,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -242,7 +234,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -256,7 +248,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -271,7 +263,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -285,7 +277,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -303,7 +295,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -322,7 +314,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
@@ -343,7 +335,7 @@ describe("WorkspaceHistoryStore", () => {
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
 
       await vi.waitFor(() => {
-        expect(exists).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("load_json_config", { filename: "history.json" })
       })
 
       workspaceHistoryStore.reset()
