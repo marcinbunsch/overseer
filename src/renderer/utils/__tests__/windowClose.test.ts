@@ -43,13 +43,15 @@ describe("handleWindowCloseRequest", () => {
       vi.mocked(mockDeps.hasRunningChats).mockReturnValue(true)
     })
 
-    it("should show confirmation dialog with correct message", async () => {
+    it("should show confirmation dialog with correct options", async () => {
       await handleWindowCloseRequest(mockEvent, mockDeps)
 
-      expect(mockDeps.showConfirm).toHaveBeenCalledWith(
-        "There are chats still running. Quitting will stop them. Are you sure you want to quit?",
-        { title: "Quit Overseer?", kind: "warning" }
-      )
+      expect(mockDeps.showConfirm).toHaveBeenCalledWith({
+        title: "Quit Overseer?",
+        description:
+          "There are chats still running. Quitting will stop them. Are you sure you want to quit?",
+        confirmLabel: "Quit",
+      })
     })
 
     it("should prevent default before showing dialog", async () => {

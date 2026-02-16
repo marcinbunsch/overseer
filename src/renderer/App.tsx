@@ -5,6 +5,7 @@ import { LeftPane } from "./components/layout/LeftPane"
 import { MiddlePane } from "./components/layout/MiddlePane"
 import { RightPane } from "./components/layout/RightPane"
 import { Toasts } from "./components/shared/Toasts"
+import { GlobalConfirmDialog } from "./components/shared/GlobalConfirmDialog"
 import { SettingsDialog } from "./components/shared/SettingsDialog"
 import { UpdateNotification } from "./components/shared/UpdateNotification"
 import { configStore } from "./stores/ConfigStore"
@@ -124,6 +125,7 @@ export default observer(function App() {
         <RightPane width={configStore.rightPaneWidth} />
       </div>
       <Toasts />
+      <GlobalConfirmDialog />
       <UpdateNotification />
       <SettingsDialog
         open={configStore.settingsOpen}
