@@ -9,12 +9,12 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 
+use super::{check_auto_approval, ApprovalCheckResult};
 use crate::approvals::ProjectApprovalManager;
 use crate::logging::{log_line, open_log_file, LogHandle};
 use overseer_core::agents::codex::{CodexConfig, CodexParser};
-use overseer_core::agents::event::AgentEvent;
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
 
 struct CodexServerEntry {
@@ -37,7 +37,10 @@ impl Default for CodexServerEntry {
 ///
 /// Unlike Claude, Codex uses JSON-RPC 2.0 protocol where the response id
 /// must match the request id exactly (number or string).
-fn build_codex_approval_response(request_id: &str) -> String {
+fn build_codex_approval_response(
+    request_id: &str,
+    _input: &serde_json::Value, // Not used for Codex, but required by shared helper signature
+) -> String {
     // Parse the request ID - it could be a number or string in the original request
     // We stringified it, so try to parse back to number if it was originally numeric
     let id_value: serde_json::Value = if request_id.chars().all(|c| c.is_ascii_digit()) {
@@ -152,65 +155,16 @@ pub fn start_codex_server(
                     // Handle parsed events
                     for event in parsed_events {
                         // Check if this is a ToolApproval that we can auto-approve
-                        let event_to_emit = match &event {
-                            AgentEvent::ToolApproval {
-                                request_id,
-                                name,
-                                input,
-                                display_input,
-                                prefixes,
-                                ..
-                            } => {
-                                let prefixes_vec: Vec<String> = prefixes
-                                    .as_ref()
-                                    .map(|p| p.clone())
-                                    .unwrap_or_default();
-
-                                // Query the approval manager fresh each time
-                                let approval_manager: tauri::State<ProjectApprovalManager> =
-                                    app.state();
-                                let should_approve = approval_manager
-                                    .should_auto_approve(&project_name_clone, name, &prefixes_vec);
-                                log::info!(
-                                    "Checking approval for {} with prefixes {:?} -> {}",
-                                    name,
-                                    prefixes_vec,
-                                    should_approve
-                                );
-
-                                if should_approve {
-                                    // Auto-approve: send response directly to agent
-                                    let response = build_codex_approval_response(request_id);
-                                    log_line(&log_file, "STDIN", &response);
-                                    log::info!(
-                                        "Auto-approving {} for project {} (prefixes: {:?})",
-                                        name,
-                                        project_name_clone,
-                                        prefixes_vec
-                                    );
-
-                                    // Write approval to agent stdin
-                                    if let Ok(guard) = process_arc.lock() {
-                                        if let Some(ref process) = *guard {
-                                            let _ = process.write_stdin(&response);
-                                        }
-                                    }
-
-                                    // Emit event with auto_approved = true
-                                    AgentEvent::ToolApproval {
-                                        request_id: request_id.clone(),
-                                        name: name.clone(),
-                                        input: input.clone(),
-                                        display_input: display_input.clone(),
-                                        prefixes: prefixes.clone(),
-                                        auto_approved: true,
-                                    }
-                                } else {
-                                    // Not auto-approved, pass through unchanged
-                                    event
-                                }
-                            }
-                            _ => event,
+                        let event_to_emit = match check_auto_approval(
+                            &app,
+                            &project_name_clone,
+                            event,
+                            &process_arc,
+                            &log_file,
+                            build_codex_approval_response,
+                        ) {
+                            ApprovalCheckResult::AutoApproved(e)
+                            | ApprovalCheckResult::NotApproved(e) => e,
                         };
 
                         let _ = app.emit(&format!("codex:event:{}", sid), event_to_emit);
@@ -229,7 +183,10 @@ pub fn start_codex_server(
                         ];
                         if !known_methods.contains(&pending.method.as_str()) {
                             log::warn!("Auto-accepting unknown Codex request: {}", pending.method);
-                            let response = build_codex_approval_response(&pending.id.to_string());
+                            let response = build_codex_approval_response(
+                                &pending.id.to_string(),
+                                &serde_json::Value::Null,
+                            );
                             log_line(&log_file, "STDIN", &response);
                             if let Ok(guard) = process_arc.lock() {
                                 if let Some(ref process) = *guard {

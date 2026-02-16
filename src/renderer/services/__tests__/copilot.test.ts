@@ -202,7 +202,7 @@ describe("CopilotAgentService", () => {
     expect(toolAvailabilityStore.copilot!.error).toContain("command not found")
   })
 
-  it("attaches stdout, stderr, and close listeners when starting server", async () => {
+  it("attaches stdout, event, and close listeners when starting server", async () => {
     const service = await freshService()
 
     // Mock so sendMessage fails early after setting up listeners
@@ -214,20 +214,20 @@ describe("CopilotAgentService", () => {
       // Expected
     }
 
-    // Should have called listen 3 times for stdout, stderr, close
+    // Should have called listen 3 times for stdout, event, close
     expect(listen).toHaveBeenCalledWith("copilot:stdout:conv-1", expect.any(Function))
-    expect(listen).toHaveBeenCalledWith("copilot:stderr:conv-1", expect.any(Function))
+    expect(listen).toHaveBeenCalledWith("copilot:event:conv-1", expect.any(Function))
     expect(listen).toHaveBeenCalledWith("copilot:close:conv-1", expect.any(Function))
   })
 
-  describe("permission request parsing", () => {
-    // Helper to set up a service with a captured stdout handler
-    async function setupWithStdoutCapture() {
-      let stdoutHandler: ((event: { payload: string }) => void) | null = null
+  describe("Rust event handling", () => {
+    // Helper to set up a service with a captured event handler
+    async function setupWithEventCapture() {
+      let eventHandler: ((event: { payload: unknown }) => void) | null = null
 
       vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-        if ((eventName as string).includes("stdout")) {
-          stdoutHandler = handler as (event: { payload: string }) => void
+        if ((eventName as string).includes("copilot:event:")) {
+          eventHandler = handler as (event: { payload: unknown }) => void
         }
         return () => {} // UnlistenFn
       })
@@ -246,404 +246,122 @@ describe("CopilotAgentService", () => {
         // Expected
       }
 
-      return { service: copilotAgentService, eventCb, stdoutHandler: stdoutHandler! }
+      return { service: copilotAgentService, eventCb, eventHandler: eventHandler! }
     }
 
-    it("parses Bash permission request", async () => {
-      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
+    it("handles Rust Text event", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
 
-      const permissionRequest = {
-        jsonrpc: "2.0",
-        id: 5,
-        method: "session/request_permission",
-        params: {
-          sessionId: "sess-123",
-          toolCall: {
-            toolCallId: "shell-permission",
-            title: "Install oxlint",
-            kind: "execute",
-            status: "pending",
-            rawInput: {
-              command: "pnpm add -D oxlint",
-            },
-          },
-          options: [
-            { optionId: "allow_once", kind: "allow_once", name: "Allow once" },
-            { optionId: "allow_always", kind: "allow_always", name: "Always allow" },
-            { optionId: "reject_once", kind: "reject_once", name: "Deny" },
-          ],
+      // Rust sends internally-tagged event: {"kind": "text", "text": "Hello"}
+      eventHandler({ payload: { kind: "text", text: "Hello world" } })
+
+      expect(eventCb).toHaveBeenCalledWith({ kind: "text", text: "Hello world" })
+    })
+
+    it("handles Rust ToolApproval event", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
+
+      // Rust sends internally-tagged event
+      eventHandler({
+        payload: {
+          kind: "toolApproval",
+          request_id: "5",
+          name: "Bash",
+          input: { command: "pnpm add -D oxlint" },
+          display_input: "pnpm add -D oxlint",
+          prefixes: ["pnpm add"],
+          auto_approved: false,
         },
-      }
+      })
 
-      stdoutHandler({ payload: JSON.stringify(permissionRequest) })
-
-      // Command prefixes are computed by ChatStore, not the service
       expect(eventCb).toHaveBeenCalledWith({
         kind: "toolApproval",
         id: "5",
         name: "Bash",
         input: { command: "pnpm add -D oxlint" },
         displayInput: "pnpm add -D oxlint",
-        options: [
-          { id: "allow_once", name: "Allow once", kind: "allow_once" },
-          { id: "allow_always", name: "Always allow", kind: "allow_always" },
-          { id: "reject_once", name: "Deny", kind: "reject_once" },
-        ],
       })
     })
 
-    it("parses WebFetch permission request with URL display", async () => {
-      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
+    it("skips auto-approved ToolApproval events", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
 
-      const permissionRequest = {
-        jsonrpc: "2.0",
-        id: 0,
-        method: "session/request_permission",
-        params: {
-          sessionId: "sess-123",
-          toolCall: {
-            toolCallId: "url-permission",
-            title: "Fetch web content",
-            kind: "fetch",
-            status: "pending",
-            rawInput: { url: "https://oxc.rs/docs" },
-          },
-          options: [{ optionId: "allow_once", kind: "allow_once", name: "Allow once" }],
-        },
-      }
-
-      stdoutHandler({ payload: JSON.stringify(permissionRequest) })
-
-      expect(eventCb).toHaveBeenCalledWith({
-        kind: "toolApproval",
-        id: "0",
-        name: "WebFetch",
-        input: { url: "https://oxc.rs/docs" },
-        displayInput: "https://oxc.rs/docs",
-        options: [{ id: "allow_once", name: "Allow once", kind: "allow_once" }],
-      })
-    })
-
-    it("parses Read permission request with path display", async () => {
-      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
-
-      const permissionRequest = {
-        jsonrpc: "2.0",
-        id: 3,
-        method: "session/request_permission",
-        params: {
-          sessionId: "sess-123",
-          toolCall: {
-            toolCallId: "read-permission",
-            title: "Read file",
-            kind: "read",
-            status: "pending",
-            rawInput: { path: "/Users/test/file.ts" },
-          },
-          options: [{ optionId: "allow_once", kind: "allow_once", name: "Allow once" }],
-        },
-      }
-
-      stdoutHandler({ payload: JSON.stringify(permissionRequest) })
-
-      expect(eventCb).toHaveBeenCalledWith({
-        kind: "toolApproval",
-        id: "3",
-        name: "Read",
-        input: { path: "/Users/test/file.ts" },
-        displayInput: "/Users/test/file.ts",
-        options: [{ id: "allow_once", name: "Allow once", kind: "allow_once" }],
-      })
-    })
-
-    it("falls back to JSON for unknown input types", async () => {
-      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
-
-      const permissionRequest = {
-        jsonrpc: "2.0",
-        id: 9,
-        method: "session/request_permission",
-        params: {
-          sessionId: "sess-123",
-          toolCall: {
-            toolCallId: "custom-permission",
-            title: "Custom action",
-            kind: "other",
-            status: "pending",
-            rawInput: { foo: "bar", count: 42 },
-          },
-          options: [{ optionId: "allow_once", kind: "allow_once", name: "Allow once" }],
-        },
-      }
-
-      stdoutHandler({ payload: JSON.stringify(permissionRequest) })
-
-      expect(eventCb).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: "Custom action",
-          displayInput: JSON.stringify({ foo: "bar", count: 42 }, null, 2),
-        })
-      )
-    })
-
-    it("handles empty rawInput gracefully", async () => {
-      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
-
-      const permissionRequest = {
-        jsonrpc: "2.0",
-        id: 11,
-        method: "session/request_permission",
-        params: {
-          sessionId: "sess-123",
-          toolCall: {
-            toolCallId: "empty-permission",
-            title: "Empty input",
-            kind: "execute",
-            status: "pending",
-            // No rawInput
-          },
-          options: [{ optionId: "allow_once", kind: "allow_once", name: "Allow once" }],
-        },
-      }
-
-      stdoutHandler({ payload: JSON.stringify(permissionRequest) })
-
-      expect(eventCb).toHaveBeenCalledWith(
-        expect.objectContaining({
+      // Rust sends auto-approved event
+      eventHandler({
+        payload: {
+          kind: "toolApproval",
+          request_id: "5",
           name: "Bash",
-          input: {},
-          displayInput: "{}",
-        })
-      )
-    })
-  })
-
-  describe("Task handling", () => {
-    async function setupWithStdoutCapture() {
-      let stdoutHandler: ((event: { payload: string }) => void) | null = null
-
-      vi.mocked(listen).mockImplementation(async (eventName, handler) => {
-        if ((eventName as string).includes("stdout")) {
-          stdoutHandler = handler as (event: { payload: string }) => void
-        }
-        return () => {}
+          input: { command: "git status" },
+          display_input: "git status",
+          prefixes: ["git status"],
+          auto_approved: true,
+        },
       })
 
-      vi.resetModules()
-      const { copilotAgentService } = await import("../copilot")
-
-      const eventCb = vi.fn()
-      copilotAgentService.onEvent("conv-1", eventCb)
-
-      vi.mocked(invoke).mockRejectedValueOnce(new Error("stop"))
-      try {
-        await copilotAgentService.sendMessage("conv-1", "test", "/tmp")
-      } catch {
-        // Expected
-      }
-
-      return { service: copilotAgentService, eventCb, stdoutHandler: stdoutHandler! }
-    }
-
-    it("detects Task when rawInput has agent_type and emits with toolUseId", async () => {
-      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
-
-      const taskToolCall = {
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "sess-123",
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId: "task-123",
-            title: "Find permission prompt display",
-            kind: "other",
-            status: "pending",
-            rawInput: {
-              agent_type: "explore",
-              description: "Find permission prompt display",
-              prompt: "Find where the permission prompt is shown",
-            },
-          },
-        },
-      }
-
-      stdoutHandler({ payload: JSON.stringify(taskToolCall) })
-
-      expect(eventCb).toHaveBeenCalledWith(
-        expect.objectContaining({
-          kind: "message",
-          toolMeta: { toolName: "Task" },
-          toolUseId: "task-123",
-        })
-      )
-
-      // Check that agent_type was transformed to subagent_type
-      const call = eventCb.mock.calls.find(
-        (c: { kind: string; toolUseId?: string }[]) => c[0].toolUseId === "task-123"
-      )
-      expect(call).toBeDefined()
-      const content = JSON.parse(call![0].content.replace("[Task]\n", ""))
-      expect(content.subagent_type).toBe("explore")
-      expect(content.agent_type).toBeUndefined()
+      // Should NOT emit to frontend
+      expect(eventCb).not.toHaveBeenCalled()
     })
 
-    it("assigns parentToolUseId to child tools of active task", async () => {
-      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
+    it("handles Rust Message event", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
 
-      // Start a task
-      const taskToolCall = {
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "sess-123",
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId: "task-456",
-            title: "Explore code",
-            kind: "other",
-            status: "pending",
-            rawInput: {
-              agent_type: "explore",
-              description: "Explore code",
-              prompt: "Find something",
-            },
-          },
-        },
-      }
-
-      stdoutHandler({ payload: JSON.stringify(taskToolCall) })
-
-      // Now a child tool arrives
-      const childToolCall = {
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "sess-123",
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId: "child-789",
-            title: "Read file.ts",
-            kind: "read",
-            status: "pending",
-            rawInput: {
-              path: "/some/file.ts",
-            },
-          },
-        },
-      }
-
-      stdoutHandler({ payload: JSON.stringify(childToolCall) })
-
-      // Child tool should have parentToolUseId
-      expect(eventCb).toHaveBeenCalledWith(
-        expect.objectContaining({
+      eventHandler({
+        payload: {
           kind: "message",
-          toolMeta: { toolName: "Read" },
-          parentToolUseId: "task-456",
-        })
-      )
+          content: '[Bash]\n{"command": "git status"}',
+          tool_meta: { tool_name: "Bash" },
+          parent_tool_use_id: "task-123",
+        },
+      })
+
+      expect(eventCb).toHaveBeenCalledWith({
+        kind: "message",
+        content: '[Bash]\n{"command": "git status"}',
+        toolMeta: { toolName: "Bash", linesAdded: undefined, linesRemoved: undefined },
+        parentToolUseId: "task-123",
+        toolUseId: undefined,
+        isInfo: undefined,
+      })
     })
 
-    it("clears activeTask when task completes", async () => {
-      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
+    it("handles Rust BashOutput event", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
 
-      // Start a task
-      const taskToolCall = {
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "sess-123",
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId: "task-abc",
-            title: "Explore",
-            kind: "other",
-            status: "pending",
-            rawInput: {
-              agent_type: "explore",
-              description: "Explore",
-              prompt: "Find something",
-            },
-          },
+      eventHandler({
+        payload: {
+          kind: "bashOutput",
+          text: "file.txt\n",
         },
-      }
+      })
 
-      stdoutHandler({ payload: JSON.stringify(taskToolCall) })
-
-      // Complete the task
-      const taskComplete = {
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "sess-123",
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId: "task-abc",
-            status: "completed",
-            content: [{ type: "text", text: "Task result" }],
-          },
-        },
-      }
-
-      stdoutHandler({ payload: JSON.stringify(taskComplete) })
-
-      // Now another regular tool - should NOT have parentToolUseId
-      const nextToolCall = {
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "sess-123",
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId: "next-tool",
-            title: "Read another file",
-            kind: "read",
-            status: "pending",
-            rawInput: { path: "/another/file.ts" },
-          },
-        },
-      }
-
-      stdoutHandler({ payload: JSON.stringify(nextToolCall) })
-
-      // Find the call for the next tool
-      const nextToolEvent = eventCb.mock.calls.find(
-        (c: { toolMeta?: { toolName: string }; parentToolUseId?: string }[]) =>
-          c[0].toolMeta?.toolName === "Read" && c[0].parentToolUseId === undefined
-      )
-      expect(nextToolEvent).toBeDefined()
+      expect(eventCb).toHaveBeenCalledWith({ kind: "bashOutput", text: "file.txt\n" })
     })
 
-    it("regular tools without active task have no parentToolUseId", async () => {
-      const { eventCb, stdoutHandler } = await setupWithStdoutCapture()
+    it("handles Rust TurnComplete event", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
 
-      // Regular tool with no active task
-      const regularToolCall = {
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "sess-123",
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId: "regular-123",
-            title: "Run tests",
-            kind: "execute",
-            status: "pending",
-            rawInput: { command: "pnpm test" },
-          },
-        },
-      }
+      eventHandler({ payload: { kind: "turnComplete" } })
 
-      stdoutHandler({ payload: JSON.stringify(regularToolCall) })
+      expect(eventCb).toHaveBeenCalledWith({ kind: "turnComplete" })
+    })
 
-      expect(eventCb).toHaveBeenCalledWith(
-        expect.objectContaining({
-          kind: "message",
-          toolMeta: { toolName: "Bash" },
-          parentToolUseId: undefined,
-        })
-      )
+    it("handles Rust SessionId event", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
+
+      eventHandler({ payload: { kind: "sessionId", session_id: "sess-abc-123" } })
+
+      expect(eventCb).toHaveBeenCalledWith({ kind: "sessionId", sessionId: "sess-abc-123" })
+    })
+
+    it("logs warning for unknown event kinds", async () => {
+      const { eventHandler } = await setupWithEventCapture()
+      const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+      eventHandler({ payload: { kind: "unknownEventType" } })
+
+      expect(consoleWarn).toHaveBeenCalledWith("Unknown Copilot event kind: unknownEventType")
+      consoleWarn.mockRestore()
     })
   })
 })
