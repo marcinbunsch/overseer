@@ -109,9 +109,18 @@ export default observer(function App() {
       handleWindowCloseRequest(event, windowCloseDeps)
     )
 
+    // Handle Cmd+Q / menu quit - same flow as close button
+    const unlistenQuit = listen("menu:quit", () => {
+      // Create a synthetic event with preventDefault (which does nothing here,
+      // since the Rust side doesn't actually initiate a close)
+      const syntheticEvent = { preventDefault: () => {} }
+      handleWindowCloseRequest(syntheticEvent, windowCloseDeps)
+    })
+
     return () => {
       unlistenSettings.then((fn) => fn())
       unlistenClose.then((fn) => fn())
+      unlistenQuit.then((fn) => fn())
     }
   }, [])
 

@@ -113,6 +113,12 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::default().build())
         .menu(|handle| {
+            // Build custom quit menu item so we can intercept Cmd+Q
+            let quit_item = MenuItemBuilder::new("Quit Overseer")
+                .id("quit")
+                .accelerator("CmdOrCtrl+Q")
+                .build(handle)?;
+
             let app_menu = SubmenuBuilder::new(handle, "Overseer")
                 .about(None)
                 .separator()
@@ -129,7 +135,7 @@ pub fn run() {
                 .hide_others()
                 .show_all()
                 .separator()
-                .quit()
+                .item(&quit_item)
                 .build()?;
 
             let edit_menu = SubmenuBuilder::new(handle, "Edit")
@@ -157,6 +163,10 @@ pub fn run() {
         .on_menu_event(|app, event| {
             if event.id() == "settings" {
                 let _ = app.emit("menu:settings", ());
+            } else if event.id() == "quit" {
+                // Emit quit request to frontend so it can show confirmation dialog
+                // The frontend will call window.destroy() when ready to actually quit
+                let _ = app.emit("menu:quit", ());
             }
         })
         .setup(|app| {
