@@ -5,30 +5,15 @@ import { LeftPane } from "./components/layout/LeftPane"
 import { MiddlePane } from "./components/layout/MiddlePane"
 import { RightPane } from "./components/layout/RightPane"
 import { Toasts } from "./components/shared/Toasts"
+import { GlobalConfirmDialog } from "./components/shared/GlobalConfirmDialog"
 import { SettingsDialog } from "./components/shared/SettingsDialog"
 import { UpdateNotification } from "./components/shared/UpdateNotification"
 import { configStore } from "./stores/ConfigStore"
-import { projectRegistry } from "./stores/ProjectRegistry"
 import { updateStore } from "./stores/UpdateStore"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { confirm } from "@tauri-apps/plugin-dialog"
-
-async function handleWindowClose() {
-  if (projectRegistry.hasRunningChats()) {
-    const shouldClose = await confirm(
-      "There are chats still running. Quitting will stop them. Are you sure you want to quit?",
-      { title: "Quit Overseer?", kind: "warning" }
-    )
-    if (!shouldClose) {
-      return
-    }
-  }
-  await projectRegistry.flushAllChats()
-  // Actually close the window now
-  await getCurrentWindow().destroy()
-}
+import { handleWindowCloseRequest, createDefaultDeps } from "./utils/windowClose"
 
 function DragHandle({
   onDrag,
@@ -118,12 +103,24 @@ export default observer(function App() {
     })
 
     // Handle window close: warn if chats are running, then flush to disk
-    // The Rust side prevents default close and emits this event so we can handle it
-    const unlistenClose = listen("window-close-requested", handleWindowClose)
+    // Using onCloseRequested which properly intercepts macOS traffic light close button
+    const windowCloseDeps = createDefaultDeps()
+    const unlistenClose = getCurrentWindow().onCloseRequested((event) =>
+      handleWindowCloseRequest(event, windowCloseDeps)
+    )
+
+    // Handle Cmd+Q / menu quit - same flow as close button
+    const unlistenQuit = listen("menu:quit", () => {
+      // Create a synthetic event with preventDefault (which does nothing here,
+      // since the Rust side doesn't actually initiate a close)
+      const syntheticEvent = { preventDefault: () => {} }
+      handleWindowCloseRequest(syntheticEvent, windowCloseDeps)
+    })
 
     return () => {
       unlistenSettings.then((fn) => fn())
       unlistenClose.then((fn) => fn())
+      unlistenQuit.then((fn) => fn())
     }
   }, [])
 
@@ -137,6 +134,7 @@ export default observer(function App() {
         <RightPane width={configStore.rightPaneWidth} />
       </div>
       <Toasts />
+      <GlobalConfirmDialog />
       <UpdateNotification />
       <SettingsDialog
         open={configStore.settingsOpen}

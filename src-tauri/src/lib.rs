@@ -113,6 +113,12 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::default().build())
         .menu(|handle| {
+            // Build custom quit menu item so we can intercept Cmd+Q
+            let quit_item = MenuItemBuilder::new("Quit Overseer")
+                .id("quit")
+                .accelerator("CmdOrCtrl+Q")
+                .build(handle)?;
+
             let app_menu = SubmenuBuilder::new(handle, "Overseer")
                 .about(None)
                 .separator()
@@ -129,7 +135,7 @@ pub fn run() {
                 .hide_others()
                 .show_all()
                 .separator()
-                .quit()
+                .item(&quit_item)
                 .build()?;
 
             let edit_menu = SubmenuBuilder::new(handle, "Edit")
@@ -157,6 +163,10 @@ pub fn run() {
         .on_menu_event(|app, event| {
             if event.id() == "settings" {
                 let _ = app.emit("menu:settings", ());
+            } else if event.id() == "quit" {
+                // Emit quit request to frontend so it can show confirmation dialog
+                // The frontend will call window.destroy() when ready to actually quit
+                let _ = app.emit("menu:quit", ());
             }
         })
         .setup(|app| {
@@ -214,12 +224,12 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
         ])
-        .on_window_event(|window, event| {
+        .on_window_event(|_window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 // Prevent the default close behavior so the frontend can handle it
+                // The frontend uses window.onCloseRequested() to show confirmation dialogs
+                // and calls window.destroy() when ready to actually close
                 api.prevent_close();
-                // Emit an event to the frontend to handle the close request
-                let _ = window.emit("window-close-requested", ());
             }
         })
         .build(tauri::generate_context!())
