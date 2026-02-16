@@ -295,6 +295,7 @@ pub fn run() {
             persistence::load_chat,
             persistence::delete_chat,
             persistence::list_chat_ids,
+            persistence::migrate_chat_if_needed,
             persistence::save_chat_index,
             persistence::load_chat_index,
             persistence::upsert_chat_entry,

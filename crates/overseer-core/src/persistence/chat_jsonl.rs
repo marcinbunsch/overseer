@@ -11,7 +11,8 @@ use std::path::Path;
 
 use crate::agents::event::AgentEvent;
 
-use super::types::ChatMetadata;
+use super::chat::load_chat;
+use super::types::{ChatFile, ChatMetadata, MessageMeta};
 
 /// Error type for JSONL chat persistence.
 #[derive(Debug)]
@@ -142,6 +143,104 @@ pub fn load_chat_events(dir: &Path, chat_id: &str) -> Result<Vec<AgentEvent>, Ch
     Ok(events)
 }
 
+/// Migrate a legacy `{chat_id}.json` chat file to JSONL + metadata if needed.
+///
+/// Returns `Ok(true)` if migration occurred, `Ok(false)` if no migration was needed.
+pub fn migrate_chat_if_needed(dir: &Path, chat_id: &str) -> Result<bool, ChatJsonlError> {
+    let jsonl_path = dir.join(format!("{chat_id}.jsonl"));
+    if jsonl_path.exists() {
+        return Ok(false);
+    }
+
+    let legacy_path = dir.join(format!("{chat_id}.json"));
+    if !legacy_path.exists() {
+        return Ok(false);
+    }
+
+    let chat = load_chat(dir, chat_id).map_err(|err| match err {
+        super::chat::ChatError::Io(e) => ChatJsonlError::Io(e),
+        super::chat::ChatError::Json(e) => ChatJsonlError::Json(e),
+        super::chat::ChatError::NotFound(id) => ChatJsonlError::NotFound(id),
+    })?;
+
+    write_metadata_from_chat(dir, &chat)?;
+    write_events_from_chat(dir, &chat)?;
+
+    Ok(true)
+}
+
+fn write_metadata_from_chat(dir: &Path, chat: &ChatFile) -> Result<(), ChatJsonlError> {
+    let metadata = ChatMetadata {
+        id: chat.id.clone(),
+        workspace_id: chat.workspace_id.clone(),
+        label: chat.label.clone(),
+        agent_type: chat.agent_type.clone(),
+        agent_session_id: chat.agent_session_id.clone(),
+        model_version: chat.model_version.clone(),
+        permission_mode: chat.permission_mode.clone(),
+        created_at: chat.created_at,
+        updated_at: chat.updated_at,
+    };
+
+    save_chat_metadata(dir, &metadata)
+}
+
+fn write_events_from_chat(dir: &Path, chat: &ChatFile) -> Result<(), ChatJsonlError> {
+    fs::create_dir_all(dir)?;
+
+    let file_path = dir.join(format!("{}.jsonl", chat.id));
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file_path)?;
+
+    for message in &chat.messages {
+        if message.content.trim().is_empty() {
+            continue;
+        }
+
+        let event = match message.role.as_str() {
+            "user" => AgentEvent::UserMessage {
+                id: message.id.clone(),
+                content: message.content.clone(),
+                timestamp: message.timestamp,
+                meta: message
+                    .meta
+                    .as_ref()
+                    .and_then(serialize_message_meta_for_event),
+            },
+            "assistant" => {
+                if message.is_bash_output.unwrap_or(false) {
+                    if message.tool_meta.is_some() || message.is_info.unwrap_or(false) {
+                        continue;
+                    }
+                    AgentEvent::BashOutput {
+                        text: message.content.clone(),
+                    }
+                } else {
+                    AgentEvent::Message {
+                        content: message.content.clone(),
+                        tool_meta: message.tool_meta.clone(),
+                        parent_tool_use_id: message.parent_tool_use_id.clone(),
+                        tool_use_id: message.tool_use_id.clone(),
+                        is_info: message.is_info,
+                    }
+                }
+            }
+            _ => continue,
+        };
+
+        let line = serialize_event_for_storage(&event)?;
+        writeln!(file, "{line}")?;
+    }
+
+    Ok(())
+}
+
+fn serialize_message_meta_for_event(meta: &MessageMeta) -> Option<serde_json::Value> {
+    serde_json::to_value(meta).ok()
+}
+
 // ============================================================================
 // TESTS
 // ============================================================================
@@ -149,6 +248,8 @@ pub fn load_chat_events(dir: &Path, chat_id: &str) -> Result<Vec<AgentEvent>, Ch
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::persistence::chat::save_chat;
+    use crate::persistence::types::{ChatFile, Message, MessageMeta};
     use chrono::Utc;
     use serde_json::json;
     use tempfile::tempdir;
@@ -210,5 +311,70 @@ mod tests {
         let dir = tempdir().unwrap();
         let events = load_chat_events(dir.path(), "missing-chat").unwrap();
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn migrate_chat_if_needed_skips_when_missing() {
+        let dir = tempdir().unwrap();
+        let migrated = migrate_chat_if_needed(dir.path(), "missing-chat").unwrap();
+        assert!(!migrated);
+    }
+
+    #[test]
+    fn migrate_chat_if_needed_creates_jsonl_and_metadata() {
+        let dir = tempdir().unwrap();
+        let now = Utc::now();
+        let chat = ChatFile {
+            id: "chat-1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            label: "Legacy Chat".to_string(),
+            messages: vec![
+                Message {
+                    id: "msg-1".to_string(),
+                    role: "user".to_string(),
+                    content: "Hello".to_string(),
+                    timestamp: now,
+                    tool_meta: None,
+                    meta: Some(MessageMeta {
+                        message_type: Some("note".to_string()),
+                        extra: json!({"source":"legacy"}),
+                    }),
+                    is_bash_output: None,
+                    is_info: None,
+                    parent_tool_use_id: None,
+                    tool_use_id: None,
+                },
+                Message {
+                    id: "msg-2".to_string(),
+                    role: "assistant".to_string(),
+                    content: "ls output".to_string(),
+                    timestamp: now,
+                    tool_meta: None,
+                    meta: None,
+                    is_bash_output: Some(true),
+                    is_info: None,
+                    parent_tool_use_id: None,
+                    tool_use_id: None,
+                },
+            ],
+            agent_type: Some("claude".to_string()),
+            agent_session_id: None,
+            model_version: None,
+            permission_mode: None,
+            created_at: now,
+            updated_at: now,
+        };
+
+        save_chat(dir.path(), &chat).unwrap();
+        let migrated = migrate_chat_if_needed(dir.path(), "chat-1").unwrap();
+        assert!(migrated);
+
+        let metadata = load_chat_metadata(dir.path(), "chat-1").unwrap();
+        assert_eq!(metadata.label, "Legacy Chat");
+
+        let events = load_chat_events(dir.path(), "chat-1").unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], AgentEvent::UserMessage { .. }));
+        assert!(matches!(events[1], AgentEvent::BashOutput { .. }));
     }
 }

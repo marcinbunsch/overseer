@@ -109,6 +109,18 @@ pub fn list_chat_ids(
     persistence::list_chat_ids(&dir).map_err(|e| e.to_string())
 }
 
+/// Migrate legacy `{chat_id}.json` to JSONL + metadata if needed.
+#[tauri::command]
+pub fn migrate_chat_if_needed(
+    state: State<PersistenceConfig>,
+    project_name: String,
+    workspace_name: String,
+    chat_id: String,
+) -> Result<bool, String> {
+    let dir = state.get_chat_dir(&project_name, &workspace_name)?;
+    persistence::migrate_chat_if_needed(&dir, &chat_id).map_err(|e| e.to_string())
+}
+
 // ============================================================================
 // Chat Index Commands
 // ============================================================================
@@ -133,7 +145,18 @@ pub fn load_chat_index(
     workspace_name: String,
 ) -> Result<ChatIndex, String> {
     let dir = state.get_chat_dir(&project_name, &workspace_name)?;
-    persistence::load_chat_index(&dir).map_err(|e| e.to_string())
+    let index = persistence::load_chat_index(&dir).map_err(|e| e.to_string())?;
+
+    for entry in &index.chats {
+        if let Err(err) = persistence::migrate_chat_if_needed(&dir, &entry.id) {
+            eprintln!(
+                "Failed to migrate chat {} in {}/{}: {}",
+                entry.id, project_name, workspace_name, err
+            );
+        }
+    }
+
+    Ok(index)
 }
 
 /// Add or update a chat entry in the index and save.
