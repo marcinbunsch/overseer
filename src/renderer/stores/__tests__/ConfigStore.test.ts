@@ -246,7 +246,9 @@ describe("ConfigStore", () => {
     expect(configStore.claudeModels).toEqual([
       { alias: "custom-claude", displayName: "Custom Claude" },
     ])
-    expect(configStore.codexModels).toEqual([{ alias: "custom-codex", displayName: "Custom Codex" }])
+    expect(configStore.codexModels).toEqual([
+      { alias: "custom-codex", displayName: "Custom Codex" },
+    ])
   })
 
   it("loads default models for agents from config", async () => {

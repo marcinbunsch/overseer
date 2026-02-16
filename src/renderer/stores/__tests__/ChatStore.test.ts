@@ -29,6 +29,7 @@ vi.mock("../ConfigStore", () => ({
     codexPath: "codex",
     claudePermissionMode: "default",
     codexApprovalPolicy: "untrusted",
+    agentShell: "zsh -l -c",
     loaded: true,
   },
 }))
@@ -1604,6 +1605,89 @@ Final text.`,
         undefined, // initPrompt
         "test-project"
       )
+    })
+
+    it("adds shell instructions to initPrompt for Codex on first message when agentShell is configured", async () => {
+      const store = createChatStore(
+        { agentType: "codex" },
+        { getInitPrompt: () => "Custom init prompt" }
+      )
+
+      await store.sendMessage("first message", "/home/user/wt")
+
+      expect(mockAgentService.sendMessage).toHaveBeenCalledWith(
+        "test-chat-id",
+        "first message",
+        "/home/user/wt",
+        "/tmp/test-chats",
+        null,
+        "untrusted",
+        expect.stringContaining("Custom init prompt"),
+        "test-project"
+      )
+
+      // Verify the shell instruction is included
+      const calls = vi.mocked(mockAgentService.sendMessage).mock.calls as unknown[][]
+      expect(calls.length).toBeGreaterThan(0)
+      const initPrompt = calls[0][6] as string | undefined
+      expect(initPrompt).toContain("IMPORTANT: All bash commands are already running in zsh -l -c")
+      expect(initPrompt).toContain('Do NOT wrap commands with "zsh -l -c"')
+    })
+
+    it("does not add shell instructions for non-Codex agents", async () => {
+      const store = createChatStore(
+        { agentType: "claude" },
+        { getInitPrompt: () => "Custom init prompt" }
+      )
+
+      await store.sendMessage("first message", "/home/user/wt")
+
+      const calls = vi.mocked(mockAgentService.sendMessage).mock.calls as unknown[][]
+      expect(calls.length).toBeGreaterThan(0)
+      const initPrompt = calls[0][6] as string | undefined
+      expect(initPrompt).toBe("Custom init prompt")
+      expect(initPrompt).not.toContain("All bash commands are already running")
+    })
+
+    it("does not add shell instructions on subsequent messages", async () => {
+      const store = createChatStore(
+        {
+          agentType: "codex",
+          messages: [{ id: "1", role: "user", content: "first", timestamp: new Date() }],
+        },
+        { getInitPrompt: () => "Custom init prompt" }
+      )
+
+      await store.sendMessage("second message", "/home/user/wt")
+
+      const calls = vi.mocked(mockAgentService.sendMessage).mock.calls as unknown[][]
+      expect(calls.length).toBeGreaterThan(0)
+      const initPrompt = calls[0][6] as string | undefined
+      expect(initPrompt).toBeUndefined()
+    })
+
+    it("adds generic shell instructions when agentShell is not configured", async () => {
+      // Mock ConfigStore with empty agentShell
+      const { configStore } = await import("../ConfigStore")
+      const originalShell = configStore.agentShell
+      configStore.agentShell = ""
+
+      const store = createChatStore(
+        { agentType: "codex" },
+        { getInitPrompt: () => "Custom init prompt" }
+      )
+
+      await store.sendMessage("first message", "/home/user/wt")
+
+      const calls = vi.mocked(mockAgentService.sendMessage).mock.calls as unknown[][]
+      expect(calls.length).toBeGreaterThan(0)
+      const initPrompt = calls[0][6] as string | undefined
+      expect(initPrompt).toContain("Custom init prompt")
+      expect(initPrompt).toContain("All bash commands are already running in a login shell")
+      expect(initPrompt).toContain("determined by $SHELL environment variable")
+
+      // Restore original value
+      configStore.agentShell = originalShell
     })
   })
 })

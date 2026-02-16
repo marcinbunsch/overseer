@@ -58,7 +58,6 @@ describe("ProjectRegistry", () => {
   })
 
   it("initializes with empty repos", async () => {
-
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
 
@@ -109,7 +108,6 @@ describe("ProjectRegistry", () => {
   })
 
   it("selectProject sets selectedProjectId and clears workspace", async () => {
-
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
 
@@ -123,7 +121,6 @@ describe("ProjectRegistry", () => {
   })
 
   it("selectWorkspace sets selectedWorkspaceId", async () => {
-
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
 
@@ -136,7 +133,6 @@ describe("ProjectRegistry", () => {
   })
 
   it("removeProject removes the repo and clears selection if active", async () => {
-
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
     const { runInAction } = await import("mobx")
@@ -161,7 +157,6 @@ describe("ProjectRegistry", () => {
   })
 
   it("removeProject does not clear selection if different repo removed", async () => {
-
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
     const { runInAction } = await import("mobx")
@@ -184,7 +179,6 @@ describe("ProjectRegistry", () => {
   })
 
   it("selectedProject computed returns the correct repo", async () => {
-
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
     const { runInAction } = await import("mobx")
@@ -204,7 +198,6 @@ describe("ProjectRegistry", () => {
   })
 
   it("selectedProject returns undefined when no repo selected", async () => {
-
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
 
@@ -216,7 +209,6 @@ describe("ProjectRegistry", () => {
   })
 
   it("addProject calls gitService.listWorkspaces and adds repo", async () => {
-
     vi.resetModules()
     const { projectRegistry } = await import("../ProjectRegistry")
     const { gitService } = await import("../../services/git")
@@ -240,7 +232,6 @@ describe("ProjectRegistry", () => {
 
   describe("ProjectStore cache", () => {
     it("returns ProjectStore instances from repos computed", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { ProjectStore } = await import("../ProjectStore")
@@ -260,7 +251,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("maintains referential stability for ProjectStore instances", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -282,7 +272,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("clears cache when repo is removed", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -308,7 +297,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("clears cache when setProjects is called", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -339,7 +327,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("syncs workspaces to ProjectStore when adding a workspace", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
@@ -369,7 +356,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("syncs settings to ProjectStore when updateProject is called", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -398,7 +384,6 @@ describe("ProjectRegistry", () => {
 
   describe("switchToMainWorkspace", () => {
     it("switches to main branch workspace", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -444,7 +429,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("switches to master branch workspace", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -490,7 +474,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("does nothing if main workspace is archived", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -536,7 +519,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("does nothing if repo not found", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -558,7 +540,6 @@ describe("ProjectRegistry", () => {
 
   describe("archiveWorkspace with deleteBranch", () => {
     it("deletes branch when deleteBranch is true", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
@@ -595,7 +576,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("does not delete branch when deleteBranch is false", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
@@ -632,7 +612,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("does not delete branch by default", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
@@ -669,7 +648,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("still archives successfully if branch deletion fails", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
@@ -774,7 +752,6 @@ describe("ProjectRegistry", () => {
 
   describe("addWorkspace postCreate", () => {
     it("executes postCreate script via terminal.write when provided", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
@@ -816,7 +793,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("does not write to terminal when no postCreate script", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
@@ -846,7 +822,6 @@ describe("ProjectRegistry", () => {
 
   describe("selectPreviousWorkspace and selectNextWorkspace", () => {
     it("skips filtered workspaces when navigating", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -909,7 +884,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("navigates correctly when no filter is set", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -957,7 +931,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("skips archived workspaces", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -1011,7 +984,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("does nothing when no workspaces available", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -1044,7 +1016,6 @@ describe("ProjectRegistry", () => {
 
   describe("goBackInHistory and goForwardInHistory", () => {
     it("goBackInHistory navigates to previous workspace from history", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
@@ -1094,7 +1065,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("goBackInHistory does nothing when no history", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
@@ -1135,7 +1105,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("goForwardInHistory navigates to next workspace from history", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
@@ -1185,7 +1154,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("goBackInHistory skips archived workspaces", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { workspaceHistoryStore } = await import("../WorkspaceHistoryStore")
@@ -1241,7 +1209,6 @@ describe("ProjectRegistry", () => {
 
   describe("hasRunningChats", () => {
     it("returns false when no projects exist", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
 
@@ -1253,7 +1220,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("returns false when no workspace stores are cached", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")
@@ -1290,7 +1256,6 @@ describe("ProjectRegistry", () => {
 
   describe("flushAllChats", () => {
     it("does nothing when no projects exist", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
 
@@ -1303,7 +1268,6 @@ describe("ProjectRegistry", () => {
     })
 
     it("does nothing when no workspace stores are cached", async () => {
-
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { runInAction } = await import("mobx")

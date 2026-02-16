@@ -138,7 +138,16 @@ export class ChatStore {
 
     // Pass initPrompt only on the first message of a new session
     const isFirstMessage = this.chat.messages.length === 0
-    const initPrompt = isFirstMessage ? this.context?.getInitPrompt() : undefined
+    let initPrompt = isFirstMessage ? this.context?.getInitPrompt() : undefined
+
+    // Add agent-specific shell instructions for Codex
+    if (isFirstMessage && this.chat.agentType === "codex") {
+      const shellInfo = configStore.agentShell
+        ? configStore.agentShell
+        : "a login shell (determined by $SHELL environment variable)"
+      const shellInstructions = `\n\nIMPORTANT: All bash commands are already running in ${shellInfo}. Do NOT wrap commands with "zsh -l -c" or any other shell prefix - they are already executed in the configured shell environment.`
+      initPrompt = initPrompt ? initPrompt + shellInstructions : shellInstructions
+    }
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
