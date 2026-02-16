@@ -252,7 +252,7 @@ pub fn start_copilot_server(
                     }
 
                     // Small sleep to avoid busy-looping
-                    std::thread::sleep(Duration::from_millis(10));
+                    std::thread::sleep(Duration::from_millis(50));
                 }
             }
         }

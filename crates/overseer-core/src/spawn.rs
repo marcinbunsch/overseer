@@ -149,7 +149,8 @@ impl AgentProcess {
         if let Some(initial) = config.initial_stdin {
             let mut guard = stdin_arc.lock().unwrap();
             if let Some(ref mut stdin) = *guard {
-                let _ = writeln!(stdin, "{}", initial);
+                writeln!(stdin, "{}", initial)
+                    .map_err(|e| format!("Failed to write initial stdin: {e}"))?;
             }
         }
 

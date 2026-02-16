@@ -186,10 +186,7 @@ impl ChatSession {
         }
 
         writer.flush()?;
-        writer
-            .get_ref()
-            .sync_all()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        writer.get_ref().sync_all()?;
         self.last_flush = Instant::now();
 
         Ok(())

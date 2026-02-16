@@ -275,7 +275,8 @@ pub async fn is_on_default_branch(cwd: &Path) -> Result<bool, GitError> {
 
 /// Check if a path is inside a git repository.
 ///
-/// Simply checks for the presence of a `.git` directory.
+/// Checks for the presence of `.git` (either a directory for regular repos,
+/// or a file for worktrees that points to the actual git directory).
 /// This is synchronous since it's just a filesystem check.
 pub fn is_git_repo(path: &Path) -> bool {
     path.join(".git").exists()
