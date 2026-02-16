@@ -1,20 +1,23 @@
 //! Gemini CLI process management.
 //!
 //! Thin wrapper around overseer-core spawn for Tauri event forwarding.
+//! Uses GeminiParser from overseer-core for NDJSON parsing.
 
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use tauri::Emitter;
 
 use crate::logging::{log_line, open_log_file, LogHandle};
-use overseer_core::agents::gemini::GeminiConfig;
+use overseer_core::agents::gemini::{GeminiConfig, GeminiParser};
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
 
 struct GeminiProcessEntry {
     process: Arc<Mutex<Option<AgentProcess>>>,
     log_file: LogHandle,
+    parser: Arc<Mutex<GeminiParser>>,
 }
 
 impl Default for GeminiProcessEntry {
@@ -22,6 +25,7 @@ impl Default for GeminiProcessEntry {
         Self {
             process: Arc::new(Mutex::new(None)),
             log_file: Arc::new(Mutex::new(None)),
+            parser: Arc::new(Mutex::new(GeminiParser::new())),
         }
     }
 }
@@ -81,6 +85,7 @@ pub fn start_gemini_server(
     *entry.process.lock().unwrap() = Some(process);
 
     let process_arc = Arc::clone(&entry.process);
+    let parser_arc = Arc::clone(&entry.parser);
 
     {
         let mut map = state.processes.lock().unwrap();
@@ -95,7 +100,8 @@ pub fn start_gemini_server(
             let event = {
                 let guard = process_arc.lock().unwrap();
                 if let Some(ref process) = *guard {
-                    process.recv()
+                    // Use try_recv() to avoid holding the lock while blocking.
+                    process.try_recv()
                 } else {
                     break;
                 }
@@ -105,7 +111,20 @@ pub fn start_gemini_server(
                 Some(ProcessEvent::Stdout(line)) => {
                     log::debug!("gemini stdout [{}]: {}", sid, line);
                     log_line(&log_file, "STDOUT", &line);
-                    let _ = app.emit(&format!("gemini:stdout:{}", sid), line);
+
+                    // Also emit raw stdout for debugging
+                    let _ = app.emit(&format!("gemini:stdout:{}", sid), &line);
+
+                    // Parse through GeminiParser
+                    let parsed_events = {
+                        let mut parser = parser_arc.lock().unwrap();
+                        parser.feed(&format!("{line}\n"))
+                    };
+
+                    // Emit parsed events
+                    for event in parsed_events {
+                        let _ = app.emit(&format!("gemini:event:{}", sid), event);
+                    }
                 }
                 Some(ProcessEvent::Stderr(line)) => {
                     log::warn!("gemini stderr [{}]: {}", sid, line);
@@ -113,13 +132,50 @@ pub fn start_gemini_server(
                     let _ = app.emit(&format!("gemini:stderr:{}", sid), line);
                 }
                 Some(ProcessEvent::Exit(exit)) => {
+                    // Flush parser
+                    let parsed_events = {
+                        let mut parser = parser_arc.lock().unwrap();
+                        parser.flush()
+                    };
+                    for event in parsed_events {
+                        let _ = app.emit(&format!("gemini:event:{}", sid), event);
+                    }
                     let _ = app.emit(&format!("gemini:close:{}", sid), exit);
                     process_arc.lock().unwrap().take();
                     break;
                 }
                 None => {
-                    process_arc.lock().unwrap().take();
-                    break;
+                    // No data available, check if process is still running
+                    let still_running = {
+                        let guard = process_arc.lock().unwrap();
+                        guard
+                            .as_ref()
+                            .map(|process| process.is_running())
+                            .unwrap_or(false)
+                    };
+
+                    if !still_running {
+                        // Flush parser and emit any remaining events
+                        let parsed_events = {
+                            let mut parser = parser_arc.lock().unwrap();
+                            parser.flush()
+                        };
+                        for event in parsed_events {
+                            let _ = app.emit(&format!("gemini:event:{}", sid), event);
+                        }
+                        let _ = app.emit(
+                            &format!("gemini:close:{}", sid),
+                            overseer_core::shell::AgentExit {
+                                code: 0,
+                                signal: None,
+                            },
+                        );
+                        process_arc.lock().unwrap().take();
+                        break;
+                    }
+
+                    // Small sleep to avoid busy-looping
+                    std::thread::sleep(Duration::from_millis(10));
                 }
             }
         }

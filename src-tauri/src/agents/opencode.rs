@@ -3,6 +3,29 @@
 //! Handles spawning and lifecycle management of `opencode serve` processes.
 //! Communication happens via HTTP for commands and SSE for real-time events.
 //! SSE is handled in Rust to avoid blocking browser sockets.
+//!
+//! # Why Parsing Stays in TypeScript
+//!
+//! Unlike Claude, Codex, Copilot, and Gemini which stream output via stdout,
+//! OpenCode uses an HTTP REST API:
+//!
+//! 1. Rust spawns `opencode serve` on a port
+//! 2. TypeScript uses `@opencode-ai/sdk` to make HTTP calls
+//! 3. `session/prompt` returns complete response with `parts` array
+//! 4. TypeScript parses the `parts` array into AgentEvents
+//!
+//! The actual chat content never flows through stdout - it comes via HTTP
+//! responses directly to TypeScript. Moving parsing to Rust would require
+//! either making HTTP calls from Rust or adding a round-trip where TypeScript
+//! sends response data back to Rust for parsing, neither of which makes sense.
+//!
+//! The Rust side only manages the HTTP server process lifecycle and emits
+//! `opencode:close:` events when the server stops.
+//!
+//! # No Tool Approvals
+//!
+//! OpenCode uses permissive permissions (`"*": "allow"`) so no interactive
+//! tool approval prompts are shown. Auto-approval logic is not needed here.
 
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
@@ -14,6 +37,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
+    time::Duration,
 };
 use tauri::Emitter;
 
@@ -146,7 +170,8 @@ pub fn start_opencode_server(
             let event = {
                 let guard = process_arc.lock().unwrap();
                 if let Some(ref process) = *guard {
-                    process.recv()
+                    // Use try_recv() to avoid holding the lock while blocking.
+                    process.try_recv()
                 } else {
                     break;
                 }
@@ -167,8 +192,29 @@ pub fn start_opencode_server(
                     break;
                 }
                 None => {
-                    process_arc.lock().unwrap().take();
-                    break;
+                    // No data available, check if process is still running
+                    let still_running = {
+                        let guard = process_arc.lock().unwrap();
+                        guard
+                            .as_ref()
+                            .map(|process| process.is_running())
+                            .unwrap_or(false)
+                    };
+
+                    if !still_running {
+                        let _ = app.emit(
+                            &format!("opencode:close:{}", sid),
+                            overseer_core::shell::AgentExit {
+                                code: 0,
+                                signal: None,
+                            },
+                        );
+                        process_arc.lock().unwrap().take();
+                        break;
+                    }
+
+                    // Small sleep to avoid busy-looping
+                    std::thread::sleep(Duration::from_millis(10));
                 }
             }
         }

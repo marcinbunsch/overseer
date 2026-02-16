@@ -301,13 +301,13 @@ describe("GeminiAgentService", () => {
     await expect(service.sendToolApproval("chat-1", "456", false)).resolves.toBeUndefined()
   })
 
-  it("attaches stdout, stderr, and close listeners", async () => {
+  it("attaches event, stderr, and close listeners", async () => {
     const service = await freshService()
 
     service.sendMessage("chat-1", "hello", "/tmp")
 
     await vi.waitFor(() => {
-      expect(listen).toHaveBeenCalledWith("gemini:stdout:chat-1", expect.any(Function))
+      expect(listen).toHaveBeenCalledWith("gemini:event:chat-1", expect.any(Function))
       expect(listen).toHaveBeenCalledWith("gemini:stderr:chat-1", expect.any(Function))
       expect(listen).toHaveBeenCalledWith("gemini:close:chat-1", expect.any(Function))
     })
@@ -382,14 +382,101 @@ describe("GeminiAgentService", () => {
     expect(toolAvailabilityStore.gemini!.error).toContain("command not found")
   })
 
+  describe("Rust event handling", () => {
+    // Helper to set up a service with a captured event handler
+    async function setupWithEventCapture() {
+      let eventHandler: ((event: { payload: unknown }) => void) | null = null
+
+      vi.mocked(listen).mockImplementation(async (eventName, handler) => {
+        if ((eventName as string).includes("gemini:event:")) {
+          eventHandler = handler as (event: { payload: unknown }) => void
+        }
+        return () => {} // UnlistenFn
+      })
+
+      vi.resetModules()
+      const { geminiAgentService } = await import("../gemini")
+
+      const eventCb = vi.fn()
+      geminiAgentService.onEvent("chat-1", eventCb)
+
+      await geminiAgentService.sendMessage("chat-1", "test", "/tmp")
+
+      return { service: geminiAgentService, eventCb, eventHandler: eventHandler! }
+    }
+
+    it("handles Rust Text event", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
+
+      // Rust sends internally-tagged event: {"kind": "text", "text": "Hello"}
+      eventHandler({ payload: { kind: "text", text: "Hello world" } })
+
+      expect(eventCb).toHaveBeenCalledWith({ kind: "text", text: "Hello world" })
+    })
+
+    it("handles Rust Message event", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
+
+      eventHandler({
+        payload: {
+          kind: "message",
+          content: '[Bash]\n{"command": "git status"}',
+          tool_meta: { tool_name: "Bash" },
+        },
+      })
+
+      expect(eventCb).toHaveBeenCalledWith({
+        kind: "message",
+        content: '[Bash]\n{"command": "git status"}',
+        toolMeta: { toolName: "Bash", linesAdded: undefined, linesRemoved: undefined },
+        parentToolUseId: undefined,
+        toolUseId: undefined,
+        isInfo: undefined,
+      })
+    })
+
+    it("handles Rust BashOutput event", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
+
+      eventHandler({
+        payload: {
+          kind: "bashOutput",
+          text: "file.txt\n",
+        },
+      })
+
+      expect(eventCb).toHaveBeenCalledWith({ kind: "bashOutput", text: "file.txt\n" })
+    })
+
+    it("handles Rust SessionId event", async () => {
+      const { service, eventCb, eventHandler } = await setupWithEventCapture()
+
+      eventHandler({ payload: { kind: "sessionId", session_id: "sess-abc-123" } })
+
+      expect(eventCb).toHaveBeenCalledWith({ kind: "sessionId", sessionId: "sess-abc-123" })
+      expect(service.getSessionId("chat-1")).toBe("sess-abc-123")
+    })
+
+    it("logs warning for unknown event kinds", async () => {
+      const { eventHandler } = await setupWithEventCapture()
+      const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+      eventHandler({ payload: { kind: "unknownEventType" } })
+
+      expect(consoleWarn).toHaveBeenCalledWith("Unknown Gemini event kind: unknownEventType")
+      consoleWarn.mockRestore()
+    })
+  })
+
   describe("rate limit handling", () => {
     it("emits a new message after rate limit info instead of appending via text event", async () => {
       vi.resetModules()
 
       // Capture the listeners so we can trigger events manually
-      const listeners: Record<string, (event: { payload: string }) => void> = {}
+      // Note: stderr receives raw string payload, event receives { payload: ... }
+      const listeners: Record<string, (event: unknown) => void> = {}
       vi.mocked(listen).mockImplementation(async (eventName, callback) => {
-        listeners[eventName as string] = callback as (event: { payload: string }) => void
+        listeners[eventName as string] = callback as (event: unknown) => void
         return () => {}
       })
       vi.mocked(invoke).mockResolvedValue(undefined)
@@ -403,20 +490,19 @@ describe("GeminiAgentService", () => {
 
       await geminiAgentService.sendMessage("chat-1", "hello", "/tmp")
 
-      // Simulate: first, a rate limit stderr message
+      // Simulate: first, a rate limit stderr message (stderr events have payload wrapper)
       listeners["gemini:stderr:chat-1"]({
         payload:
           "Attempt 1 failed: You have exhausted your capacity. Your quota will reset after 2s",
       })
 
-      // Now simulate the delta message that comes after the rate limit
-      listeners["gemini:stdout:chat-1"]({
-        payload: JSON.stringify({
-          type: "message",
-          role: "assistant",
-          content: "Here is my response",
-          delta: true,
-        }),
+      // Now simulate a text event from Rust (pre-parsed, wrapped in payload)
+      // When lastWasInfo is true, text events are converted to message events
+      listeners["gemini:event:chat-1"]({
+        payload: {
+          kind: "text",
+          text: "Here is my response",
+        },
       })
 
       // Should have:
@@ -442,9 +528,9 @@ describe("GeminiAgentService", () => {
     it("uses text events for normal streaming (no rate limit)", async () => {
       vi.resetModules()
 
-      const listeners: Record<string, (event: { payload: string }) => void> = {}
+      const listeners: Record<string, (event: unknown) => void> = {}
       vi.mocked(listen).mockImplementation(async (eventName, callback) => {
-        listeners[eventName as string] = callback as (event: { payload: string }) => void
+        listeners[eventName as string] = callback as (event: unknown) => void
         return () => {}
       })
       vi.mocked(invoke).mockResolvedValue(undefined)
@@ -458,23 +544,19 @@ describe("GeminiAgentService", () => {
 
       await geminiAgentService.sendMessage("chat-1", "hello", "/tmp")
 
-      // Simulate normal delta messages (no rate limit)
-      listeners["gemini:stdout:chat-1"]({
-        payload: JSON.stringify({
-          type: "message",
-          role: "assistant",
-          content: "Hello ",
-          delta: true,
-        }),
+      // Simulate normal text events from Rust (pre-parsed, wrapped in payload)
+      listeners["gemini:event:chat-1"]({
+        payload: {
+          kind: "text",
+          text: "Hello ",
+        },
       })
 
-      listeners["gemini:stdout:chat-1"]({
-        payload: JSON.stringify({
-          type: "message",
-          role: "assistant",
-          content: "world!",
-          delta: true,
-        }),
+      listeners["gemini:event:chat-1"]({
+        payload: {
+          kind: "text",
+          text: "world!",
+        },
       })
 
       // Should be text events for streaming

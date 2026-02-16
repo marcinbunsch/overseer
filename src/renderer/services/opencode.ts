@@ -1,3 +1,26 @@
+/**
+ * OpenCode Agent Service
+ *
+ * # Why Parsing is in TypeScript (not Rust)
+ *
+ * Unlike Claude, Codex, Copilot, and Gemini which stream output via stdout,
+ * OpenCode uses an HTTP REST API:
+ *
+ * 1. Rust spawns `opencode serve` on a port
+ * 2. TypeScript uses `@opencode-ai/sdk` to make HTTP calls
+ * 3. `session/prompt` returns complete response with `parts` array
+ * 4. TypeScript parses the `parts` array into AgentEvents
+ *
+ * The actual chat content never flows through stdout - it comes via HTTP
+ * responses directly to TypeScript. The Rust side only manages the HTTP
+ * server process lifecycle.
+ *
+ * # No Tool Approvals
+ *
+ * OpenCode uses permissive permissions (`"*": "allow"`) so no interactive
+ * tool approval prompts are shown.
+ */
+
 import { backend, type Unsubscribe } from "../backend"
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
