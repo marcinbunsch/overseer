@@ -7,6 +7,7 @@ mod pty;
 
 use overseer_core::shell::build_login_shell_command;
 use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
+use overseer_core::paths;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager, WindowEvent};
 
@@ -23,6 +24,11 @@ async fn is_debug_mode() -> bool {
 #[tauri::command]
 async fn is_demo_mode() -> bool {
     std::env::var("OVERSEER_DEMO").is_ok()
+}
+
+#[tauri::command]
+async fn get_home_dir() -> Result<String, String> {
+    paths::get_home_dir()
 }
 
 /// Result of extracting overseer action blocks from content.
@@ -266,6 +272,7 @@ pub fn run() {
             show_main_window,
             is_debug_mode,
             is_demo_mode,
+            get_home_dir,
             extract_overseer_blocks_cmd,
             approvals::load_project_approvals,
             approvals::add_approval,

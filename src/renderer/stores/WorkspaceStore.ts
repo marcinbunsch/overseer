@@ -20,6 +20,7 @@ import { getAgentDisplayName } from "../utils/agentDisplayName"
 import { toastStore } from "./ToastStore"
 import { projectRegistry } from "./ProjectRegistry"
 import { backend } from "../backend"
+import { getConfigPath } from "../utils/paths"
 
 export type { PendingToolUse } from "../types"
 
@@ -568,8 +569,15 @@ export class WorkspaceStore {
   private async getChatDir(): Promise<string | null> {
     if (!this.projectName || !this.path) return null
     // Return a placeholder - this is only used for logging now
-    const configDir = await backend.invoke<string>("get_config_dir")
-    return `${configDir}/chats/${this.projectName}/${this.getWorkspaceName()}`
+    try {
+      const homeDir = await backend.invoke<string>("get_home_dir")
+      const normalizedHome = homeDir.replace(/\/$/, "")
+      const configDir = getConfigPath(normalizedHome)
+      return `${configDir}/chats/${this.projectName}/${this.getWorkspaceName()}`
+    } catch (err) {
+      console.error("Failed to resolve home dir for chat path:", err)
+      return null
+    }
   }
 
   private async loadChatsFromDisk(): Promise<void> {

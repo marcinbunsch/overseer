@@ -1,11 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { invoke } from "@tauri-apps/api/core"
 
-// Mock Tauri APIs before importing WorkspaceStore
-vi.mock("@tauri-apps/api/path", () => ({
-  homeDir: vi.fn(() => Promise.resolve("/home/testuser/")),
-}))
-
 vi.mock("../ConfigStore", () => ({
   configStore: {
     defaultAgent: "claude",
