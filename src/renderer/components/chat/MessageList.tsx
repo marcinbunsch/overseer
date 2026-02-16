@@ -22,29 +22,51 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   // Check if user is at bottom of scroll
   const checkIfAtBottom = useCallback(() => {
     const container = containerRef.current
-    if (!container) return false
+    if (!container) {
+      console.log('[MessageList] checkIfAtBottom: no container')
+      return false
+    }
 
     const { scrollHeight, scrollTop, clientHeight } = container
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight
-    return distanceFromBottom <= SCROLL_THRESHOLD
+    const atBottom = distanceFromBottom <= SCROLL_THRESHOLD
+    console.log('[MessageList] checkIfAtBottom:', {
+      scrollHeight,
+      scrollTop,
+      clientHeight,
+      distanceFromBottom,
+      threshold: SCROLL_THRESHOLD,
+      atBottom
+    })
+    return atBottom
   }, [])
 
   // Handle scroll events to detect manual scrolling
   const handleScroll = useCallback(() => {
     const atBottom = checkIfAtBottom()
+    console.log('[MessageList] handleScroll: setting isUserAtBottom =', atBottom)
     setIsUserAtBottom(atBottom)
   }, [checkIfAtBottom])
 
   // Auto-scroll to bottom if user is at bottom
   const scrollToBottom = useCallback(() => {
+    console.log('[MessageList] scrollToBottom: isUserAtBottom =', isUserAtBottom)
     if (isUserAtBottom) {
+      console.log('[MessageList] scrollToBottom: scrolling to bottom')
       bottomRef.current?.scrollIntoView({ behavior: "instant" })
+    } else {
+      console.log('[MessageList] scrollToBottom: skipping (user not at bottom)')
     }
   }, [isUserAtBottom])
 
   // Auto-scroll when a turn completes (existing behavior)
   useEffect(() => {
+    console.log('[MessageList] turn completion effect:', { 
+      turnsLength: turns.length, 
+      lastResultMessageId 
+    })
     if (lastResultMessageId) {
+      console.log('[MessageList] turn completed: forcing scroll to bottom')
       bottomRef.current?.scrollIntoView({ behavior: "instant" })
       setIsUserAtBottom(true) // Reset to true when turn completes
     }
@@ -53,16 +75,27 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   // Auto-scroll during streaming when content grows
   useEffect(() => {
     const bottom = bottomRef.current
-    if (!bottom) return
+    if (!bottom) {
+      console.log('[MessageList] ResizeObserver: no bottomRef')
+      return
+    }
 
-    const observer = new ResizeObserver(() => {
+    const observer = new ResizeObserver((entries) => {
+      console.log('[MessageList] ResizeObserver triggered:', {
+        entryCount: entries.length,
+        isUserAtBottom
+      })
       scrollToBottom()
     })
 
+    console.log('[MessageList] ResizeObserver: starting observation')
     observer.observe(bottom.parentElement!) // Observe the messages container
 
-    return () => observer.disconnect()
-  }, [scrollToBottom])
+    return () => {
+      console.log('[MessageList] ResizeObserver: disconnecting')
+      observer.disconnect()
+    }
+  }, [scrollToBottom, isUserAtBottom])
 
   if (turns.length === 0) {
     return (
