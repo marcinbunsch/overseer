@@ -5,7 +5,6 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 use tauri::{Emitter, Manager};
 
@@ -105,7 +104,13 @@ pub fn start_agent(
     }
 
     // Spawn the process
-    let process = AgentProcess::spawn(spawn_config)?;
+    let mut process = AgentProcess::spawn(spawn_config)?;
+
+    // Take the event receiver out so we can do blocking receives
+    // without holding the lock on the process
+    let event_receiver = process
+        .take_receiver()
+        .ok_or_else(|| "Failed to take event receiver".to_string())?;
 
     // Store the process entry
     let mut entry = AgentProcessEntry::default();
@@ -133,18 +138,30 @@ pub fn start_agent(
     let conv_id = conversation_id.clone();
     let log_file = Arc::clone(&log_handle);
     std::thread::spawn(move || {
-        loop {
-            let event = {
-                let guard = process_arc.lock().unwrap();
-                if let Some(ref process) = *guard {
-                    process.try_recv()
-                } else {
-                    break;
+        // Helper to flush parser and emit remaining events
+        let flush_and_emit =
+            |parser_arc: &Arc<Mutex<ClaudeParser>>,
+             app: &tauri::AppHandle,
+             conv_id: &str,
+             process_arc: &Arc<Mutex<Option<AgentProcess>>>| {
+                let parsed_events = {
+                    let mut parser = parser_arc.lock().unwrap();
+                    parser.flush()
+                };
+                for event in parsed_events {
+                    let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                    if let Err(err) = chat_sessions.append_event(conv_id, event.clone()) {
+                        log::warn!("Failed to persist Claude event for {}: {}", conv_id, err);
+                    }
+                    let _ = app.emit(&format!("agent:event:{}", conv_id), event);
                 }
+                process_arc.lock().unwrap().take();
             };
 
+        // Use blocking receive - no polling needed
+        while let Ok(event) = event_receiver.recv() {
             match event {
-                Some(ProcessEvent::Stdout(line)) => {
+                ProcessEvent::Stdout(line) => {
                     log::debug!("agent stdout [{}]: {}", conv_id, line);
                     log_line(&log_file, "STDOUT", &line);
                     let _ = app.emit(&format!("agent:stdout:{}", conv_id), &line);
@@ -168,7 +185,8 @@ pub fn start_agent(
                         };
 
                         let chat_sessions: tauri::State<ChatSessionManager> = app.state();
-                        if let Err(err) = chat_sessions.append_event(&conv_id, event_to_emit.clone())
+                        if let Err(err) =
+                            chat_sessions.append_event(&conv_id, event_to_emit.clone())
                         {
                             log::warn!(
                                 "Failed to persist Claude event for {}: {}",
@@ -179,71 +197,28 @@ pub fn start_agent(
                         let _ = app.emit(&format!("agent:event:{}", conv_id), event_to_emit);
                     }
                 }
-                Some(ProcessEvent::Stderr(line)) => {
+                ProcessEvent::Stderr(line) => {
                     log::warn!("agent stderr [{}]: {}", conv_id, line);
                     log_line(&log_file, "STDERR", &line);
                     let _ = app.emit(&format!("agent:stderr:{}", conv_id), line);
                 }
-                Some(ProcessEvent::Exit(exit)) => {
-                    let parsed_events = {
-                        let mut parser = parser_arc.lock().unwrap();
-                        parser.flush()
-                    };
-                    for event in parsed_events {
-                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
-                        if let Err(err) = chat_sessions.append_event(&conv_id, event.clone()) {
-                            log::warn!(
-                                "Failed to persist Claude event for {}: {}",
-                                conv_id,
-                                err
-                            );
-                        }
-                        let _ = app.emit(&format!("agent:event:{}", conv_id), event);
-                    }
+                ProcessEvent::Exit(exit) => {
+                    flush_and_emit(&parser_arc, &app, &conv_id, &process_arc);
                     let _ = app.emit(&format!("agent:close:{}", conv_id), exit);
-                    process_arc.lock().unwrap().take();
                     break;
-                }
-                None => {
-                    let still_running = {
-                        let guard = process_arc.lock().unwrap();
-                        guard
-                            .as_ref()
-                            .map(|process| process.is_running())
-                            .unwrap_or(false)
-                    };
-
-                    if !still_running {
-                        let parsed_events = {
-                            let mut parser = parser_arc.lock().unwrap();
-                            parser.flush()
-                        };
-                        for event in parsed_events {
-                            let chat_sessions: tauri::State<ChatSessionManager> = app.state();
-                            if let Err(err) = chat_sessions.append_event(&conv_id, event.clone()) {
-                                log::warn!(
-                                    "Failed to persist Claude event for {}: {}",
-                                    conv_id,
-                                    err
-                                );
-                            }
-                            let _ = app.emit(&format!("agent:event:{}", conv_id), event);
-                        }
-                        let _ = app.emit(
-                            &format!("agent:close:{}", conv_id),
-                            AgentExit {
-                                code: 0,
-                                signal: None,
-                            },
-                        );
-                        process_arc.lock().unwrap().take();
-                        break;
-                    }
-
-                    std::thread::sleep(Duration::from_millis(50));
                 }
             }
         }
+
+        // Channel closed without Exit event - emit close anyway
+        flush_and_emit(&parser_arc, &app, &conv_id, &process_arc);
+        let _ = app.emit(
+            &format!("agent:close:{}", conv_id),
+            AgentExit {
+                code: 0,
+                signal: None,
+            },
+        );
     });
 
     Ok(())
