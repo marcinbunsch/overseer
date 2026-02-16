@@ -23,20 +23,20 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   const checkIfAtBottom = useCallback(() => {
     const container = containerRef.current
     if (!container) {
-      console.log('[MessageList] checkIfAtBottom: no container')
+      console.log("[MessageList] checkIfAtBottom: no container")
       return false
     }
 
     const { scrollHeight, scrollTop, clientHeight } = container
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight
     const atBottom = distanceFromBottom <= SCROLL_THRESHOLD
-    console.log('[MessageList] checkIfAtBottom:', {
+    console.log("[MessageList] checkIfAtBottom:", {
       scrollHeight,
       scrollTop,
       clientHeight,
       distanceFromBottom,
       threshold: SCROLL_THRESHOLD,
-      atBottom
+      atBottom,
     })
     return atBottom
   }, [])
@@ -44,29 +44,29 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   // Handle scroll events to detect manual scrolling
   const handleScroll = useCallback(() => {
     const atBottom = checkIfAtBottom()
-    console.log('[MessageList] handleScroll: setting isUserAtBottom =', atBottom)
+    console.log("[MessageList] handleScroll: setting isUserAtBottom =", atBottom)
     setIsUserAtBottom(atBottom)
   }, [checkIfAtBottom])
 
   // Auto-scroll to bottom if user is at bottom
   const scrollToBottom = useCallback(() => {
-    console.log('[MessageList] scrollToBottom: isUserAtBottom =', isUserAtBottom)
+    console.log("[MessageList] scrollToBottom: isUserAtBottom =", isUserAtBottom)
     if (isUserAtBottom) {
-      console.log('[MessageList] scrollToBottom: scrolling to bottom')
+      console.log("[MessageList] scrollToBottom: scrolling to bottom")
       bottomRef.current?.scrollIntoView({ behavior: "instant" })
     } else {
-      console.log('[MessageList] scrollToBottom: skipping (user not at bottom)')
+      console.log("[MessageList] scrollToBottom: skipping (user not at bottom)")
     }
   }, [isUserAtBottom])
 
   // Auto-scroll when a turn completes (existing behavior)
   useEffect(() => {
-    console.log('[MessageList] turn completion effect:', { 
-      turnsLength: turns.length, 
-      lastResultMessageId 
+    console.log("[MessageList] turn completion effect:", {
+      turnsLength: turns.length,
+      lastResultMessageId,
     })
     if (lastResultMessageId) {
-      console.log('[MessageList] turn completed: forcing scroll to bottom')
+      console.log("[MessageList] turn completed: forcing scroll to bottom")
       bottomRef.current?.scrollIntoView({ behavior: "instant" })
       setIsUserAtBottom(true) // Reset to true when turn completes
     }
@@ -76,23 +76,23 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   useEffect(() => {
     const bottom = bottomRef.current
     if (!bottom) {
-      console.log('[MessageList] ResizeObserver: no bottomRef')
+      console.log("[MessageList] ResizeObserver: no bottomRef")
       return
     }
 
     const observer = new ResizeObserver((entries) => {
-      console.log('[MessageList] ResizeObserver triggered:', {
+      console.log("[MessageList] ResizeObserver triggered:", {
         entryCount: entries.length,
-        isUserAtBottom
+        isUserAtBottom,
       })
       scrollToBottom()
     })
 
-    console.log('[MessageList] ResizeObserver: starting observation')
+    console.log("[MessageList] ResizeObserver: starting observation")
     observer.observe(bottom.parentElement!) // Observe the messages container
 
     return () => {
-      console.log('[MessageList] ResizeObserver: disconnecting')
+      console.log("[MessageList] ResizeObserver: disconnecting")
       observer.disconnect()
     }
   }, [scrollToBottom, isUserAtBottom])

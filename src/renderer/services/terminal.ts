@@ -172,6 +172,18 @@ class TerminalService {
     })
 
     this.terminals.set(workspacePath, instance)
+
+    // Inject WORKSPACE_ROOT environment variable after shell is ready
+    // This ensures it's available even in login shells that reset env
+    if (workspaceRoot) {
+      readyPromise.then(async () => {
+        // Send export command and clear the screen to hide it
+        const initScript = `export WORKSPACE_ROOT="${workspaceRoot}" && clear\r`
+        const bytes = Array.from(this.encoder.encode(initScript))
+        await invoke("pty_write", { id: ptyId, data: bytes })
+      })
+    }
+
     return instance
   }
 
