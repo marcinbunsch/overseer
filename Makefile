@@ -4,8 +4,8 @@ init:
 	pnpm install
 	cd src-tauri && cargo install --locked cargo-tauri
 
-build:
-	pnpm build
+build-local:
+	pnpm tauri build --bundles app --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
 dev:
 	pnpm dev
@@ -26,7 +26,7 @@ test:
 open:
 	OVERSEER_DEBUG=true open src-tauri/target/release/bundle/macos/Overseer.app
 
-start: build open
+start: build-local open
 
 # Show process tree (requires: brew install pstree)
 pstree:
