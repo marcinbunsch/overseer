@@ -1,5 +1,17 @@
 # Plan: Fix Persistence Tests After Backend Migration
 
+## Important: Shell Commands
+
+Do NOT wrap shell commands in `zsh -l -c "..."`. All agents already run in a `zsh -l -c` context, so wrapping commands again is redundant and can cause issues. Just run commands directly:
+
+```bash
+# WRONG - do not do this
+zsh -l -c "pnpm test -- src/renderer/stores/__tests__/ConfigStore.test.ts --run"
+
+# CORRECT - run commands directly
+pnpm test -- src/renderer/stores/__tests__/ConfigStore.test.ts --run
+```
+
 ## Context
 
 The persistence logic was moved from TypeScript (using `@tauri-apps/plugin-fs`) to Rust backend commands. The stores now use `backend.invoke()` instead of direct FS plugin calls. The tests need to be updated to mock `invoke` from `@tauri-apps/api/core` instead of mocking FS plugin functions.

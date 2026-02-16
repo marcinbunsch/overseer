@@ -16,7 +16,6 @@
 //! ```text
 //! ~/.config/overseer/              (or platform equivalent)
 //! ├── projects.json                # Project registry
-//! ├── repos.json                   # Legacy alias (backward compat)
 //! └── workspaces/
 //!     └── <workspace-id>/
 //!         ├── index.json           # Chat index for this workspace
@@ -40,11 +39,6 @@
 //!
 //! Chat messages are loaded on-demand, not at startup. The index
 //! provides quick metadata without loading full chat content.
-//!
-//! ## Backward Compatibility
-//!
-//! The projects module supports legacy `repos.json` format and
-//! automatically migrates old field names (worktrees → workspaces).
 //!
 //! # Usage
 //!

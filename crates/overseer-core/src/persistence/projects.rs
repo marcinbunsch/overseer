@@ -1,23 +1,9 @@
 //! Project registry persistence.
-//!
-//! # Files
-//!
-//! - `projects.json` - Primary project registry
-//! - `repos.json` - Legacy alias (backward compatibility)
-//!
-//! # Migration
-//!
-//! Supports legacy format with automatic migration:
-//! - `worktrees` → `workspaces`
-//! - `worktreeFilter` → `workspaceFilter`
-//! - `repoId` → `projectId` in workspaces
 
 use std::fs;
 use std::path::Path;
 
-use super::types::{
-    LegacyProject, LegacyProjectRegistry, LegacyWorkspace, Project, ProjectRegistry, Workspace,
-};
+use super::types::{Project, ProjectRegistry, Workspace};
 
 /// Error type for project operations.
 #[derive(Debug)]
@@ -55,12 +41,9 @@ impl From<serde_json::Error> for ProjectError {
 }
 
 /// Save the project registry to disk.
-///
-/// Writes to both `projects.json` and `repos.json` (for backward compat).
 pub fn save_project_registry(dir: &Path, registry: &ProjectRegistry) -> Result<(), ProjectError> {
     fs::create_dir_all(dir)?;
 
-    // Save to projects.json
     let file_path = dir.join("projects.json");
     let temp_path = dir.join("projects.json.tmp");
 
@@ -68,121 +51,35 @@ pub fn save_project_registry(dir: &Path, registry: &ProjectRegistry) -> Result<(
     fs::write(&temp_path, &json)?;
     fs::rename(&temp_path, &file_path)?;
 
-    // Also save to repos.json for backward compatibility
-    // Convert to legacy format
-    let legacy = to_legacy_registry(registry);
-    let legacy_path = dir.join("repos.json");
-    let legacy_temp = dir.join("repos.json.tmp");
-
-    let legacy_json = serde_json::to_string_pretty(&legacy)?;
-    fs::write(&legacy_temp, legacy_json)?;
-    fs::rename(&legacy_temp, &legacy_path)?;
-
     Ok(())
 }
 
 /// Load the project registry from disk.
 ///
-/// Tries `projects.json` first, falls back to `repos.json`.
-/// Automatically migrates legacy format to new format.
+/// Handles two formats:
+/// - Raw array: `[{ project... }, ...]`
+/// - Wrapped object: `{ "projects": [...] }`
 pub fn load_project_registry(dir: &Path) -> Result<ProjectRegistry, ProjectError> {
     let projects_path = dir.join("projects.json");
-    let repos_path = dir.join("repos.json");
 
-    // Try projects.json first
     if projects_path.exists() {
         let contents = fs::read_to_string(&projects_path)?;
-        let registry: ProjectRegistry = serde_json::from_str(&contents)?;
-        return Ok(registry);
-    }
 
-    // Fall back to repos.json (legacy)
-    if repos_path.exists() {
-        let contents = fs::read_to_string(&repos_path)?;
-        let legacy: LegacyProjectRegistry = serde_json::from_str(&contents)?;
-        return Ok(from_legacy_registry(&legacy));
+        // Try wrapped format first: { "projects": [...] }
+        match serde_json::from_str::<ProjectRegistry>(&contents) {
+            Ok(registry) => return Ok(registry),
+            Err(_) => {}
+        }
+
+        // Try raw array format: [...]
+        match serde_json::from_str::<Vec<Project>>(&contents) {
+            Ok(projects) => return Ok(ProjectRegistry { projects }),
+            Err(e) => return Err(ProjectError::Json(e)),
+        }
     }
 
     // No registry exists, return empty
     Ok(ProjectRegistry::default())
-}
-
-/// Convert legacy registry to new format.
-fn from_legacy_registry(legacy: &LegacyProjectRegistry) -> ProjectRegistry {
-    ProjectRegistry {
-        projects: legacy.projects.iter().map(from_legacy_project).collect(),
-    }
-}
-
-/// Convert legacy project to new format.
-fn from_legacy_project(legacy: &LegacyProject) -> Project {
-    Project {
-        id: legacy.id.clone(),
-        name: legacy.name.clone(),
-        path: legacy.path.clone(),
-        is_git_repo: legacy.is_git_repo,
-        workspaces: legacy.worktrees.iter().map(from_legacy_workspace).collect(),
-        init_prompt: legacy.init_prompt.clone(),
-        pr_prompt: legacy.pr_prompt.clone(),
-        post_create: legacy.post_create.clone(),
-        workspace_filter: legacy.worktree_filter.clone(),
-        use_github: legacy.use_github,
-        allow_merge_to_main: legacy.allow_merge_to_main,
-    }
-}
-
-/// Convert legacy workspace to new format.
-fn from_legacy_workspace(legacy: &LegacyWorkspace) -> Workspace {
-    Workspace {
-        id: legacy.id.clone(),
-        project_id: legacy.repo_id.clone(), // repoId → projectId
-        branch: legacy.branch.clone(),
-        path: legacy.path.clone(),
-        is_archived: legacy.is_archived,
-        created_at: legacy.created_at,
-        pr_number: legacy.pr_number,
-        pr_url: legacy.pr_url.clone(),
-        pr_state: legacy.pr_state.clone(),
-    }
-}
-
-/// Convert registry to legacy format.
-fn to_legacy_registry(registry: &ProjectRegistry) -> LegacyProjectRegistry {
-    LegacyProjectRegistry {
-        projects: registry.projects.iter().map(to_legacy_project).collect(),
-    }
-}
-
-/// Convert project to legacy format.
-fn to_legacy_project(project: &Project) -> LegacyProject {
-    LegacyProject {
-        id: project.id.clone(),
-        name: project.name.clone(),
-        path: project.path.clone(),
-        is_git_repo: project.is_git_repo,
-        worktrees: project.workspaces.iter().map(to_legacy_workspace).collect(),
-        init_prompt: project.init_prompt.clone(),
-        pr_prompt: project.pr_prompt.clone(),
-        post_create: project.post_create.clone(),
-        worktree_filter: project.workspace_filter.clone(),
-        use_github: project.use_github,
-        allow_merge_to_main: project.allow_merge_to_main,
-    }
-}
-
-/// Convert workspace to legacy format.
-fn to_legacy_workspace(workspace: &Workspace) -> LegacyWorkspace {
-    LegacyWorkspace {
-        id: workspace.id.clone(),
-        repo_id: workspace.project_id.clone(), // projectId → repoId
-        branch: workspace.branch.clone(),
-        path: workspace.path.clone(),
-        is_archived: workspace.is_archived,
-        created_at: workspace.created_at,
-        pr_number: workspace.pr_number,
-        pr_url: workspace.pr_url.clone(),
-        pr_state: workspace.pr_state.clone(),
-    }
 }
 
 // ============================================================================
@@ -269,10 +166,12 @@ mod tests {
             path: format!("/path/to/{}", name),
             is_git_repo: true,
             workspaces: vec![],
+            worktrees: vec![],
             init_prompt: None,
             pr_prompt: None,
             post_create: None,
             workspace_filter: None,
+            worktree_filter: None,
             use_github: None,
             allow_merge_to_main: None,
         }
@@ -281,7 +180,8 @@ mod tests {
     fn make_workspace(id: &str, branch: &str) -> Workspace {
         Workspace {
             id: id.to_string(),
-            project_id: "proj-1".to_string(),
+            project_id: Some("proj-1".to_string()),
+            repo_id: None,
             branch: branch.to_string(),
             path: format!("/path/to/{}", branch),
             is_archived: false,
@@ -289,6 +189,9 @@ mod tests {
             pr_number: None,
             pr_url: None,
             pr_state: None,
+            is_creating: None,
+            is_archiving: None,
+            ssh_host_id: None,
         }
     }
 
@@ -307,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn save_creates_both_files() {
+    fn save_creates_file() {
         let dir = tempdir().unwrap();
         let registry = ProjectRegistry {
             projects: vec![make_project("proj-1", "test")],
@@ -316,43 +219,6 @@ mod tests {
         save_project_registry(dir.path(), &registry).unwrap();
 
         assert!(dir.path().join("projects.json").exists());
-        assert!(dir.path().join("repos.json").exists());
-    }
-
-    #[test]
-    fn load_from_legacy_repos_json() {
-        let dir = tempdir().unwrap();
-
-        // Write legacy format
-        let legacy = r#"{
-            "projects": [{
-                "id": "proj-1",
-                "name": "legacy-project",
-                "path": "/path/to/legacy",
-                "isGitRepo": true,
-                "worktrees": [{
-                    "id": "ws-1",
-                    "repoId": "proj-1",
-                    "branch": "main",
-                    "path": "/path/to/main",
-                    "isArchived": false,
-                    "createdAt": "2024-01-01T00:00:00Z"
-                }],
-                "worktreeFilter": "feature/*"
-            }]
-        }"#;
-        fs::write(dir.path().join("repos.json"), legacy).unwrap();
-
-        let loaded = load_project_registry(dir.path()).unwrap();
-
-        assert_eq!(loaded.projects.len(), 1);
-        assert_eq!(loaded.projects[0].name, "legacy-project");
-        assert_eq!(
-            loaded.projects[0].workspace_filter,
-            Some("feature/*".to_string())
-        );
-        assert_eq!(loaded.projects[0].workspaces.len(), 1);
-        assert_eq!(loaded.projects[0].workspaces[0].project_id, "proj-1"); // repoId → projectId
     }
 
     #[test]
@@ -467,5 +333,42 @@ mod tests {
         let archived_list = get_archived_workspaces(&project);
         assert_eq!(archived_list.len(), 1);
         assert_eq!(archived_list[0].branch, "old-feature");
+    }
+
+    #[test]
+    fn load_raw_array_format() {
+        let json = r#"[
+            {
+                "id": "proj-1",
+                "name": "test",
+                "path": "/path/to/test",
+                "workspaces": [
+                    {
+                        "id": "ws-1",
+                        "repoId": "proj-1",
+                        "projectId": "proj-1",
+                        "branch": "main",
+                        "path": "/path/to/main",
+                        "isArchived": false,
+                        "createdAt": "2024-01-01T00:00:00Z"
+                    }
+                ],
+                "worktrees": [],
+                "isGitRepo": true
+            }
+        ]"#;
+
+        let projects: Vec<Project> = serde_json::from_str(json).unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].workspaces.len(), 1);
+        // Both projectId and repoId should be present
+        assert_eq!(
+            projects[0].workspaces[0].project_id,
+            Some("proj-1".to_string())
+        );
+        assert_eq!(
+            projects[0].workspaces[0].repo_id,
+            Some("proj-1".to_string())
+        );
     }
 }

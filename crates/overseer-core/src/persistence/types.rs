@@ -205,6 +205,9 @@ pub struct ProjectRegistry {
 }
 
 /// A project (repository) with its workspaces.
+///
+/// Note: The JSON may have both `workspaces` and `worktrees` fields.
+/// We keep both to avoid "duplicate field" errors during deserialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
@@ -225,6 +228,10 @@ pub struct Project {
     #[serde(default)]
     pub workspaces: Vec<Workspace>,
 
+    /// Legacy field: worktrees (same as workspaces).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worktrees: Vec<Workspace>,
+
     /// Initial prompt template for new chats.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub init_prompt: Option<String>,
@@ -241,6 +248,10 @@ pub struct Project {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_filter: Option<String>,
 
+    /// Legacy field: worktreeFilter (same as workspaceFilter).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_filter: Option<String>,
+
     /// Whether to use GitHub integration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_github: Option<bool>,
@@ -250,12 +261,33 @@ pub struct Project {
     pub allow_merge_to_main: Option<bool>,
 }
 
+impl Project {
+    /// Get all workspaces (from either workspaces or worktrees field).
+    pub fn get_workspaces(&self) -> &Vec<Workspace> {
+        if !self.workspaces.is_empty() {
+            &self.workspaces
+        } else {
+            &self.worktrees
+        }
+    }
+
+    /// Get workspace filter (from either field).
+    pub fn get_workspace_filter(&self) -> Option<&str> {
+        self.workspace_filter
+            .as_deref()
+            .or(self.worktree_filter.as_deref())
+    }
+}
+
 /// Helper for serde default value.
 fn default_true() -> bool {
     true
 }
 
 /// A workspace (git worktree or branch) within a project.
+///
+/// Note: The JSON may have both `projectId` and `repoId` fields.
+/// We keep both to avoid "duplicate field" errors during deserialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
@@ -263,7 +295,12 @@ pub struct Workspace {
     pub id: String,
 
     /// The project this workspace belongs to.
-    pub project_id: String,
+    #[serde(default)]
+    pub project_id: Option<String>,
+
+    /// Legacy field: repoId (same as projectId).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_id: Option<String>,
 
     /// The branch name.
     pub branch: String,
@@ -289,86 +326,25 @@ pub struct Workspace {
     /// GitHub PR state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_state: Option<String>,
+
+    /// True if workspace is being created (transient state).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_creating: Option<bool>,
+
+    /// True if workspace is being archived (transient state).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_archiving: Option<bool>,
+
+    /// SSH host ID for remote workspaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh_host_id: Option<String>,
 }
 
-// ============================================================================
-// Legacy Types (Backward Compatibility)
-// ============================================================================
-
-/// Legacy project registry format (repos.json).
-///
-/// Used for backward compatibility. The migration converts:
-/// - `worktrees` → `workspaces`
-/// - `worktreeFilter` → `workspaceFilter`
-/// - `repoId` → `projectId` in workspaces
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LegacyProjectRegistry {
-    /// All registered projects (called "repos" in legacy format).
-    pub projects: Vec<LegacyProject>,
-}
-
-/// Legacy project format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LegacyProject {
-    pub id: String,
-    pub name: String,
-    pub path: String,
-
-    #[serde(default = "default_true")]
-    pub is_git_repo: bool,
-
-    /// Legacy: worktrees instead of workspaces.
-    #[serde(default, alias = "workspaces")]
-    pub worktrees: Vec<LegacyWorkspace>,
-
-    #[serde(default)]
-    pub init_prompt: Option<String>,
-
-    #[serde(default)]
-    pub pr_prompt: Option<String>,
-
-    #[serde(default)]
-    pub post_create: Option<String>,
-
-    /// Legacy: worktreeFilter instead of workspaceFilter.
-    #[serde(default, alias = "workspaceFilter")]
-    pub worktree_filter: Option<String>,
-
-    #[serde(default)]
-    pub use_github: Option<bool>,
-
-    #[serde(default)]
-    pub allow_merge_to_main: Option<bool>,
-}
-
-/// Legacy workspace format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LegacyWorkspace {
-    pub id: String,
-
-    /// Legacy: repoId instead of projectId.
-    #[serde(alias = "projectId")]
-    pub repo_id: String,
-
-    pub branch: String,
-    pub path: String,
-
-    #[serde(default)]
-    pub is_archived: bool,
-
-    pub created_at: DateTime<Utc>,
-
-    #[serde(default)]
-    pub pr_number: Option<u64>,
-
-    #[serde(default)]
-    pub pr_url: Option<String>,
-
-    #[serde(default)]
-    pub pr_state: Option<String>,
+impl Workspace {
+    /// Get the project ID (from either projectId or repoId field).
+    pub fn get_project_id(&self) -> Option<&str> {
+        self.project_id.as_deref().or(self.repo_id.as_deref())
+    }
 }
 
 // ============================================================================
@@ -473,10 +449,12 @@ mod tests {
                 path: "/path/to/project".to_string(),
                 is_git_repo: true,
                 workspaces: vec![],
+                worktrees: vec![],
                 init_prompt: None,
                 pr_prompt: None,
                 post_create: None,
                 workspace_filter: None,
+                worktree_filter: None,
                 use_github: Some(true),
                 allow_merge_to_main: None,
             }],
