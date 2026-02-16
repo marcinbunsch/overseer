@@ -66,6 +66,9 @@ export class WorkspaceStore {
   private _chats: ChatStore[] = []
 
   @observable
+  private chatDir: string | null = null
+
+  @observable
   activeChatId: string | null = null
 
   @observable
@@ -225,6 +228,22 @@ export class WorkspaceStore {
     const chatDir = await this.getChatDir()
     if (!chatDir) return null
     return `${chatDir}/${chatId}.jsonl`
+  }
+
+  getChatLogPathSync(chatId: string): string | null {
+    if (!this.chatDir) return null
+    return `${this.chatDir}/${chatId}.jsonl`
+  }
+
+  async getChatMetaPath(chatId: string): Promise<string | null> {
+    const chatDir = await this.getChatDir()
+    if (!chatDir) return null
+    return `${chatDir}/${chatId}.meta.json`
+  }
+
+  getChatMetaPathSync(chatId: string): string | null {
+    if (!this.chatDir) return null
+    return `${this.chatDir}/${chatId}.meta.json`
   }
 
   @action
@@ -574,13 +593,18 @@ export class WorkspaceStore {
   }
 
   private async getChatDir(): Promise<string | null> {
+    if (this.chatDir) return this.chatDir
     if (!this.projectName || !this.path) return null
     // Return a placeholder - this is only used for logging now
     try {
       const homeDir = await backend.invoke<string>("get_home_dir")
       const normalizedHome = homeDir.replace(/\/$/, "")
       const configDir = getConfigPath(normalizedHome)
-      return `${configDir}/chats/${this.projectName}/${this.getWorkspaceName()}`
+      const resolved = `${configDir}/chats/${this.projectName}/${this.getWorkspaceName()}`
+      runInAction(() => {
+        this.chatDir = resolved
+      })
+      return resolved
     } catch (err) {
       console.error("Failed to resolve home dir for chat path:", err)
       return null
@@ -591,6 +615,8 @@ export class WorkspaceStore {
     try {
       const projectName = this.projectName
       const workspaceName = this.getWorkspaceName()
+
+      await this.getChatDir()
 
       // Ensure chat directory exists
       await backend.invoke("ensure_chat_dir", { projectName, workspaceName })

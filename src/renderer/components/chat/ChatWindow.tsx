@@ -49,10 +49,36 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
 
   const handleCopyChatLogPath = useCallback(async () => {
     if (workspaceStore?.activeChatId) {
-      const path = await workspaceStore.getChatLogPath(workspaceStore.activeChatId)
+      const chatId = workspaceStore.activeChatId
+      const cachedPath = workspaceStore.getChatLogPathSync(chatId)
+      if (cachedPath) {
+        navigator.clipboard.writeText(cachedPath)
+        toastStore.show("Copied chat log path")
+        return
+      }
+
+      const path = await workspaceStore.getChatLogPath(chatId)
       if (path) {
         navigator.clipboard.writeText(path)
         toastStore.show("Copied chat log path")
+      }
+    }
+  }, [workspaceStore])
+
+  const handleCopyChatMetaPath = useCallback(async () => {
+    if (workspaceStore?.activeChatId) {
+      const chatId = workspaceStore.activeChatId
+      const cachedPath = workspaceStore.getChatMetaPathSync(chatId)
+      if (cachedPath) {
+        navigator.clipboard.writeText(cachedPath)
+        toastStore.show("Copied chat meta path")
+        return
+      }
+
+      const path = await workspaceStore.getChatMetaPath(chatId)
+      if (path) {
+        navigator.clipboard.writeText(path)
+        toastStore.show("Copied chat meta path")
       }
     }
   }, [workspaceStore])
@@ -159,6 +185,12 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                     className="flex cursor-pointer items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
                   >
                     <FileText size={14} /> Copy chat log path
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    onSelect={handleCopyChatMetaPath}
+                    className="flex cursor-pointer items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                  >
+                    <FileText size={14} /> Copy chat meta path
                   </DropdownMenu.Item>
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
