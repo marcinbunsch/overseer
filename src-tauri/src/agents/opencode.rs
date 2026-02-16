@@ -37,7 +37,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
 };
 use tauri::Emitter;
 
@@ -162,62 +161,48 @@ pub fn start_opencode_server(
         map.insert(server_id.clone(), entry);
     }
 
+    // Take the event receiver out so we can do blocking receives
+    // without holding the lock on the process
+    let event_receiver = {
+        let mut guard = process_arc.lock().unwrap();
+        guard
+            .as_mut()
+            .and_then(|p| p.take_receiver())
+            .ok_or_else(|| "Failed to take event receiver".to_string())?
+    };
+
     // Spawn event forwarding thread
     let sid = server_id.clone();
     let log_file = Arc::clone(&log_handle);
     std::thread::spawn(move || {
-        loop {
-            let event = {
-                let guard = process_arc.lock().unwrap();
-                if let Some(ref process) = *guard {
-                    // Use try_recv() to avoid holding the lock while blocking.
-                    process.try_recv()
-                } else {
-                    break;
-                }
-            };
-
+        // Use blocking receive - no polling needed
+        while let Ok(event) = event_receiver.recv() {
             match event {
-                Some(ProcessEvent::Stdout(line)) => {
+                ProcessEvent::Stdout(line) => {
                     log::debug!("opencode stdout [{}]: {}", sid, line);
                     log_line(&log_file, "STDOUT", &line);
                 }
-                Some(ProcessEvent::Stderr(line)) => {
+                ProcessEvent::Stderr(line) => {
                     log::warn!("opencode stderr [{}]: {}", sid, line);
                     log_line(&log_file, "STDERR", &line);
                 }
-                Some(ProcessEvent::Exit(exit)) => {
+                ProcessEvent::Exit(exit) => {
                     let _ = app.emit(&format!("opencode:close:{}", sid), exit);
                     process_arc.lock().unwrap().take();
                     break;
                 }
-                None => {
-                    // No data available, check if process is still running
-                    let still_running = {
-                        let guard = process_arc.lock().unwrap();
-                        guard
-                            .as_ref()
-                            .map(|process| process.is_running())
-                            .unwrap_or(false)
-                    };
-
-                    if !still_running {
-                        let _ = app.emit(
-                            &format!("opencode:close:{}", sid),
-                            overseer_core::shell::AgentExit {
-                                code: 0,
-                                signal: None,
-                            },
-                        );
-                        process_arc.lock().unwrap().take();
-                        break;
-                    }
-
-                    // Small sleep to avoid busy-looping
-                    std::thread::sleep(Duration::from_millis(50));
-                }
             }
         }
+
+        // Channel closed without Exit event - emit close anyway
+        let _ = app.emit(
+            &format!("opencode:close:{}", sid),
+            overseer_core::shell::AgentExit {
+                code: 0,
+                signal: None,
+            },
+        );
+        process_arc.lock().unwrap().take();
     });
 
     // Return JSON with port and password

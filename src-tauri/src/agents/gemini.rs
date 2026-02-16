@@ -6,7 +6,6 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 use tauri::{Emitter, Manager};
 
@@ -78,7 +77,13 @@ pub fn start_gemini_server(
     };
 
     // Spawn the process
-    let process = AgentProcess::spawn(config.build())?;
+    let mut process = AgentProcess::spawn(config.build())?;
+
+    // Take the event receiver out so we can do blocking receives
+    // without holding the lock on the process
+    let event_receiver = process
+        .take_receiver()
+        .ok_or_else(|| "Failed to take event receiver".to_string())?;
 
     // Store the process entry
     let mut entry = GeminiProcessEntry::default();
@@ -97,19 +102,30 @@ pub fn start_gemini_server(
     let sid = server_id.clone();
     let log_file = Arc::clone(&log_handle);
     std::thread::spawn(move || {
-        loop {
-            let event = {
-                let guard = process_arc.lock().unwrap();
-                if let Some(ref process) = *guard {
-                    // Use try_recv() to avoid holding the lock while blocking.
-                    process.try_recv()
-                } else {
-                    break;
+        // Helper to flush parser and emit remaining events
+        let flush_and_emit =
+            |parser_arc: &Arc<Mutex<GeminiParser>>,
+             app: &tauri::AppHandle,
+             sid: &str,
+             process_arc: &Arc<Mutex<Option<AgentProcess>>>| {
+                let parsed_events = {
+                    let mut parser = parser_arc.lock().unwrap();
+                    parser.flush()
+                };
+                for event in parsed_events {
+                    let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                    if let Err(err) = chat_sessions.append_event(sid, event.clone()) {
+                        log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
+                    }
+                    let _ = app.emit(&format!("gemini:event:{}", sid), event);
                 }
+                process_arc.lock().unwrap().take();
             };
 
+        // Use blocking receive - no polling needed
+        while let Ok(event) = event_receiver.recv() {
             match event {
-                Some(ProcessEvent::Stdout(line)) => {
+                ProcessEvent::Stdout(line) => {
                     log::debug!("gemini stdout [{}]: {}", sid, line);
                     log_line(&log_file, "STDOUT", &line);
 
@@ -131,67 +147,28 @@ pub fn start_gemini_server(
                         let _ = app.emit(&format!("gemini:event:{}", sid), event);
                     }
                 }
-                Some(ProcessEvent::Stderr(line)) => {
+                ProcessEvent::Stderr(line) => {
                     log::warn!("gemini stderr [{}]: {}", sid, line);
                     log_line(&log_file, "STDERR", &line);
                     let _ = app.emit(&format!("gemini:stderr:{}", sid), line);
                 }
-                Some(ProcessEvent::Exit(exit)) => {
-                    // Flush parser
-                    let parsed_events = {
-                        let mut parser = parser_arc.lock().unwrap();
-                        parser.flush()
-                    };
-                    for event in parsed_events {
-                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
-                        if let Err(err) = chat_sessions.append_event(&sid, event.clone()) {
-                            log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
-                        }
-                        let _ = app.emit(&format!("gemini:event:{}", sid), event);
-                    }
+                ProcessEvent::Exit(exit) => {
+                    flush_and_emit(&parser_arc, &app, &sid, &process_arc);
                     let _ = app.emit(&format!("gemini:close:{}", sid), exit);
-                    process_arc.lock().unwrap().take();
                     break;
-                }
-                None => {
-                    // No data available, check if process is still running
-                    let still_running = {
-                        let guard = process_arc.lock().unwrap();
-                        guard
-                            .as_ref()
-                            .map(|process| process.is_running())
-                            .unwrap_or(false)
-                    };
-
-                    if !still_running {
-                        // Flush parser and emit any remaining events
-                        let parsed_events = {
-                            let mut parser = parser_arc.lock().unwrap();
-                            parser.flush()
-                        };
-                        for event in parsed_events {
-                            let chat_sessions: tauri::State<ChatSessionManager> = app.state();
-                            if let Err(err) = chat_sessions.append_event(&sid, event.clone()) {
-                                log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
-                            }
-                            let _ = app.emit(&format!("gemini:event:{}", sid), event);
-                        }
-                        let _ = app.emit(
-                            &format!("gemini:close:{}", sid),
-                            overseer_core::shell::AgentExit {
-                                code: 0,
-                                signal: None,
-                            },
-                        );
-                        process_arc.lock().unwrap().take();
-                        break;
-                    }
-
-                    // Small sleep to avoid busy-looping
-                    std::thread::sleep(Duration::from_millis(50));
                 }
             }
         }
+
+        // Channel closed without Exit event - emit close anyway
+        flush_and_emit(&parser_arc, &app, &sid, &process_arc);
+        let _ = app.emit(
+            &format!("gemini:close:{}", sid),
+            overseer_core::shell::AgentExit {
+                code: 0,
+                signal: None,
+            },
+        );
     });
 
     Ok(())
