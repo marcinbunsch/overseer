@@ -62,10 +62,7 @@ impl ChatSessionManager {
             return Ok(());
         }
 
-        sessions.insert(
-            chat_id.clone(),
-            ChatSession::new(chat_id, project_name, workspace_name, dir),
-        );
+        sessions.insert(chat_id.clone(), ChatSession::new(chat_id, dir));
 
         Ok(())
     }
@@ -134,9 +131,6 @@ impl ChatSessionManager {
 }
 
 struct ChatSession {
-    chat_id: String,
-    project_name: String,
-    workspace_name: String,
     pending_events: Vec<AgentEvent>,
     file_handle: Option<std::io::BufWriter<std::fs::File>>,
     last_flush: Instant,
@@ -144,17 +138,9 @@ struct ChatSession {
 }
 
 impl ChatSession {
-    fn new(
-        chat_id: String,
-        project_name: String,
-        workspace_name: String,
-        dir: PathBuf,
-    ) -> Self {
+    fn new(chat_id: String, dir: PathBuf) -> Self {
         let jsonl_path = dir.join(format!("{chat_id}.jsonl"));
         Self {
-            chat_id,
-            project_name,
-            workspace_name,
             pending_events: Vec::new(),
             file_handle: None,
             last_flush: Instant::now(),
