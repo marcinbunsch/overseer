@@ -519,7 +519,8 @@ class ProjectRegistry {
     for (const projectStore of this._projectStoreCache.values()) {
       for (const workspaceStore of projectStore.workspaceStores) {
         for (const chatStore of workspaceStore.allChats) {
-          if (chatStore.chat.status === "running") {
+          // Use the computed status getter, not the persisted chat.status
+          if (chatStore.status === "running") {
             return true
           }
         }
