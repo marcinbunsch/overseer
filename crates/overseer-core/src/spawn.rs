@@ -249,6 +249,17 @@ impl AgentProcess {
         &self.event_receiver
     }
 
+    /// Take ownership of the event receiver.
+    ///
+    /// This allows the receiver to be used independently of the AgentProcess,
+    /// enabling blocking receives without holding locks on the process.
+    /// After calling this, `try_recv()` and `recv()` will always return `None`.
+    pub fn take_receiver(&mut self) -> Option<Receiver<ProcessEvent>> {
+        // We need to swap out the receiver. Create a dummy channel.
+        let (_, dummy_rx) = std::sync::mpsc::channel();
+        Some(std::mem::replace(&mut self.event_receiver, dummy_rx))
+    }
+
     /// Check if the process is still running.
     pub fn is_running(&self) -> bool {
         self.child.lock().unwrap().is_some()
