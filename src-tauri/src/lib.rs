@@ -1,5 +1,6 @@
 mod agents;
 mod approvals;
+mod chat_session;
 mod git;
 mod logging;
 mod persistence;
@@ -135,6 +136,7 @@ pub fn run() {
         .manage(agents::GeminiServerMap::default())
         .manage(agents::OpenCodeServerMap::default())
         .manage(approvals::ProjectApprovalManager::default())
+        .manage(chat_session::ChatSessionManager::default())
         .manage(persistence::PersistenceConfig::default())
         .manage(pty::PtyMap::default())
         .plugin(tauri_plugin_shell::init())
@@ -226,6 +228,10 @@ pub fn run() {
             let approval_manager = app.state::<approvals::ProjectApprovalManager>();
             approval_manager.set_config_dir(config_dir.clone());
 
+            // Set up the config directory for chat session persistence
+            let chat_session_manager = app.state::<chat_session::ChatSessionManager>();
+            chat_session_manager.set_config_dir(config_dir.clone());
+
             // Set up the config directory for general persistence
             let persistence_config = app.state::<persistence::PersistenceConfig>();
             persistence_config.set_config_dir(config_dir);
@@ -278,6 +284,10 @@ pub fn run() {
             approvals::add_approval,
             approvals::remove_approval,
             approvals::clear_project_approvals,
+            chat_session::register_chat_session,
+            chat_session::unregister_chat_session,
+            chat_session::append_chat_event,
+            chat_session::load_chat_events,
             persistence::save_chat,
             persistence::load_chat,
             persistence::delete_chat,

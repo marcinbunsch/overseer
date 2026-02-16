@@ -82,6 +82,9 @@ pub enum AgentEvent {
         /// If true, Rust has already sent approval to the agent.
         #[serde(default)]
         auto_approved: bool,
+        /// True if this prompt has already been processed (for replayed events).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        is_processed: Option<bool>,
     },
 
     /// Agent is asking the user a question.
@@ -90,10 +93,19 @@ pub enum AgentEvent {
         questions: Vec<QuestionItem>,
         #[serde(skip_serializing_if = "Option::is_none")]
         raw_input: Option<serde_json::Value>,
+        /// True if this prompt has already been processed (for replayed events).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        is_processed: Option<bool>,
     },
 
     /// Agent wants user to approve a plan.
-    PlanApproval { request_id: String, content: String },
+    PlanApproval {
+        request_id: String,
+        content: String,
+        /// True if this prompt has already been processed (for replayed events).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        is_processed: Option<bool>,
+    },
 
     // === Session lifecycle ===
     /// Agent reported its session ID.
@@ -269,6 +281,7 @@ mod tests {
                 display_input: "pnpm install".to_string(),
                 prefixes: Some(vec!["pnpm install".to_string()]),
                 auto_approved: false,
+                is_processed: None,
             };
 
             let json = serde_json::to_string(&event).unwrap();
@@ -282,6 +295,7 @@ mod tests {
                     display_input,
                     prefixes,
                     auto_approved,
+                    is_processed,
                 } => {
                     assert_eq!(request_id, "req-123");
                     assert_eq!(name, "Bash");
@@ -289,6 +303,7 @@ mod tests {
                     assert_eq!(display_input, "pnpm install");
                     assert_eq!(prefixes, Some(vec!["pnpm install".to_string()]));
                     assert!(!auto_approved);
+                    assert!(is_processed.is_none());
                 }
                 _ => panic!("Expected ToolApproval event"),
             }
@@ -314,6 +329,7 @@ mod tests {
                     multi_select: false,
                 }],
                 raw_input: None,
+                is_processed: None,
             };
 
             let json = serde_json::to_string(&event).unwrap();
@@ -340,6 +356,7 @@ mod tests {
             let event = AgentEvent::PlanApproval {
                 request_id: "req-789".to_string(),
                 content: "1. Create component\n2. Add tests\n3. Update docs".to_string(),
+                is_processed: None,
             };
 
             let json = serde_json::to_string(&event).unwrap();
@@ -349,9 +366,11 @@ mod tests {
                 AgentEvent::PlanApproval {
                     request_id,
                     content,
+                    is_processed,
                 } => {
                     assert_eq!(request_id, "req-789");
                     assert!(content.contains("Create component"));
+                    assert!(is_processed.is_none());
                 }
                 _ => panic!("Expected PlanApproval event"),
             }
@@ -480,6 +499,7 @@ mod tests {
                 display_input: "test".to_string(),
                 prefixes: None,
                 auto_approved: false,
+                is_processed: None,
             };
             let json = serde_json::to_string(&event).unwrap();
             assert!(json.contains("toolApproval"));

@@ -53,6 +53,7 @@
 
 pub mod approvals;
 pub mod chat;
+pub mod chat_jsonl;
 pub mod index;
 pub mod projects;
 pub mod types;
@@ -64,6 +65,10 @@ pub use approvals::{
     save_approvals,
 };
 pub use chat::{chat_exists, delete_chat, list_chat_ids, load_chat, save_chat};
+pub use chat_jsonl::{
+    append_chat_event, load_chat_events, load_chat_metadata, save_chat_metadata,
+    serialize_event_for_storage, ChatJsonlError,
+};
 pub use index::{
     find_chat_entry, get_active_chats, get_archived_chats, load_chat_index, load_workspace_state,
     remove_chat_entry, save_chat_index, save_workspace_state, upsert_chat_entry, IndexError,

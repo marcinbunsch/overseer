@@ -109,6 +109,7 @@ where
                     display_input: display_input.clone(),
                     prefixes: prefixes.clone(),
                     auto_approved: true,
+                    is_processed: None,
                 })
             } else {
                 // Not auto-approved, pass through unchanged

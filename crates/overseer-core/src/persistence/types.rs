@@ -76,6 +76,44 @@ pub struct ChatFile {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Chat metadata stored separately from messages.
+///
+/// Saved to `{chat_id}.meta.json` alongside `{chat_id}.jsonl`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMetadata {
+    /// Unique chat identifier.
+    pub id: String,
+
+    /// The workspace this chat belongs to.
+    pub workspace_id: String,
+
+    /// User-visible chat name.
+    pub label: String,
+
+    /// The agent type: "claude", "codex", "copilot", "gemini", "opencode".
+    #[serde(default)]
+    pub agent_type: Option<String>,
+
+    /// Agent session ID for reconnection/resumption.
+    #[serde(default)]
+    pub agent_session_id: Option<String>,
+
+    /// Selected model version.
+    #[serde(default)]
+    pub model_version: Option<String>,
+
+    /// Permission mode (for Claude).
+    #[serde(default)]
+    pub permission_mode: Option<String>,
+
+    /// When this chat was created.
+    pub created_at: DateTime<Utc>,
+
+    /// When this chat was last updated.
+    pub updated_at: DateTime<Utc>,
+}
+
 /// A single message in a chat.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

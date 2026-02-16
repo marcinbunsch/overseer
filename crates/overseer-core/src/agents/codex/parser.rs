@@ -289,6 +289,7 @@ impl CodexParser {
                     display_input: command,
                     prefixes: Some(prefixes),
                     auto_approved: false,
+                    is_processed: None,
                 };
 
                 (vec![event], vec![pending])
@@ -310,6 +311,7 @@ impl CodexParser {
                     display_input,
                     prefixes: None, // No command prefixes for file changes
                     auto_approved: false,
+                    is_processed: None,
                 };
 
                 (vec![event], vec![pending])
@@ -327,6 +329,7 @@ impl CodexParser {
                     display_input,
                     prefixes: None,
                     auto_approved: false,
+                    is_processed: None,
                 };
 
                 (vec![event], vec![pending])

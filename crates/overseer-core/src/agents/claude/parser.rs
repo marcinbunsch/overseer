@@ -530,6 +530,7 @@ impl ClaudeParser {
                                 request_id,
                                 questions: parsed.questions,
                                 raw_input: Some(input.clone()),
+                                is_processed: None,
                             }];
                         }
                     }
@@ -557,6 +558,7 @@ impl ClaudeParser {
                     return vec![AgentEvent::PlanApproval {
                         request_id,
                         content: plan_content,
+                        is_processed: None,
                     }];
                 }
 
@@ -595,6 +597,7 @@ impl ClaudeParser {
                     display_input,
                     prefixes,
                     auto_approved: false,
+                    is_processed: None,
                 }]
             }
 
@@ -856,7 +859,11 @@ mod tests {
 
         assert!(events.iter().any(|e| matches!(
             e,
-            AgentEvent::PlanApproval { request_id, content }
+            AgentEvent::PlanApproval {
+                request_id,
+                content,
+                ..
+            }
             if request_id == "req-plan" && content.contains("Step one")
         )));
     }
