@@ -24,7 +24,7 @@ test:
 
 # macOS only: open the built app
 open:
-	OVERSEER_DEBUG=true open src-tauri/target/release/bundle/macos/Overseer.app
+	OVERSEER_DEBUG=true open target/release/bundle/macos/Overseer.app
 
 start: build-local open
 
