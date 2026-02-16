@@ -557,6 +557,7 @@ describe("CodexAgentService", () => {
       name: "Bash",
       input: { command: "cd /foo && pnpm install" },
       displayInput: "cd /foo && pnpm install",
+      isProcessed: false,
     })
   })
 
@@ -601,6 +602,7 @@ describe("CodexAgentService", () => {
       name: "Edit",
       input: { path: "/tmp/file.txt", content: "new content" },
       displayInput: expect.stringContaining("/tmp/file.txt"),
+      isProcessed: false,
     })
   })
 

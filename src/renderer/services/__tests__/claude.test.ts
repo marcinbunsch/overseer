@@ -362,6 +362,7 @@ describe("ClaudeAgentService", () => {
       displayInput: "cd /foo && pnpm install",
       commandPrefixes: undefined,
       autoApproved: false,
+      isProcessed: false,
     })
   })
 
@@ -400,6 +401,7 @@ describe("ClaudeAgentService", () => {
       displayInput: '{"path":"/tmp/file.txt"}',
       commandPrefixes: undefined,
       autoApproved: false,
+      isProcessed: false,
     })
   })
 
@@ -435,6 +437,7 @@ describe("ClaudeAgentService", () => {
       kind: "planApproval",
       id: "req-plan-1",
       planContent: planContent,
+      isProcessed: false,
     })
   })
 
@@ -467,6 +470,7 @@ describe("ClaudeAgentService", () => {
       kind: "planApproval",
       id: "req-plan-2",
       planContent: "",
+      isProcessed: false,
     })
   })
 

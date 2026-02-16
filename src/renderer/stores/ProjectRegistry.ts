@@ -533,15 +533,8 @@ class ProjectRegistry {
    * Called before window close to ensure no data is lost.
    */
   async flushAllChats(): Promise<void> {
-    const saves: Promise<void>[] = []
-    for (const projectStore of this._projectStoreCache.values()) {
-      for (const workspaceStore of projectStore.workspaceStores) {
-        for (const chatStore of workspaceStore.allChats) {
-          saves.push(chatStore.saveToDisk())
-        }
-      }
-    }
-    await Promise.all(saves)
+    // Chat persistence now flushes events immediately in Rust.
+    return
   }
 
   private async loadFromFile(): Promise<void> {

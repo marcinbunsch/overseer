@@ -289,6 +289,7 @@ describe("CopilotAgentService", () => {
         input: { command: "pnpm add -D oxlint" },
         displayInput: "pnpm add -D oxlint",
         commandPrefixes: ["pnpm add"],
+        isProcessed: false,
       })
     })
 

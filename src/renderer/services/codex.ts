@@ -74,6 +74,7 @@ interface RustAgentEvent {
   display_input?: string
   prefixes?: string[]
   auto_approved?: boolean
+  is_processed?: boolean
   // SessionId variant
   session_id?: string
 }
@@ -429,6 +430,7 @@ class CodexAgentService implements AgentService {
           name: event.name ?? "",
           input: event.input ?? {},
           displayInput: event.display_input ?? "",
+          isProcessed: event.is_processed ?? false,
         })
         break
 

@@ -90,7 +90,26 @@ describe("ChatStore", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
-    vi.mocked(invoke).mockResolvedValue(undefined)
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      switch (command) {
+        case "add_user_message": {
+          const payload = args as { content?: string; meta?: Record<string, unknown> | null }
+          return {
+            kind: "userMessage",
+            id: "user-1",
+            content: payload?.content ?? "",
+            timestamp: new Date().toISOString(),
+            meta: payload?.meta ?? null,
+          }
+        }
+        case "load_chat_events":
+          return []
+        case "load_chat_metadata":
+          return null
+        default:
+          return undefined
+      }
+    })
   })
 
   it("initializes with correct defaults", () => {
@@ -954,122 +973,6 @@ describe("ChatStore", () => {
     await store.denyPlan()
 
     expect(mockAgentService.sendToolApproval).not.toHaveBeenCalled()
-  })
-
-  describe("save timing", () => {
-    it("message events trigger scheduleSave", async () => {
-      const store = createChatStore()
-
-      const eventCall = mockAgentService.onEvent.mock.calls.find(
-        (c: unknown[]) => c[0] === "test-chat-id"
-      )
-      const eventCallback = eventCall![1]
-
-      eventCallback({
-        kind: "message",
-        content: "Work message from agent",
-      })
-
-      // The save is scheduled with a 1-second delay
-      expect(store.messages).toHaveLength(1)
-
-      // Wait for the scheduled save
-      await vi.waitFor(
-        () => {
-          expect(invoke).toHaveBeenCalledWith("save_chat", expect.anything())
-        },
-        { timeout: 2000 }
-      )
-    })
-
-    it("text events trigger scheduleSave", async () => {
-      vi.mocked(invoke).mockClear()
-
-      const store = createChatStore()
-
-      const eventCall = mockAgentService.onEvent.mock.calls.find(
-        (c: unknown[]) => c[0] === "test-chat-id"
-      )
-      const eventCallback = eventCall![1]
-
-      eventCallback({
-        kind: "text",
-        text: "Streamed text",
-      })
-
-      expect(store.messages).toHaveLength(1)
-
-      // Wait for the scheduled save
-      await vi.waitFor(
-        () => {
-          expect(invoke).toHaveBeenCalledWith("save_chat", expect.anything())
-        },
-        { timeout: 2000 }
-      )
-    })
-
-    it("turnComplete triggers immediate save", async () => {
-      vi.mocked(invoke).mockClear()
-
-      const store = createChatStore()
-
-      runInAction(() => {
-        store.isSending = true
-        store.chat.status = "running"
-        store.chat.messages.push({
-          id: "msg-1",
-          role: "assistant",
-          content: "Some content",
-          timestamp: new Date(),
-        })
-      })
-
-      const eventCall = mockAgentService.onEvent.mock.calls.find(
-        (c: unknown[]) => c[0] === "test-chat-id"
-      )
-      const eventCallback = eventCall![1]
-
-      eventCallback({ kind: "turnComplete" })
-
-      // Save should be triggered immediately (not after 1 second delay)
-      await vi.waitFor(() => {
-        expect(invoke).toHaveBeenCalledWith("save_chat", expect.anything())
-      })
-    })
-
-    it("onDone callback triggers immediate save", async () => {
-      vi.mocked(invoke).mockClear()
-
-      const store = createChatStore()
-
-      runInAction(() => {
-        store.isSending = true
-        store.chat.status = "running"
-        store.chat.messages.push({
-          id: "msg-1",
-          role: "assistant",
-          content: "Final response",
-          timestamp: new Date(),
-        })
-      })
-
-      // Find and call the onDone callback
-      const onDoneCall = mockAgentService.onDone.mock.calls.find(
-        (c: unknown[]) => c[0] === "test-chat-id"
-      )
-      expect(onDoneCall).toBeDefined()
-      const onDoneCallback = onDoneCall![1]
-
-      onDoneCallback()
-
-      // Save should be triggered immediately
-      await vi.waitFor(() => {
-        expect(invoke).toHaveBeenCalledWith("save_chat", expect.anything())
-      })
-
-      expect(store.isSending).toBe(false)
-      expect(store.status).toBe("idle")
-    })
   })
 
   describe("follow-up queuing", () => {

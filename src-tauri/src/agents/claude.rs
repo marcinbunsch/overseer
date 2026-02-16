@@ -7,10 +7,11 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use super::{check_auto_approval, ApprovalCheckResult};
 use crate::approvals::ProjectApprovalManager;
+use crate::chat_session::ChatSessionManager;
 use crate::logging::{log_line, open_log_file, LogHandle};
 use overseer_core::agents::claude::{ClaudeConfig, ClaudeParser};
 use overseer_core::shell::AgentExit;
@@ -166,6 +167,15 @@ pub fn start_agent(
                             | ApprovalCheckResult::NotApproved(e) => e,
                         };
 
+                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        if let Err(err) = chat_sessions.append_event(&conv_id, event_to_emit.clone())
+                        {
+                            log::warn!(
+                                "Failed to persist Claude event for {}: {}",
+                                conv_id,
+                                err
+                            );
+                        }
                         let _ = app.emit(&format!("agent:event:{}", conv_id), event_to_emit);
                     }
                 }
@@ -180,6 +190,14 @@ pub fn start_agent(
                         parser.flush()
                     };
                     for event in parsed_events {
+                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        if let Err(err) = chat_sessions.append_event(&conv_id, event.clone()) {
+                            log::warn!(
+                                "Failed to persist Claude event for {}: {}",
+                                conv_id,
+                                err
+                            );
+                        }
                         let _ = app.emit(&format!("agent:event:{}", conv_id), event);
                     }
                     let _ = app.emit(&format!("agent:close:{}", conv_id), exit);
@@ -201,6 +219,14 @@ pub fn start_agent(
                             parser.flush()
                         };
                         for event in parsed_events {
+                            let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                            if let Err(err) = chat_sessions.append_event(&conv_id, event.clone()) {
+                                log::warn!(
+                                    "Failed to persist Claude event for {}: {}",
+                                    conv_id,
+                                    err
+                                );
+                            }
                             let _ = app.emit(&format!("agent:event:{}", conv_id), event);
                         }
                         let _ = app.emit(

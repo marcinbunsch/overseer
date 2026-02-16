@@ -72,6 +72,7 @@ interface RustAgentEvent {
   display_input?: string
   prefixes?: string[]
   auto_approved?: boolean
+  is_processed?: boolean
   // SessionId variant
   session_id?: string
 }
@@ -433,6 +434,7 @@ class CopilotAgentService implements AgentService {
           input: event.input ?? {},
           displayInput: event.display_input ?? "",
           commandPrefixes: event.prefixes,
+          isProcessed: event.is_processed ?? false,
         })
         break
 

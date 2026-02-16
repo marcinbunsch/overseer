@@ -8,8 +8,9 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
+use crate::chat_session::ChatSessionManager;
 use crate::logging::{log_line, open_log_file, LogHandle};
 use overseer_core::agents::gemini::{GeminiConfig, GeminiParser};
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
@@ -123,6 +124,10 @@ pub fn start_gemini_server(
 
                     // Emit parsed events
                     for event in parsed_events {
+                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        if let Err(err) = chat_sessions.append_event(&sid, event.clone()) {
+                            log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
+                        }
                         let _ = app.emit(&format!("gemini:event:{}", sid), event);
                     }
                 }
@@ -138,6 +143,10 @@ pub fn start_gemini_server(
                         parser.flush()
                     };
                     for event in parsed_events {
+                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        if let Err(err) = chat_sessions.append_event(&sid, event.clone()) {
+                            log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
+                        }
                         let _ = app.emit(&format!("gemini:event:{}", sid), event);
                     }
                     let _ = app.emit(&format!("gemini:close:{}", sid), exit);
@@ -161,6 +170,10 @@ pub fn start_gemini_server(
                             parser.flush()
                         };
                         for event in parsed_events {
+                            let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                            if let Err(err) = chat_sessions.append_event(&sid, event.clone()) {
+                                log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
+                            }
                             let _ = app.emit(&format!("gemini:event:{}", sid), event);
                         }
                         let _ = app.emit(

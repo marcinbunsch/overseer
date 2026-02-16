@@ -224,7 +224,7 @@ export class WorkspaceStore {
   async getChatLogPath(chatId: string): Promise<string | null> {
     const chatDir = await this.getChatDir()
     if (!chatDir) return null
-    return `${chatDir}/${chatId}.json`
+    return `${chatDir}/${chatId}.jsonl`
   }
 
   @action
@@ -267,7 +267,6 @@ export class WorkspaceStore {
     this._chats.push(store)
     this.activeChatId = store.id
     this.saveIndex()
-    store.saveToDisk()
   }
 
   /**
@@ -285,7 +284,6 @@ export class WorkspaceStore {
     chat.chat.modelVersion = defaultModel
     // Register callbacks now that agent type is set (was skipped in constructor)
     chat.registerCallbacks()
-    chat.saveToDisk()
     this.saveIndex()
   }
 
@@ -339,6 +337,11 @@ export class WorkspaceStore {
       service.stopChat(chatId)
       service.removeChat(chatId)
     }
+    try {
+      await backend.invoke("unregister_chat_session", { chatId })
+    } catch (err) {
+      console.error("Failed to unregister chat session:", err)
+    }
 
     // Mark as archived
     chatStore.chat.isArchived = true
@@ -355,7 +358,6 @@ export class WorkspaceStore {
     }
 
     this.saveIndex()
-    chatStore.saveToDisk()
   }
 
   /**
@@ -371,6 +373,11 @@ export class WorkspaceStore {
       const service = getAgentService(chatStore.chat.agentType)
       service.stopChat(chatId)
       service.removeChat(chatId)
+    }
+    try {
+      await backend.invoke("unregister_chat_session", { chatId })
+    } catch (err) {
+      console.error("Failed to unregister chat session:", err)
     }
 
     // Remove from array
@@ -594,19 +601,10 @@ export class WorkspaceStore {
       // Load chat index
       const chatIndex = await this.loadChatIndex()
 
-      // Get list of actual chat files to validate index
-      const chatIds = await backend.invoke<string[]>("list_chat_ids", {
-        projectName,
-        workspaceName,
-      })
-      const chatIdSet = new Set(chatIds)
-
       const context = this.createChatContext()
       const loaded: ChatStore[] = []
 
       for (const entry of chatIndex.chats) {
-        if (!chatIdSet.has(entry.id)) continue
-
         // Create skeleton chat — messages loaded lazily
         const chat: Chat = {
           id: entry.id,
@@ -665,10 +663,6 @@ export class WorkspaceStore {
       if (createdDefault) {
         this.saveWorkspaceState()
         this.saveChatIndex()
-        const newChat = loaded[loaded.length - 1]
-        if (newChat?.loaded) {
-          newChat.saveToDisk()
-        }
       }
     } catch (err) {
       console.error("Failed to load chats from disk:", err)
@@ -781,7 +775,6 @@ export class WorkspaceStore {
     await chatStore.ensureLoaded()
 
     this.saveIndex()
-    chatStore.saveToDisk()
   }
 
   dispose(): void {

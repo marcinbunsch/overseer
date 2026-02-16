@@ -1,5 +1,6 @@
 //! Unified event type for all agent backends.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Metadata about a tool operation.
@@ -55,6 +56,15 @@ pub enum AgentEvent {
         tool_use_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_info: Option<bool>,
+    },
+
+    /// A user-authored message (persisted for replay).
+    UserMessage {
+        id: String,
+        content: String,
+        timestamp: DateTime<Utc>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        meta: Option<serde_json::Value>,
     },
 
     /// Result of a tool execution.
@@ -269,6 +279,33 @@ mod tests {
             match parsed {
                 AgentEvent::ToolResult { is_error, .. } => assert!(is_error),
                 _ => panic!("Expected ToolResult event"),
+            }
+        }
+
+        #[test]
+        fn user_message_event_roundtrip() {
+            let event = AgentEvent::UserMessage {
+                id: "user-1".to_string(),
+                content: "Hello".to_string(),
+                timestamp: Utc::now(),
+                meta: Some(serde_json::json!({ "type": "note", "label": "User" })),
+            };
+
+            let json = serde_json::to_string(&event).unwrap();
+            let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
+
+            match parsed {
+                AgentEvent::UserMessage {
+                    id,
+                    content,
+                    meta,
+                    ..
+                } => {
+                    assert_eq!(id, "user-1");
+                    assert_eq!(content, "Hello");
+                    assert!(meta.is_some());
+                }
+                _ => panic!("Expected UserMessage event"),
             }
         }
 

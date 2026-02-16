@@ -5,7 +5,6 @@ import type {
   MessageMeta,
   MessageTurn,
   Chat,
-  ChatFile,
   ChatStatus,
   AgentQuestion,
   PendingToolUse,
@@ -32,6 +31,48 @@ export interface ChatStoreContext {
   refreshChangedFiles: () => void
 }
 
+type BackendQuestionItem = {
+  question: string
+  header: string
+  options: Array<{ label: string; description: string }>
+  multi_select?: boolean
+}
+
+type BackendAgentEvent = {
+  kind: string
+  text?: string
+  content?: string
+  tool_meta?: { tool_name: string; lines_added?: number; lines_removed?: number }
+  parent_tool_use_id?: string | null
+  tool_use_id?: string | null
+  is_info?: boolean
+  request_id?: string
+  name?: string
+  input?: Record<string, unknown>
+  display_input?: string
+  prefixes?: string[] | null
+  auto_approved?: boolean
+  is_processed?: boolean
+  questions?: BackendQuestionItem[]
+  raw_input?: Record<string, unknown>
+  session_id?: string
+  id?: string
+  timestamp?: string
+  meta?: Record<string, unknown>
+}
+
+type BackendChatMetadata = {
+  id: string
+  workspaceId: string
+  label: string
+  agentType?: AgentType | null
+  agentSessionId?: string | null
+  modelVersion?: string | null
+  permissionMode?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export class ChatStore {
   @observable chat: Chat
   @observable isSending: boolean = false
@@ -46,7 +87,7 @@ export class ChatStore {
 
   private context: ChatStoreContext
   private loading: boolean = false
-  private saveTimeout: ReturnType<typeof setTimeout> | null = null
+  private sessionRegistered: boolean = false
 
   constructor(chat: Chat, context: ChatStoreContext) {
     this.chat = chat
@@ -149,18 +190,9 @@ export class ChatStore {
       initPrompt = initPrompt ? initPrompt + shellInstructions : shellInstructions
     }
 
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content,
-      timestamp: new Date(),
-      ...(meta && { meta }),
-    }
-
-    this.chat.messages.push(userMessage)
+    await this.persistUserMessage(content, meta)
     this.isSending = true
     this.setDraft("")
-    this.scheduleSave()
 
     try {
       const logDir = (await this.context?.getChatDir()) ?? undefined
@@ -192,8 +224,10 @@ export class ChatStore {
           timestamp: new Date(),
         })
         this.isSending = false
-        this.scheduleSave()
       })
+      void this.persistLocalAssistantMessage(
+        `Error: ${err instanceof Error ? err.message : String(err)}`
+      )
     }
   }
 
@@ -206,9 +240,9 @@ export class ChatStore {
       content: "[cancelled]",
       timestamp: new Date(),
     })
+    void this.persistLocalAssistantMessage("[cancelled]")
     this.isSending = false
     this.pendingFollowUps = []
-    this.scheduleSave()
   }
 
   @action clearPendingFollowUps(): void {
@@ -252,18 +286,12 @@ export class ChatStore {
     } catch (err) {
       console.error("Error sending tool denial with explanation:", err)
     }
+    if (explanation.trim()) {
+      await this.persistUserMessage(explanation.trim())
+    }
     runInAction(() => {
       this.pendingToolUses = this.pendingToolUses.filter((t) => t.id !== toolId)
       this.clearUnreadStatus()
-      if (explanation.trim()) {
-        this.chat.messages.push({
-          id: crypto.randomUUID(),
-          role: "user",
-          content: explanation.trim(),
-          timestamp: new Date(),
-        })
-        this.scheduleSave()
-      }
     })
   }
 
@@ -350,16 +378,10 @@ export class ChatStore {
     } catch (err) {
       console.error("Error sending question answer:", err)
     }
+    await this.persistUserMessage(answerText)
     runInAction(() => {
       this.pendingQuestions = this.pendingQuestions.filter((q) => q.id !== requestId)
       this.clearUnreadStatus()
-      this.chat.messages.push({
-        id: crypto.randomUUID(),
-        role: "user",
-        content: answerText,
-        timestamp: new Date(),
-      })
-      this.scheduleSave()
     })
   }
 
@@ -394,18 +416,12 @@ export class ChatStore {
     } catch (err) {
       console.error("Error sending plan rejection:", err)
     }
+    if (feedback.trim()) {
+      await this.persistUserMessage(feedback.trim())
+    }
     runInAction(() => {
       this.pendingPlanApproval = null
       this.clearUnreadStatus()
-      if (feedback.trim()) {
-        this.chat.messages.push({
-          id: crypto.randomUUID(),
-          role: "user",
-          content: feedback.trim(),
-          timestamp: new Date(),
-        })
-        this.scheduleSave()
-      }
     })
   }
 
@@ -431,19 +447,19 @@ export class ChatStore {
   @action
   setModelVersion(model: string | null): void {
     this.chat.modelVersion = model
-    this.scheduleSave()
+    void this.persistMetadata()
   }
 
   @action
   setPermissionMode(mode: string | null): void {
     this.chat.permissionMode = mode
-    this.scheduleSave()
+    void this.persistMetadata()
   }
 
   @action
   rename(newLabel: string): void {
     this.chat.label = newLabel
-    this.saveToDisk()
+    void this.persistMetadata()
     this.context.saveIndex()
   }
 
@@ -461,11 +477,8 @@ export class ChatStore {
   }
 
   dispose(): void {
-    if (this.saveTimeout) {
-      clearTimeout(this.saveTimeout)
-      this.saveTimeout = null
-    }
-    this.saveToDisk()
+    this.sessionRegistered = false
+    void backend.invoke("unregister_chat_session", { chatId: this.chat.id })
   }
 
   // --- Agent event handling ---
@@ -489,12 +502,6 @@ export class ChatStore {
         const isViewing =
           this.context.isWorkspaceSelected() && this.context.getActiveChatId() === this.chat.id
         this.chat.status = isViewing ? "idle" : "done"
-        // Cancel any scheduled save and save immediately
-        if (this.saveTimeout) {
-          clearTimeout(this.saveTimeout)
-          this.saveTimeout = null
-        }
-        void this.saveToDisk()
 
         // Clear pending follow-ups since the process has exited
         // (they'll be handled by turnComplete if the agent is still responsive)
@@ -510,6 +517,7 @@ export class ChatStore {
       switch (event.kind) {
         case "sessionId":
           this.chat.agentSessionId = event.sessionId
+          this.service?.setSessionId(this.chat.id, event.sessionId)
           break
 
         case "message": {
@@ -529,7 +537,11 @@ export class ChatStore {
               event.toolUseId
             )
           }
-          this.scheduleSave()
+          break
+        }
+
+        case "userMessage": {
+          this.pushUserMsgFromEvent(event)
           break
         }
 
@@ -540,7 +552,6 @@ export class ChatStore {
           } else {
             this.pushMsg(event.text)
           }
-          this.scheduleSave()
           break
         }
 
@@ -572,12 +583,6 @@ export class ChatStore {
           this.processOverseerBlocksFromRecentMessages()
           // Refresh changed files - the agent may have created/modified/deleted files
           this.context.refreshChangedFiles()
-          // Immediate save - cancel any scheduled save and save now
-          if (this.saveTimeout) {
-            clearTimeout(this.saveTimeout)
-            this.saveTimeout = null
-          }
-          void this.saveToDisk()
 
           // If there are pending follow-ups, combine and send them
           if (this.pendingFollowUps.length > 0) {
@@ -594,7 +599,7 @@ export class ChatStore {
 
         case "toolApproval": {
           // If Rust already auto-approved this tool, don't add to pending
-          if (event.autoApproved) {
+          if (event.autoApproved || event.isProcessed) {
             break
           }
           this.pendingToolUses.push({
@@ -608,6 +613,9 @@ export class ChatStore {
         }
 
         case "question":
+          if (event.isProcessed) {
+            break
+          }
           this.pendingQuestions.push({
             id: event.id,
             questions: event.questions,
@@ -616,6 +624,9 @@ export class ChatStore {
           break
 
         case "planApproval": {
+          if (event.isProcessed) {
+            break
+          }
           // Preserve previous plan content for diff view (null on first submission)
           // Check both current pending approval and rejected plan content
           const previousPlanContent =
@@ -656,6 +667,26 @@ export class ChatStore {
     })
   }
 
+  private pushUserMsg(content: string, meta?: MessageMeta): void {
+    this.chat.messages.push({
+      id: crypto.randomUUID(),
+      role: "user",
+      content,
+      timestamp: new Date(),
+      ...(meta && { meta }),
+    })
+  }
+
+  private pushUserMsgFromEvent(event: Extract<AgentEvent, { kind: "userMessage" }>): void {
+    this.chat.messages.push({
+      id: event.id,
+      role: "user",
+      content: event.content,
+      timestamp: event.timestamp,
+      ...(event.meta && { meta: event.meta }),
+    })
+  }
+
   /**
    * Check recent assistant messages for overseer blocks that may have been
    * accumulated via delta streaming (Gemini sends deltas, Claude sends complete messages).
@@ -693,37 +724,102 @@ export class ChatStore {
 
   // --- Private: Persistence ---
 
-  private scheduleSave(): void {
-    if (this.saveTimeout) clearTimeout(this.saveTimeout)
-    this.saveTimeout = setTimeout(() => this.saveToDisk(), 1000)
+  private buildMetadata(): BackendChatMetadata {
+    return {
+      id: this.chat.id,
+      workspaceId: this.chat.workspaceId,
+      label: this.chat.label,
+      agentType: this.chat.agentType ?? null,
+      agentSessionId: this.chat.agentSessionId,
+      modelVersion: this.chat.modelVersion,
+      permissionMode: this.chat.permissionMode,
+      createdAt: this.chat.createdAt.toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
   }
 
-  async saveToDisk(): Promise<void> {
+  private async ensureSessionRegistered(): Promise<void> {
+    if (this.sessionRegistered) return
     const projectName = this.context.getProjectName()
     const workspaceName = this.context.getWorkspaceName()
     if (!projectName || !workspaceName) return
 
     try {
-      const chat = this.chat
-      const file: ChatFile = {
-        id: chat.id,
-        workspaceId: chat.workspaceId,
-        label: chat.label,
-        messages: chat.messages,
-        agentType: chat.agentType,
-        agentSessionId: chat.agentSessionId,
-        modelVersion: chat.modelVersion,
-        permissionMode: chat.permissionMode,
-        createdAt: chat.createdAt.toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
-      await backend.invoke("save_chat", {
+      await backend.invoke("register_chat_session", {
+        chatId: this.chat.id,
         projectName,
         workspaceName,
-        chat: file,
+        metadata: this.buildMetadata(),
+      })
+      this.sessionRegistered = true
+    } catch (err) {
+      console.error("Failed to register chat session:", err)
+    }
+  }
+
+  private async persistMetadata(): Promise<void> {
+    const projectName = this.context.getProjectName()
+    const workspaceName = this.context.getWorkspaceName()
+    if (!projectName || !workspaceName) return
+
+    try {
+      await backend.invoke("save_chat_metadata", {
+        projectName,
+        workspaceName,
+        metadata: this.buildMetadata(),
       })
     } catch (err) {
-      console.error("Failed to save chat to disk:", err)
+      console.error("Failed to save chat metadata:", err)
+    }
+  }
+
+  private async persistUserMessage(content: string, meta?: MessageMeta): Promise<void> {
+    await this.ensureSessionRegistered()
+    let persisted = false
+
+    try {
+      const event = await backend.invoke<BackendAgentEvent | null>("add_user_message", {
+        chatId: this.chat.id,
+        content,
+        meta: meta ?? null,
+      })
+      if (!event) {
+        throw new Error("No event returned from add_user_message")
+      }
+      const mapped = this.mapRustEvent(event)
+      if (mapped && mapped.kind === "userMessage") {
+        runInAction(() => {
+          this.pushUserMsgFromEvent(mapped)
+        })
+        persisted = true
+      }
+    } catch (err) {
+      console.error("Failed to persist user message:", err)
+    }
+
+    if (!persisted) {
+      runInAction(() => {
+        this.pushUserMsg(content, meta)
+      })
+    }
+  }
+
+  private async persistLocalAssistantMessage(content: string, isInfo?: boolean): Promise<void> {
+    await this.ensureSessionRegistered()
+    const event: Record<string, unknown> = {
+      kind: "message",
+      content,
+    }
+    if (isInfo) {
+      event.is_info = true
+    }
+    try {
+      await backend.invoke("append_chat_event", {
+        chatId: this.chat.id,
+        event,
+      })
+    } catch (err) {
+      console.error("Failed to persist assistant message:", err)
     }
   }
 
@@ -753,45 +849,48 @@ export class ChatStore {
         return
       }
 
-      let file: ChatFile | null = null
+      let metadata: BackendChatMetadata | null = null
       try {
-        file = await backend.invoke<ChatFile>("load_chat", {
+        metadata = await backend.invoke<BackendChatMetadata>("load_chat_metadata", {
           projectName,
           workspaceName,
           chatId: this.chat.id,
         })
       } catch {
-        // Chat file doesn't exist yet
+        // Metadata doesn't exist yet
       }
 
-      if (!file) {
-        runInAction(() => {
-          this.loaded = true
-          this.loading = false
-        })
-        return
-      }
+      const events = await backend.invoke<BackendAgentEvent[]>("load_chat_events", {
+        projectName,
+        workspaceName,
+        chatId: this.chat.id,
+      })
 
       runInAction(() => {
-        this.chat.messages = file!.messages.map((m) => ({
-          ...m,
-          timestamp: new Date(m.timestamp),
-        }))
-        // Backward compat: read claudeSessionId if agentSessionId not present
-        const sessionId = file!.agentSessionId ?? file!.claudeSessionId ?? null
-        this.chat.agentSessionId = sessionId
-        this.chat.modelVersion = file!.modelVersion ?? null
-        this.chat.permissionMode = file!.permissionMode ?? null
-        // Read agentType with fallback to claude
-        const diskAgentType = file!.agentType ?? "claude"
-        const needsReregister = diskAgentType !== this.chat.agentType
-        this.chat.agentType = diskAgentType
-        if (needsReregister) {
-          this.registerCallbacks()
+        if (metadata) {
+          if (metadata.label) this.chat.label = metadata.label
+          const diskAgentType = metadata.agentType ?? this.chat.agentType ?? "claude"
+          const needsReregister = diskAgentType !== this.chat.agentType
+          this.chat.agentType = diskAgentType
+          this.chat.agentSessionId = metadata.agentSessionId ?? this.chat.agentSessionId
+          this.chat.modelVersion = metadata.modelVersion ?? this.chat.modelVersion
+          this.chat.permissionMode = metadata.permissionMode ?? this.chat.permissionMode
+          if (needsReregister) {
+            this.registerCallbacks()
+          }
         }
-        if (sessionId && this.service) {
-          this.service.setSessionId(this.chat.id, sessionId)
+
+        for (const event of events) {
+          const mapped = this.mapRustEvent(event)
+          if (mapped) {
+            this.handleAgentEvent(mapped)
+          }
         }
+
+        if (this.chat.agentSessionId && this.service) {
+          this.service.setSessionId(this.chat.id, this.chat.agentSessionId)
+        }
+
         this.loaded = true
         this.loading = false
       })
@@ -804,6 +903,88 @@ export class ChatStore {
         this.loaded = true
         this.loading = false
       })
+    }
+  }
+
+  private mapRustEvent(event: BackendAgentEvent): AgentEvent | null {
+    switch (event.kind) {
+      case "text":
+        if (event.text === undefined) return null
+        return { kind: "text", text: event.text }
+      case "message": {
+        if (!event.content) return null
+        const toolMeta = event.tool_meta
+          ? {
+              toolName: event.tool_meta.tool_name,
+              linesAdded: event.tool_meta.lines_added,
+              linesRemoved: event.tool_meta.lines_removed,
+            }
+          : undefined
+        return {
+          kind: "message",
+          content: event.content,
+          toolMeta,
+          parentToolUseId: event.parent_tool_use_id ?? undefined,
+          toolUseId: event.tool_use_id ?? undefined,
+          isInfo: event.is_info,
+        }
+      }
+      case "userMessage": {
+        if (!event.id || !event.content || !event.timestamp) return null
+        return {
+          kind: "userMessage",
+          id: event.id,
+          content: event.content,
+          timestamp: new Date(event.timestamp),
+          meta: (event.meta as MessageMeta | undefined) ?? undefined,
+        }
+      }
+      case "bashOutput":
+        if (event.text === undefined) return null
+        return { kind: "bashOutput", text: event.text }
+      case "toolApproval":
+        return {
+          kind: "toolApproval",
+          id: event.request_id ?? "",
+          name: event.name ?? "",
+          input: event.input ?? {},
+          displayInput: event.display_input ?? "",
+          commandPrefixes: event.prefixes ?? undefined,
+          autoApproved: event.auto_approved ?? false,
+          isProcessed: event.is_processed ?? false,
+        }
+      case "question": {
+        const questions =
+          event.questions?.map((item) => ({
+            question: item.question,
+            header: item.header,
+            options: item.options,
+            multiSelect: item.multi_select ?? false,
+          })) ?? []
+        return {
+          kind: "question",
+          id: event.request_id ?? "",
+          questions,
+          rawInput: event.raw_input ?? {},
+          isProcessed: event.is_processed ?? false,
+        }
+      }
+      case "planApproval":
+        return {
+          kind: "planApproval",
+          id: event.request_id ?? "",
+          planContent: event.content ?? "",
+          isProcessed: event.is_processed ?? false,
+        }
+      case "sessionId":
+        if (!event.session_id) return null
+        return { kind: "sessionId", sessionId: event.session_id }
+      case "turnComplete":
+        return { kind: "turnComplete" }
+      case "done":
+        return { kind: "done" }
+      default:
+        return null
     }
   }
 

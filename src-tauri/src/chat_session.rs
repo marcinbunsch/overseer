@@ -7,11 +7,14 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
 use overseer_core::agents::event::AgentEvent;
 use overseer_core::persistence::chat_jsonl::{
-    load_chat_events as load_chat_events_jsonl, save_chat_metadata, serialize_event_for_storage,
+    load_chat_events as load_chat_events_jsonl, load_chat_metadata as load_chat_metadata_jsonl,
+    save_chat_metadata as save_chat_metadata_jsonl, serialize_event_for_storage,
 };
 use overseer_core::persistence::types::ChatMetadata;
+use uuid::Uuid;
 use tauri::State;
 
 const MAX_PENDING_EVENTS: usize = 10;
@@ -52,9 +55,13 @@ impl ChatSessionManager {
         }
 
         let dir = self.get_chat_dir(&project_name, &workspace_name)?;
-        save_chat_metadata(&dir, &metadata).map_err(|e| e.to_string())?;
+        save_chat_metadata_jsonl(&dir, &metadata).map_err(|e| e.to_string())?;
 
         let mut sessions = self.sessions.lock().unwrap();
+        if sessions.contains_key(&chat_id) {
+            return Ok(());
+        }
+
         sessions.insert(
             chat_id.clone(),
             ChatSession::new(chat_id, project_name, workspace_name, dir),
@@ -87,6 +94,42 @@ impl ChatSessionManager {
     ) -> Result<Vec<AgentEvent>, String> {
         let dir = self.get_chat_dir(project_name, workspace_name)?;
         load_chat_events_jsonl(&dir, chat_id).map_err(|e| e.to_string())
+    }
+
+    pub fn load_metadata(
+        &self,
+        project_name: &str,
+        workspace_name: &str,
+        chat_id: &str,
+    ) -> Result<ChatMetadata, String> {
+        let dir = self.get_chat_dir(project_name, workspace_name)?;
+        load_chat_metadata_jsonl(&dir, chat_id).map_err(|e| e.to_string())
+    }
+
+    pub fn save_metadata(
+        &self,
+        project_name: &str,
+        workspace_name: &str,
+        metadata: ChatMetadata,
+    ) -> Result<(), String> {
+        let dir = self.get_chat_dir(project_name, workspace_name)?;
+        save_chat_metadata_jsonl(&dir, &metadata).map_err(|e| e.to_string())
+    }
+
+    pub fn add_user_message(
+        &self,
+        chat_id: &str,
+        content: String,
+        meta: Option<serde_json::Value>,
+    ) -> Result<AgentEvent, String> {
+        let event = AgentEvent::UserMessage {
+            id: Uuid::new_v4().to_string(),
+            content,
+            timestamp: Utc::now(),
+            meta,
+        };
+        self.append_event(chat_id, event.clone())?;
+        Ok(event)
     }
 }
 
@@ -211,4 +254,37 @@ pub async fn load_chat_events(
     chat_id: String,
 ) -> Result<Vec<AgentEvent>, String> {
     state.load_events(&project_name, &workspace_name, &chat_id)
+}
+
+/// Load chat metadata for a session.
+#[tauri::command]
+pub async fn load_chat_metadata(
+    state: State<'_, ChatSessionManager>,
+    project_name: String,
+    workspace_name: String,
+    chat_id: String,
+) -> Result<ChatMetadata, String> {
+    state.load_metadata(&project_name, &workspace_name, &chat_id)
+}
+
+/// Save chat metadata for a session.
+#[tauri::command]
+pub async fn save_chat_metadata(
+    state: State<'_, ChatSessionManager>,
+    project_name: String,
+    workspace_name: String,
+    metadata: ChatMetadata,
+) -> Result<(), String> {
+    state.save_metadata(&project_name, &workspace_name, metadata)
+}
+
+/// Persist a user-authored message for a chat session.
+#[tauri::command]
+pub async fn add_user_message(
+    state: State<'_, ChatSessionManager>,
+    chat_id: String,
+    content: String,
+    meta: Option<serde_json::Value>,
+) -> Result<AgentEvent, String> {
+    state.add_user_message(&chat_id, content, meta)
 }

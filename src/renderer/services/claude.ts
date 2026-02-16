@@ -89,14 +89,16 @@ type BackendAgentEvent =
       display_input: string
       prefixes?: string[] | null
       auto_approved?: boolean
+      is_processed?: boolean
     }
   | {
       kind: "question"
       request_id: string
       questions: BackendQuestionItem[]
       raw_input?: Record<string, unknown>
+      is_processed?: boolean
     }
-  | { kind: "planApproval"; request_id: string; content: string }
+  | { kind: "planApproval"; request_id: string; content: string; is_processed?: boolean }
   | { kind: "sessionId"; session_id: string }
   | { kind: "turnComplete" }
   | { kind: "done" }
@@ -313,6 +315,7 @@ class ClaudeAgentService implements AgentService {
           displayInput: event.display_input ?? "",
           commandPrefixes: event.prefixes ?? undefined,
           autoApproved: event.auto_approved ?? false,
+          isProcessed: event.is_processed ?? false,
         })
         return
       }
@@ -328,6 +331,7 @@ class ClaudeAgentService implements AgentService {
           id: event.request_id,
           questions,
           rawInput: event.raw_input ?? {},
+          isProcessed: event.is_processed ?? false,
         })
         return
       }
@@ -336,6 +340,7 @@ class ClaudeAgentService implements AgentService {
           kind: "planApproval",
           id: event.request_id,
           planContent: event.content ?? "",
+          isProcessed: event.is_processed ?? false,
         })
         return
       }

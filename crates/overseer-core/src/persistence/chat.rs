@@ -125,9 +125,17 @@ pub fn load_chat(dir: &Path, chat_id: &str) -> Result<ChatFile, ChatError> {
 /// `Ok(())` if deleted or didn't exist, `Err` on I/O error.
 pub fn delete_chat(dir: &Path, chat_id: &str) -> Result<(), ChatError> {
     let file_path = dir.join(format!("{chat_id}.json"));
+    let jsonl_path = dir.join(format!("{chat_id}.jsonl"));
+    let meta_path = dir.join(format!("{chat_id}.meta.json"));
 
     if file_path.exists() {
         fs::remove_file(&file_path)?;
+    }
+    if jsonl_path.exists() {
+        fs::remove_file(&jsonl_path)?;
+    }
+    if meta_path.exists() {
+        fs::remove_file(&meta_path)?;
     }
 
     Ok(())
@@ -136,13 +144,16 @@ pub fn delete_chat(dir: &Path, chat_id: &str) -> Result<(), ChatError> {
 /// Check if a chat file exists.
 pub fn chat_exists(dir: &Path, chat_id: &str) -> bool {
     let file_path = dir.join(format!("{chat_id}.json"));
-    file_path.exists()
+    if file_path.exists() {
+        return true;
+    }
+    dir.join(format!("{chat_id}.jsonl")).exists()
 }
 
 /// List all chat IDs in a directory.
 ///
-/// Finds all `*.json` files that aren't special files
-/// (workspace.json, chats.json, approvals.json).
+/// Finds all `*.json` and `*.jsonl` chat files that aren't special files
+/// (workspace.json, chats.json, approvals.json, or metadata files).
 pub fn list_chat_ids(dir: &Path) -> Result<Vec<String>, ChatError> {
     let mut ids = Vec::new();
 
@@ -158,10 +169,20 @@ pub fn list_chat_ids(dir: &Path) -> Result<Vec<String>, ChatError> {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 // Skip special files
                 if stem != "workspace" && stem != "chats" && stem != "approvals" {
+                    if stem.ends_with(".meta") {
+                        continue;
+                    }
                     // Skip temp files
                     if !stem.ends_with(".tmp") {
                         ids.push(stem.to_string());
                     }
+                }
+            }
+        } else if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                // Skip temp files
+                if !stem.ends_with(".tmp") {
+                    ids.push(stem.to_string());
                 }
             }
         }

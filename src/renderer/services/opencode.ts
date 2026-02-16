@@ -390,7 +390,94 @@ class OpenCodeAgentService implements AgentService {
   }
 
   private emitEvent(chatId: string, event: AgentEvent): void {
+    this.persistEvent(chatId, event)
     this.eventCallbacks.get(chatId)?.(event)
+  }
+
+  private persistEvent(chatId: string, event: AgentEvent): void {
+    const rustEvent = this.toRustEvent(event)
+    if (!rustEvent) return
+    void backend
+      .invoke("append_chat_event", {
+        chatId,
+        event: rustEvent,
+      })
+      .catch((err) => {
+        console.error("Failed to persist OpenCode event:", err)
+      })
+  }
+
+  private toRustEvent(event: AgentEvent): Record<string, unknown> | null {
+    switch (event.kind) {
+      case "text":
+        return { kind: "text", text: event.text }
+      case "bashOutput":
+        return { kind: "bashOutput", text: event.text }
+      case "message": {
+        const toolMeta = event.toolMeta
+          ? {
+              tool_name: event.toolMeta.toolName,
+              lines_added: event.toolMeta.linesAdded,
+              lines_removed: event.toolMeta.linesRemoved,
+            }
+          : undefined
+        return {
+          kind: "message",
+          content: event.content,
+          tool_meta: toolMeta,
+          parent_tool_use_id: event.parentToolUseId ?? undefined,
+          tool_use_id: event.toolUseId ?? undefined,
+          is_info: event.isInfo ?? undefined,
+        }
+      }
+      case "toolApproval":
+        return {
+          kind: "toolApproval",
+          request_id: event.id,
+          name: event.name,
+          input: event.input,
+          display_input: event.displayInput,
+          prefixes: event.commandPrefixes,
+          auto_approved: event.autoApproved ?? false,
+          is_processed: event.isProcessed ?? false,
+        }
+      case "question":
+        return {
+          kind: "question",
+          request_id: event.id,
+          questions: event.questions.map((q) => ({
+            question: q.question,
+            header: q.header,
+            options: q.options,
+            multi_select: q.multiSelect,
+          })),
+          raw_input: event.rawInput,
+          is_processed: event.isProcessed ?? false,
+        }
+      case "planApproval":
+        return {
+          kind: "planApproval",
+          request_id: event.id,
+          content: event.planContent,
+          is_processed: event.isProcessed ?? false,
+        }
+      case "sessionId":
+        return { kind: "sessionId", session_id: event.sessionId }
+      case "turnComplete":
+        return { kind: "turnComplete" }
+      case "done":
+        return { kind: "done" }
+      case "userMessage":
+        return {
+          kind: "userMessage",
+          id: event.id,
+          content: event.content,
+          timestamp: event.timestamp.toISOString(),
+          meta: event.meta ?? null,
+        }
+      default:
+        return null
+    }
   }
 
   /**

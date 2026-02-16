@@ -9,10 +9,11 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use super::{check_auto_approval, ApprovalCheckResult};
 use crate::approvals::ProjectApprovalManager;
+use crate::chat_session::ChatSessionManager;
 use crate::logging::{log_line, open_log_file, LogHandle};
 use overseer_core::agents::codex::{CodexConfig, CodexParser};
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
@@ -167,6 +168,10 @@ pub fn start_codex_server(
                             | ApprovalCheckResult::NotApproved(e) => e,
                         };
 
+                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        if let Err(err) = chat_sessions.append_event(&sid, event_to_emit.clone()) {
+                            log::warn!("Failed to persist Codex event for {}: {}", sid, err);
+                        }
                         let _ = app.emit(&format!("codex:event:{}", sid), event_to_emit);
                     }
 
@@ -208,6 +213,10 @@ pub fn start_codex_server(
                         parser.flush()
                     };
                     for event in parsed_events {
+                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        if let Err(err) = chat_sessions.append_event(&sid, event.clone()) {
+                            log::warn!("Failed to persist Codex event for {}: {}", sid, err);
+                        }
                         let _ = app.emit(&format!("codex:event:{}", sid), event);
                     }
                     let _ = app.emit(&format!("codex:close:{}", sid), exit);
@@ -231,6 +240,10 @@ pub fn start_codex_server(
                             parser.flush()
                         };
                         for event in parsed_events {
+                            let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                            if let Err(err) = chat_sessions.append_event(&sid, event.clone()) {
+                                log::warn!("Failed to persist Codex event for {}: {}", sid, err);
+                            }
                             let _ = app.emit(&format!("codex:event:{}", sid), event);
                         }
                         let _ = app.emit(

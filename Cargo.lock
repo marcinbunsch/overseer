@@ -6,6 +6,7 @@ version = 3
 name = "Overseer"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "ignore",
  "libc",
  "log",
@@ -28,6 +29,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "ureq",
+ "uuid",
 ]
 
 [[package]]
