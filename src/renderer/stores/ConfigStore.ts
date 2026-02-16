@@ -1,9 +1,8 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
 import { homeDir } from "@tauri-apps/api/path"
-import { readTextFile, writeTextFile, exists, mkdir } from "@tauri-apps/plugin-fs"
 import type { AgentModel, AgentType } from "../types"
-import { getConfigPath } from "../utils/paths"
 import { listOpencodeModels } from "../services/opencode"
+import { backend } from "../backend"
 
 export type ClaudePermissionMode = "default" | "acceptEdits" | "bypassPermissions"
 export type CodexApprovalPolicy = "untrusted" | "full-auto"
@@ -178,21 +177,22 @@ class ConfigStore {
         this.home = this.home.slice(0, -1)
       }
 
-      const configDir = getConfigPath(this.home)
-      const configPath = `${configDir}/config.json`
-
-      const configExists = await exists(configPath)
+      // Check if config exists, create with defaults if not
+      const configExists = await backend.invoke<boolean>("config_file_exists", {
+        filename: "config.json",
+      })
 
       if (!configExists) {
-        const dirExists = await exists(configDir)
-        if (!dirExists) {
-          await mkdir(configDir, { recursive: true })
-        }
-        await writeTextFile(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n")
+        await backend.invoke("save_json_config", {
+          filename: "config.json",
+          content: DEFAULT_CONFIG,
+        })
       }
 
-      const raw = await readTextFile(configPath)
-      const parsed = JSON.parse(raw) as Partial<Config>
+      const result = await backend.invoke<Config | null>("load_json_config", {
+        filename: "config.json",
+      })
+      const parsed = (result ?? {}) as Partial<Config>
       this.rawClaudePath = parsed.claudePath ?? DEFAULT_CONFIG.claudePath
       this.rawCodexPath = parsed.codexPath ?? DEFAULT_CONFIG.codexPath
       this.rawCopilotPath = parsed.copilotPath ?? DEFAULT_CONFIG.copilotPath
@@ -262,7 +262,6 @@ class ConfigStore {
       return
     }
     try {
-      const configPath = `${getConfigPath(this.home)}/config.json`
       const config: Config = {
         claudePath: this.rawClaudePath,
         codexPath: this.rawCodexPath,
@@ -292,7 +291,10 @@ class ConfigStore {
         animationsEnabled: this.animationsEnabled,
         agentShell: this.agentShell || undefined,
       }
-      await writeTextFile(configPath, JSON.stringify(config, null, 2) + "\n")
+      await backend.invoke("save_json_config", {
+        filename: "config.json",
+        content: config,
+      })
     } catch (err) {
       console.error("Failed to save config:", err)
     }

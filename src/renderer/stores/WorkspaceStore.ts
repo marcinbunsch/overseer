@@ -1,6 +1,4 @@
 import { observable, computed, action, makeObservable, runInAction } from "mobx"
-import { homeDir } from "@tauri-apps/api/path"
-import { readTextFile, writeTextFile, exists, mkdir, rename, remove } from "@tauri-apps/plugin-fs"
 import type {
   Message,
   MessageMeta,
@@ -18,10 +16,10 @@ import { getAgentService } from "../services/agentRegistry"
 import { ChatStore, type ChatStoreContext } from "./ChatStore"
 import { ChangedFilesStore } from "./ChangedFilesStore"
 import { configStore } from "./ConfigStore"
-import { getConfigPath } from "../utils/paths"
 import { getAgentDisplayName } from "../utils/agentDisplayName"
 import { toastStore } from "./ToastStore"
 import { projectRegistry } from "./ProjectRegistry"
+import { backend } from "../backend"
 
 export type { PendingToolUse } from "../types"
 
@@ -77,8 +75,6 @@ export class WorkspaceStore {
 
   // Init prompt from project
   private initPrompt?: string
-
-  private home: string = ""
 
   // Cached ChangedFilesStore - created lazily
   private _changedFilesStore: ChangedFilesStore | null = null
@@ -389,17 +385,14 @@ export class WorkspaceStore {
     }
 
     // Delete the chat file from disk
-    const chatDir = await this.getChatDir()
-    if (chatDir) {
-      const chatFilePath = `${chatDir}/${chatId}.json`
-      try {
-        const fileExists = await exists(chatFilePath)
-        if (fileExists) {
-          await remove(chatFilePath)
-        }
-      } catch (err) {
-        console.error("Failed to delete chat file:", err)
-      }
+    try {
+      await backend.invoke("delete_chat", {
+        projectName: this.projectName,
+        workspaceName: this.getWorkspaceName(),
+        chatId,
+      })
+    } catch (err) {
+      console.error("Failed to delete chat file:", err)
     }
 
     // Save updated index
@@ -499,6 +492,7 @@ export class WorkspaceStore {
       getChatDir: () => this.getChatDir(),
       getInitPrompt: () => this.buildInitPrompt(),
       getProjectName: () => this.projectName,
+      getWorkspaceName: () => this.path.split("/").pop() || "unknown",
       saveIndex: () => this.saveChatIndex(),
       getActiveChatId: () => this.activeChatId,
       getWorkspacePath: () => this.path,
@@ -542,13 +536,6 @@ export class WorkspaceStore {
    */
   async archiveChatFolder(): Promise<void> {
     try {
-      const home = await this.resolveHome()
-      const workspaceName = this.path.split("/").pop() || "unknown"
-      const chatDir = `${getConfigPath(home)}/chats/${this.projectName}/${workspaceName}`
-
-      const dirExists = await exists(chatDir)
-      if (!dirExists) return
-
       const now = new Date()
       const ts = [
         now.getFullYear(),
@@ -560,11 +547,13 @@ export class WorkspaceStore {
       ].join("-")
 
       const safeBranch = this.branch.replace(/\//g, "-")
-      const archiveParent = `${getConfigPath(home)}/chats/${this.projectName}.archived`
-      const archiveDest = `${archiveParent}/${safeBranch}-${ts}`
+      const archiveName = `${safeBranch}-${ts}`
 
-      await mkdir(archiveParent, { recursive: true })
-      await rename(chatDir, archiveDest)
+      await backend.invoke("archive_chat_dir", {
+        projectName: this.projectName,
+        workspaceName: this.getWorkspaceName(),
+        archiveName,
+      })
     } catch (err) {
       console.error("Failed to archive chat folder:", err)
     }
@@ -572,47 +561,43 @@ export class WorkspaceStore {
 
   // --- Persistence ---
 
-  private async resolveHome(): Promise<string> {
-    if (!this.home) {
-      this.home = await homeDir()
-      if (this.home.endsWith("/")) {
-        this.home = this.home.slice(0, -1)
-      }
-    }
-    return this.home
+  private getWorkspaceName(): string {
+    return this.path.split("/").pop() || "unknown"
   }
 
   private async getChatDir(): Promise<string | null> {
     if (!this.projectName || !this.path) return null
-    const home = await this.resolveHome()
-    const workspaceName = this.path.split("/").pop() || "unknown"
-    return `${getConfigPath(home)}/chats/${this.projectName}/${workspaceName}`
+    // Return a placeholder - this is only used for logging now
+    const configDir = await backend.invoke<string>("get_config_dir")
+    return `${configDir}/chats/${this.projectName}/${this.getWorkspaceName()}`
   }
 
   private async loadChatsFromDisk(): Promise<void> {
     try {
-      const home = await this.resolveHome()
-      const workspaceName = this.path.split("/").pop() || this.id
-      const chatDir = `${getConfigPath(home)}/chats/${this.projectName}/${workspaceName}`
+      const projectName = this.projectName
+      const workspaceName = this.getWorkspaceName()
 
-      const dirExists = await exists(chatDir)
-      if (!dirExists) {
-        await mkdir(chatDir, { recursive: true })
-      }
+      // Ensure chat directory exists
+      await backend.invoke("ensure_chat_dir", { projectName, workspaceName })
 
       // Load workspace state (activeChatId)
-      const workspaceState = await this.loadWorkspaceState(chatDir)
+      const workspaceState = await this.loadWorkspaceState()
 
       // Load chat index
-      const chatIndex = await this.loadChatIndex(chatDir)
+      const chatIndex = await this.loadChatIndex()
+
+      // Get list of actual chat files to validate index
+      const chatIds = await backend.invoke<string[]>("list_chat_ids", {
+        projectName,
+        workspaceName,
+      })
+      const chatIdSet = new Set(chatIds)
 
       const context = this.createChatContext()
       const loaded: ChatStore[] = []
 
       for (const entry of chatIndex.chats) {
-        const filePath = `${chatDir}/${entry.id}.json`
-        const fileExists = await exists(filePath)
-        if (!fileExists) continue
+        if (!chatIdSet.has(entry.id)) continue
 
         // Create skeleton chat — messages loaded lazily
         const chat: Chat = {
@@ -697,52 +682,30 @@ export class WorkspaceStore {
 
   /**
    * Load workspace state from workspace.json.
-   * Migrates from old index.json format if needed.
    */
-  private async loadWorkspaceState(workspaceDir: string): Promise<WorkspaceState> {
-    const workspacePath = `${workspaceDir}/workspace.json`
-    const workspaceExists = await exists(workspacePath)
-
-    if (workspaceExists) {
-      const raw = await readTextFile(workspacePath)
-      return JSON.parse(raw) as WorkspaceState
+  private async loadWorkspaceState(): Promise<WorkspaceState> {
+    try {
+      return await backend.invoke<WorkspaceState>("load_workspace_state", {
+        projectName: this.projectName,
+        workspaceName: this.getWorkspaceName(),
+      })
+    } catch {
+      return { activeChatId: null }
     }
-
-    // TODO: Remove this legacy migration after 2026-03-01
-    const legacyPath = `${workspaceDir}/index.json`
-    const legacyExists = await exists(legacyPath)
-    if (legacyExists) {
-      const raw = await readTextFile(legacyPath)
-      const legacy = JSON.parse(raw) as { activeChatId?: string | null }
-      return { activeChatId: legacy.activeChatId ?? null }
-    }
-
-    return { activeChatId: null }
   }
 
   /**
    * Load chat index from chats.json.
-   * Migrates from old index.json format if needed.
    */
-  private async loadChatIndex(workspaceDir: string): Promise<ChatIndex> {
-    const chatsPath = `${workspaceDir}/chats.json`
-    const chatsExists = await exists(chatsPath)
-
-    if (chatsExists) {
-      const raw = await readTextFile(chatsPath)
-      return JSON.parse(raw) as ChatIndex
+  private async loadChatIndex(): Promise<ChatIndex> {
+    try {
+      return await backend.invoke<ChatIndex>("load_chat_index", {
+        projectName: this.projectName,
+        workspaceName: this.getWorkspaceName(),
+      })
+    } catch {
+      return { chats: [] }
     }
-
-    // TODO: Remove this legacy migration after 2026-03-01
-    const legacyPath = `${workspaceDir}/index.json`
-    const legacyExists = await exists(legacyPath)
-    if (legacyExists) {
-      const raw = await readTextFile(legacyPath)
-      const legacy = JSON.parse(raw) as { chats?: ChatIndex["chats"] }
-      return { chats: legacy.chats ?? [] }
-    }
-
-    return { chats: [] }
   }
 
   private getDefaultChatLabel(agentType: AgentType): string {
@@ -755,14 +718,15 @@ export class WorkspaceStore {
   }
 
   private async saveWorkspaceState(): Promise<void> {
-    const workspaceDir = await this.getChatDir()
-    if (!workspaceDir) return
-
     try {
       const state: WorkspaceState = {
         activeChatId: this.activeChatId,
       }
-      await writeTextFile(`${workspaceDir}/workspace.json`, JSON.stringify(state, null, 2) + "\n")
+      await backend.invoke("save_workspace_state", {
+        projectName: this.projectName,
+        workspaceName: this.getWorkspaceName(),
+        workspaceState: state,
+      })
     } catch (err) {
       console.error("Failed to save workspace state:", err)
       toastStore.show("Failed to save workspace state")
@@ -770,9 +734,6 @@ export class WorkspaceStore {
   }
 
   private async saveChatIndex(): Promise<void> {
-    const chatDir = await this.getChatDir()
-    if (!chatDir) return
-
     try {
       const index: ChatIndex = {
         chats: this._chats.map((cs) => ({
@@ -785,7 +746,11 @@ export class WorkspaceStore {
           archivedAt: cs.chat.archivedAt?.toISOString(),
         })),
       }
-      await writeTextFile(`${chatDir}/chats.json`, JSON.stringify(index, null, 2) + "\n")
+      await backend.invoke("save_chat_index", {
+        projectName: this.projectName,
+        workspaceName: this.getWorkspaceName(),
+        index,
+      })
     } catch (err) {
       console.error("Failed to save chat index:", err)
     }

@@ -67,6 +67,7 @@ function createTestContext(overrides?: TestContextOverrides): ChatStoreContext {
     getChatDir: overrides?.getChatDir ?? (() => Promise.resolve("/tmp/test-chats")),
     getInitPrompt: overrides?.getInitPrompt ?? (() => undefined),
     getProjectName: overrides?.getProjectName ?? (() => "test-project"),
+    getWorkspaceName: overrides?.getWorkspaceName ?? (() => "test-workspace"),
     saveIndex: overrides?.saveIndex ?? vi.fn(),
     getActiveChatId: overrides?.getActiveChatId ?? (() => "test-chat-id"),
     getWorkspacePath: overrides?.getWorkspacePath ?? (() => "/tmp/test-workspace"),

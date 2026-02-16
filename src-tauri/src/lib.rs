@@ -2,6 +2,7 @@ mod agents;
 mod approvals;
 mod git;
 mod logging;
+mod persistence;
 mod pty;
 
 use overseer_core::shell::build_login_shell_command;
@@ -128,6 +129,7 @@ pub fn run() {
         .manage(agents::GeminiServerMap::default())
         .manage(agents::OpenCodeServerMap::default())
         .manage(approvals::ProjectApprovalManager::default())
+        .manage(persistence::PersistenceConfig::default())
         .manage(pty::PtyMap::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
@@ -216,7 +218,11 @@ pub fn run() {
 
             // Set up the config directory for approvals persistence
             let approval_manager = app.state::<approvals::ProjectApprovalManager>();
-            approval_manager.set_config_dir(config_dir);
+            approval_manager.set_config_dir(config_dir.clone());
+
+            // Set up the config directory for general persistence
+            let persistence_config = app.state::<persistence::PersistenceConfig>();
+            persistence_config.set_config_dir(config_dir);
 
             Ok(())
         })
@@ -265,6 +271,27 @@ pub fn run() {
             approvals::add_approval,
             approvals::remove_approval,
             approvals::clear_project_approvals,
+            persistence::save_chat,
+            persistence::load_chat,
+            persistence::delete_chat,
+            persistence::list_chat_ids,
+            persistence::save_chat_index,
+            persistence::load_chat_index,
+            persistence::upsert_chat_entry,
+            persistence::remove_chat_entry,
+            persistence::save_workspace_state,
+            persistence::load_workspace_state,
+            persistence::save_project_registry,
+            persistence::load_project_registry,
+            persistence::upsert_project,
+            persistence::remove_project,
+            persistence::save_json_config,
+            persistence::load_json_config,
+            persistence::config_file_exists,
+            persistence::get_config_dir,
+            persistence::archive_chat_dir,
+            persistence::ensure_chat_dir,
+            persistence::remove_chat_file,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

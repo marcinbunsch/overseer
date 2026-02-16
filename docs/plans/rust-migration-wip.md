@@ -52,19 +52,31 @@ Fully implemented and wired end-to-end.
 - Auto-approval logic runs in Rust before events reach frontend
 - Frontend `src/renderer/services/codex.ts` receives pre-parsed events (only handles JSON-RPC responses for client requests)
 
+**Copilot agent fully migrated:**
+- `src-tauri/src/agents/copilot.rs` uses `CopilotParser` from `overseer-core`
+- Parses stdout through Rust parser, emits typed `AgentEvent` via `copilot:event:` events
+- Auto-approval logic runs in Rust (shared `check_auto_approval()` helper)
+- Frontend `src/renderer/services/copilot.ts` receives pre-parsed events (only handles JSON-RPC responses for client requests)
+
+**Gemini agent fully migrated:**
+- `src-tauri/src/agents/gemini.rs` uses `GeminiParser` from `overseer-core`
+- Parses NDJSON stdout through Rust parser, emits typed `AgentEvent` via `gemini:event:` events
+- No tool approvals (Gemini uses auto_approve mode)
+- Frontend `src/renderer/services/gemini.ts` receives pre-parsed events
+
+**OpenCode agent (parsing stays in TypeScript):**
+- `src-tauri/src/agents/opencode.rs` only manages server process lifecycle
+- OpenCode uses HTTP REST API via `@opencode-ai/sdk`, not stdout streaming
+- TypeScript makes HTTP calls directly and parses responses
+- No tool approvals (OpenCode uses permissive permissions `"*": "allow"`)
+
 ### In Progress
 
-#### Phase 3: Agent Protocol Parsing (Remaining agents)
-Core parsers exist but remaining agents still parse in TypeScript:
-- `crates/overseer-core/src/agents/copilot/parser.rs` - implemented, not wired
-- `crates/overseer-core/src/agents/gemini/parser.rs` - implemented, not wired
-- `crates/overseer-core/src/agents/opencode/parser.rs` - implemented, not wired
-
-Integration work needed for each:
-- Create Tauri wrapper similar to `src-tauri/src/agents/claude.rs`
-- Route stdout/stderr through core parser
-- Add auto-approval logic
-- Simplify frontend service to receive pre-parsed events
+#### Phase 3: Agent Protocol Parsing ✅ COMPLETE
+All agents now use Rust parsers where applicable:
+- **Claude, Codex, Copilot, Gemini** - Rust parses stdout, emits typed events
+- **OpenCode** - HTTP-based (parsing stays in TypeScript by design)
+- Shared `check_auto_approval()` helper in `src-tauri/src/agents/mod.rs`
 
 #### Phase 4: Overseer Actions Execution
 Parsing is in Rust (`extract_overseer_blocks`), but execution still happens in TypeScript (`executeOverseerAction`).
@@ -81,22 +93,24 @@ Session state + `SessionManager` exist in core, but aren't wired into Tauri yet.
 
 ## Next Steps
 
-### Immediate (Phase 3 Completion)
+### Immediate (Phase 4)
 
-1. **Wire Copilot agent to Rust parser**
-   - Create `src-tauri/src/agents/copilot.rs` similar to codex.rs
-   - Use `CopilotParser` from overseer-core
-   - Add auto-approval logic
-   - Simplify `src/renderer/services/copilot.ts` to receive pre-parsed events
+1. **Move Overseer Actions execution to Rust**
+   - Parsing is already in Rust (`extract_overseer_blocks`)
+   - Move execution logic from `executeOverseerAction` in TypeScript to Rust
+   - Types: `terminal-command`, `write-file`, `apply-diff`
 
-2. **Wire remaining agents (Gemini, OpenCode)**
-   - Same pattern
+### Medium Term (Phases 5-6)
 
-### Medium Term
+1. **Chat persistence in Rust (Phase 5)**
+   - Rust persistence modules exist (`overseer-core/src/persistence/`)
+   - Wire into Tauri commands
+   - Migrate file I/O from renderer stores to backend
 
-1. SessionManager for multi-interface support (Tauri + SSH + Web)
-2. Chat persistence in Rust
-3. Full event-sourced architecture
+2. **SessionManager integration (Phase 6)**
+   - Session state + `SessionManager` exist in core
+   - Wire into Tauri for state management
+   - Enable multi-interface support (Tauri + SSH + Web)
 
 ---
 
@@ -148,7 +162,7 @@ crates/overseer-core/src/
 
 After any changes:
 - [ ] `pnpm checks` passes (format, lint, typecheck, rustcheck)
-- [ ] `pnpm test` passes (809 tests)
+- [ ] `pnpm test` passes (815 tests)
 - [ ] `cargo test -p overseer-core` passes
 - [ ] Manual testing of agent communication
 - [ ] Manual testing of tool approval flow

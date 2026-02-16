@@ -1,5 +1,4 @@
 import { observable, computed, action, makeObservable, runInAction } from "mobx"
-import { readTextFile, writeTextFile, exists } from "@tauri-apps/plugin-fs"
 import { backend } from "../backend"
 import type {
   Message,
@@ -24,6 +23,7 @@ export interface ChatStoreContext {
   getChatDir: () => Promise<string | null>
   getInitPrompt: () => string | undefined
   getProjectName: () => string
+  getWorkspaceName: () => string
   saveIndex: () => void
   getActiveChatId: () => string | null
   getWorkspacePath: () => string
@@ -690,8 +690,9 @@ export class ChatStore {
   }
 
   async saveToDisk(): Promise<void> {
-    const chatDir = await this.context.getChatDir()
-    if (!chatDir) return
+    const projectName = this.context.getProjectName()
+    const workspaceName = this.context.getWorkspaceName()
+    if (!projectName || !workspaceName) return
 
     try {
       const chat = this.chat
@@ -707,7 +708,11 @@ export class ChatStore {
         createdAt: chat.createdAt.toISOString(),
         updatedAt: new Date().toISOString(),
       }
-      await writeTextFile(`${chatDir}/${chat.id}.json`, JSON.stringify(file, null, 2) + "\n")
+      await backend.invoke("save_chat", {
+        projectName,
+        workspaceName,
+        chat: file,
+      })
     } catch (err) {
       console.error("Failed to save chat to disk:", err)
     }
@@ -722,21 +727,16 @@ export class ChatStore {
     }
     this.loading = true
     try {
-      const chatDir = await this.context.getChatDir()
-      if (!chatDir) {
-        console.warn("[ChatStore.loadFromDisk] No chat dir available, skipping load", {
-          chatId: this.chat.id,
-          workspacePath: this.context.getWorkspacePath(),
-        })
-        runInAction(() => {
-          this.loaded = true
-          this.loading = false
-        })
-        return
-      }
-      const filePath = `${chatDir}/${this.chat.id}.json`
-      const fileExists = await exists(filePath)
-      if (!fileExists) {
+      const projectName = this.context.getProjectName()
+      const workspaceName = this.context.getWorkspaceName()
+      if (!projectName || !workspaceName) {
+        console.warn(
+          "[ChatStore.loadFromDisk] No project/workspace name available, skipping load",
+          {
+            chatId: this.chat.id,
+            workspacePath: this.context.getWorkspacePath(),
+          }
+        )
         runInAction(() => {
           this.loaded = true
           this.loading = false
@@ -744,21 +744,37 @@ export class ChatStore {
         return
       }
 
-      const raw = await readTextFile(filePath)
-      const file = JSON.parse(raw) as ChatFile
+      let file: ChatFile | null = null
+      try {
+        file = await backend.invoke<ChatFile>("load_chat", {
+          projectName,
+          workspaceName,
+          chatId: this.chat.id,
+        })
+      } catch {
+        // Chat file doesn't exist yet
+      }
+
+      if (!file) {
+        runInAction(() => {
+          this.loaded = true
+          this.loading = false
+        })
+        return
+      }
 
       runInAction(() => {
-        this.chat.messages = file.messages.map((m) => ({
+        this.chat.messages = file!.messages.map((m) => ({
           ...m,
           timestamp: new Date(m.timestamp),
         }))
         // Backward compat: read claudeSessionId if agentSessionId not present
-        const sessionId = file.agentSessionId ?? file.claudeSessionId ?? null
+        const sessionId = file!.agentSessionId ?? file!.claudeSessionId ?? null
         this.chat.agentSessionId = sessionId
-        this.chat.modelVersion = file.modelVersion ?? null
-        this.chat.permissionMode = file.permissionMode ?? null
+        this.chat.modelVersion = file!.modelVersion ?? null
+        this.chat.permissionMode = file!.permissionMode ?? null
         // Read agentType with fallback to claude
-        const diskAgentType = file.agentType ?? "claude"
+        const diskAgentType = file!.agentType ?? "claude"
         const needsReregister = diskAgentType !== this.chat.agentType
         this.chat.agentType = diskAgentType
         if (needsReregister) {
