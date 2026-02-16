@@ -520,11 +520,11 @@ class ProjectRegistry {
           repoId: ws.projectId,
         })),
       }))
-      await writeTextFile(configPath, JSON.stringify(projectsWithCompat, null, 2) + "\n")
 
-      // Also write to repos.json for backwards compatibility
-      const reposPath = `${getConfigPath(this.home)}/repos.json`
-      await writeTextFile(reposPath, JSON.stringify(projectsWithCompat, null, 2) + "\n")
+      await writeTextFile(
+        configPath,
+        JSON.stringify({ projects: projectsWithCompat }, null, 2) + "\n"
+      )
     } catch (err) {
       console.error("Failed to save projects:", err)
     }
@@ -593,8 +593,17 @@ class ProjectRegistry {
       if (projectsFileExists) {
         const raw = await readTextFile(configPath)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const parsed = JSON.parse(raw) as any[]
+        let parsed = JSON.parse(raw) as any[] | { projects: any[] }
         let needsMigration = false
+
+        if (Array.isArray(parsed)) {
+          // Old format: array of projects
+        } else if (parsed.projects && Array.isArray(parsed.projects)) {
+          // New format: { projects: [...] }
+          parsed = parsed.projects
+        } else {
+          throw new Error("Invalid projects file format")
+        }
 
         const migrated = parsed.map((item) => {
           const result = { ...item }

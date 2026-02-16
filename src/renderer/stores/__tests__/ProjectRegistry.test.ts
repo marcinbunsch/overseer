@@ -105,6 +105,43 @@ describe("ProjectRegistry", () => {
     expect(projectRegistry.projects[0].workspaces).toHaveLength(1)
   })
 
+  it("loads projects from projects.json from projects key", async () => {
+    const savedRepos = {
+      projects: [
+        {
+          id: "repo-1",
+          name: "myrepo",
+          path: "/home/testuser/myrepo",
+          workspaces: [
+            {
+              id: "wt-1",
+              projectId: "repo-1",
+              branch: "main",
+              path: "/home/testuser/myrepo",
+              isArchived: false,
+              createdAt: "2024-01-01T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    }
+
+    vi.mocked(exists)
+      .mockResolvedValueOnce(true) // configDir
+      .mockResolvedValueOnce(true) // configPath
+    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify(savedRepos))
+
+    vi.resetModules()
+    const { projectRegistry } = await import("../ProjectRegistry")
+
+    await vi.waitFor(() => {
+      expect(projectRegistry.projects).toHaveLength(1)
+    })
+
+    expect(projectRegistry.projects[0].name).toBe("myrepo")
+    expect(projectRegistry.projects[0].workspaces).toHaveLength(1)
+  })
+
   it("selectProject sets selectedProjectId and clears workspace", async () => {
     vi.mocked(exists).mockResolvedValue(false)
 
@@ -754,7 +791,10 @@ describe("ProjectRegistry", () => {
 
       // After addProject returns, save should have completed
       expect(writeCompleted).toBe(true)
-      expect(writeTextFile).toHaveBeenCalled()
+      expect(writeTextFile).toHaveBeenCalledWith(
+        "/home/testuser/.config/overseer-dev/projects.json",
+        expect.stringMatching('"projects":\\s*\\[')
+      )
     })
 
     it("addWorkspace triggers saveToFile without blocking", async () => {
