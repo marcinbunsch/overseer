@@ -179,7 +179,7 @@ class TerminalService {
         // Send export command and clear the screen to hide it
         const initScript = `export WORKSPACE_ROOT="${workspaceRoot}" && clear\r`
         const bytes = Array.from(this.encoder.encode(initScript))
-        await invoke("pty_write", { id: ptyId, data: bytes })
+        await backend.invoke("pty_write", { id: ptyId, data: bytes })
       })
     }
 
