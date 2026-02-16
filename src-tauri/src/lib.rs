@@ -214,12 +214,12 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
         ])
-        .on_window_event(|window, event| {
+        .on_window_event(|_window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 // Prevent the default close behavior so the frontend can handle it
+                // The frontend uses window.onCloseRequested() to show confirmation dialogs
+                // and calls window.destroy() when ready to actually close
                 api.prevent_close();
-                // Emit an event to the frontend to handle the close request
-                let _ = window.emit("window-close-requested", ());
             }
         })
         .build(tauri::generate_context!())
