@@ -151,6 +151,9 @@ impl AgentProcess {
             if let Some(ref mut stdin) = *guard {
                 writeln!(stdin, "{}", initial)
                     .map_err(|e| format!("Failed to write initial stdin: {e}"))?;
+                stdin
+                    .flush()
+                    .map_err(|e| format!("Failed to flush initial stdin: {e}"))?;
             }
         }
 

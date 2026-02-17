@@ -194,11 +194,11 @@ pub fn start_opencode_server(
             }
         }
 
-        // Channel closed without Exit event - emit close anyway
+        // Channel closed without Exit event - emit close with unknown exit code
         let _ = app.emit(
             &format!("opencode:close:{}", sid),
             overseer_core::shell::AgentExit {
-                code: 0,
+                code: -1, // Unknown exit code (channel closed without explicit exit)
                 signal: None,
             },
         );

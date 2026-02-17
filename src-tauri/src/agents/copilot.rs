@@ -190,17 +190,34 @@ pub fn start_copilot_server(
                     }
 
                     // Handle pending requests that weren't ToolApproval events
-                    // (unknown server requests should be auto-accepted)
                     for pending in pending_requests {
-                        if pending.method != "session/request_permission" {
-                            log::warn!(
-                                "Auto-accepting unknown Copilot request: {}",
-                                pending.method
-                            );
+                        if pending.method == "session/request_permission" {
+                            // Auto-accept permission requests
                             let response = build_copilot_approval_response(
                                 &pending.id.to_string(),
                                 &serde_json::Value::Null,
                             );
+                            log_line(&log_file, "STDIN", &response);
+                            if let Ok(guard) = process_arc.lock() {
+                                if let Some(ref process) = *guard {
+                                    let _ = process.write_stdin(&response);
+                                }
+                            }
+                        } else {
+                            // Respond with JSON-RPC error for unsupported methods
+                            log::warn!(
+                                "Rejecting unsupported Copilot request: {}",
+                                pending.method
+                            );
+                            let error_response = serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": pending.id,
+                                "error": {
+                                    "code": -32601,
+                                    "message": "Method not supported"
+                                }
+                            });
+                            let response = error_response.to_string() + "\n";
                             log_line(&log_file, "STDIN", &response);
                             if let Ok(guard) = process_arc.lock() {
                                 if let Some(ref process) = *guard {
