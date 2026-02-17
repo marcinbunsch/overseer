@@ -42,25 +42,31 @@ pub struct ClaudeUsageResponse {
 /// Token never enters Overseer memory - stays in shell pipeline
 #[cfg(target_os = "macos")]
 pub async fn fetch_claude_usage() -> Result<ClaudeUsageResponse, UsageError> {
-    let command = r#"curl -s https://api.anthropic.com/api/oauth/usage \
+    use tokio::task;
+
+    // Run blocking shell command in dedicated thread pool
+    task::spawn_blocking(|| {
+        let command = r#"curl -s https://api.anthropic.com/api/oauth/usage \
                -H "Authorization: Bearer $(security find-generic-password -s 'Claude Code-credentials' -w | grep -o '"accessToken":"[^"]\+"' | sed 's/"accessToken":"//;s/"$//' | head -n 1)" \
                -H "anthropic-beta: oauth-2025-04-20""#;
 
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(command)
-        .output()
-        .map_err(|e| UsageError::CommandError(e.to_string()))?;
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .output()
+            .map_err(|e| UsageError::CommandError(e.to_string()))?;
 
-    if !output.status.success() {
-        return Err(UsageError::CommandError(
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        ));
-    }
+        if !output.status.success() {
+            return Err(UsageError::CommandError(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
 
-    let response_text = String::from_utf8_lossy(&output.stdout);
-
-    serde_json::from_str(&response_text).map_err(|e| UsageError::JsonParseError(e.to_string()))
+        let response_text = String::from_utf8_lossy(&output.stdout);
+        serde_json::from_str(&response_text).map_err(|e| UsageError::JsonParseError(e.to_string()))
+    })
+    .await
+    .map_err(|e| UsageError::CommandError(format!("Task join error: {e}")))?
 }
 
 /// Non-macOS stub that returns platform error

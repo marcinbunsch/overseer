@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::path::{Component, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
@@ -22,8 +22,8 @@ const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Default)]
 pub struct ChatSessionManager {
-    /// Active chat sessions: chat_id -> ChatSession
-    sessions: Mutex<HashMap<String, ChatSession>>,
+    /// Active chat sessions: chat_id -> Arc<Mutex<ChatSession>>
+    sessions: Mutex<HashMap<String, Arc<Mutex<ChatSession>>>>,
     /// Config directory for persistence
     config_dir: Mutex<Option<PathBuf>>,
 }
@@ -35,12 +35,31 @@ impl ChatSessionManager {
     }
 
     fn get_chat_dir(&self, project_name: &str, workspace_name: &str) -> Result<PathBuf, String> {
+        // Validate path components to prevent path traversal
+        Self::validate_path_component(project_name)?;
+        Self::validate_path_component(workspace_name)?;
+
         self.config_dir
             .lock()
             .unwrap()
             .as_ref()
             .map(|dir| dir.join("chats").join(project_name).join(workspace_name))
             .ok_or_else(|| "Config directory not set".to_string())
+    }
+
+    fn validate_path_component(component: &str) -> Result<(), String> {
+        // Reject empty, path separators, and non-normal components
+        if component.is_empty() {
+            return Err("Path component cannot be empty".to_string());
+        }
+
+        let path = std::path::Path::new(component);
+        let mut components = path.components();
+        
+        match components.next() {
+            Some(Component::Normal(_)) if components.next().is_none() => Ok(()),
+            _ => Err(format!("Invalid path component: {component}")),
+        }
     }
 
     pub fn register_session(
@@ -62,24 +81,36 @@ impl ChatSessionManager {
             return Ok(());
         }
 
-        sessions.insert(chat_id.clone(), ChatSession::new(chat_id, dir));
+        sessions.insert(chat_id.clone(), Arc::new(Mutex::new(ChatSession::new(chat_id, dir))));
 
         Ok(())
     }
 
     pub fn unregister_session(&self, chat_id: &str) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(mut session) = sessions.remove(chat_id) {
+        // Remove session while holding lock, then drop lock before I/O
+        let session_opt = {
+            let mut sessions = self.sessions.lock().unwrap();
+            sessions.remove(chat_id)
+        };
+
+        if let Some(session) = session_opt {
+            let mut session = session.lock().unwrap();
             session.flush().map_err(|e| e.to_string())?;
         }
         Ok(())
     }
 
     pub fn append_event(&self, chat_id: &str, event: AgentEvent) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().unwrap();
-        let session = sessions
-            .get_mut(chat_id)
-            .ok_or_else(|| format!("Chat session not registered: {chat_id}"))?;
+        // Look up session under global lock, then release before I/O
+        let session = {
+            let sessions = self.sessions.lock().unwrap();
+            sessions
+                .get(chat_id)
+                .cloned()
+                .ok_or_else(|| format!("Chat session not registered: {chat_id}"))?
+        };
+
+        let mut session = session.lock().unwrap();
         session.append_event(event).map_err(|e| e.to_string())
     }
 
