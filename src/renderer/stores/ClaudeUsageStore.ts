@@ -4,7 +4,7 @@ import { eventBus } from "../utils/eventBus"
 
 export interface UsagePeriod {
   utilization: number
-  resetsAt: string
+  resetsAt: string | null
 }
 
 export interface ExtraUsage {

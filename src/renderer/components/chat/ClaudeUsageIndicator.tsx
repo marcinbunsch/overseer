@@ -5,17 +5,18 @@ import { claudeUsageStore } from "../../stores/ClaudeUsageStore"
 interface CircleIndicatorProps {
   utilization: number
   label: string
-  resetsAt: string
+  resetsAt: string | null
 }
 
 function CircleIndicator({ utilization, label, resetsAt }: CircleIndicatorProps) {
   const getColor = (util: number) => {
-    if (util >= 90) return "bg-red-500"
-    if (util >= 70) return "bg-yellow-500"
-    return "bg-green-500"
+    if (util >= 90) return "#ef4444" // red-500
+    if (util >= 70) return "#eab308" // yellow-500
+    return "#22c55e" // green-500
   }
 
-  const formatResetTime = (isoString: string) => {
+  const formatResetTime = (isoString: string | null) => {
+    if (!isoString) return "Unknown"
     try {
       const date = new Date(isoString)
       const now = new Date()
@@ -32,14 +33,46 @@ function CircleIndicator({ utilization, label, resetsAt }: CircleIndicatorProps)
     }
   }
 
+  // SVG circle progress
+  const size = 20
+  const strokeWidth = 3
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (utilization / 100) * circumference
+
   return (
     <Tooltip.Provider delayDuration={100}>
       <Tooltip.Root>
         <Tooltip.Trigger asChild>
-          <div
-            className={`h-2 w-2 rounded-full ${getColor(utilization)}`}
+          <svg
+            width={size}
+            height={size}
+            className="transform -rotate-90"
             data-testid={`usage-indicator-${label.toLowerCase().replace(/\s+/g, "-")}`}
-          />
+          >
+            {/* Background circle */}
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={strokeWidth}
+              className="text-ovr-border opacity-30"
+            />
+            {/* Progress circle */}
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke={getColor(utilization)}
+              strokeWidth={strokeWidth}
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+              strokeLinecap="round"
+            />
+          </svg>
         </Tooltip.Trigger>
         <Tooltip.Portal>
           <Tooltip.Content
