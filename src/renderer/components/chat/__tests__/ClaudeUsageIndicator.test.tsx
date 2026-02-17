@@ -10,6 +10,7 @@ import { claudeUsageStore } from "../../../stores/ClaudeUsageStore"
 vi.mock("../../../stores/ClaudeUsageStore", () => ({
   claudeUsageStore: {
     usageData: null,
+    fetchUsage: vi.fn(),
   },
 }))
 
@@ -70,8 +71,9 @@ describe("ClaudeUsageIndicator", () => {
 
     render(<ClaudeUsageIndicator />)
 
-    const circle = screen.getByTestId("usage-indicator-5-hour-limit")
-    expect(circle).toHaveClass("bg-green-500")
+    const svg = screen.getByTestId("usage-indicator-5-hour-limit")
+    const progressCircle = svg.querySelector("circle:last-child")
+    expect(progressCircle).toHaveAttribute("stroke", "#2de2a6") // ovr-ok green
   })
 
   it("applies yellow color for utilization >= 70% and < 90%", () => {
@@ -88,8 +90,9 @@ describe("ClaudeUsageIndicator", () => {
 
     render(<ClaudeUsageIndicator />)
 
-    const circle = screen.getByTestId("usage-indicator-5-hour-limit")
-    expect(circle).toHaveClass("bg-yellow-500")
+    const svg = screen.getByTestId("usage-indicator-5-hour-limit")
+    const progressCircle = svg.querySelector("circle:last-child")
+    expect(progressCircle).toHaveAttribute("stroke", "#ffee00") // ovr-warn yellow
   })
 
   it("applies red color for utilization >= 90%", () => {
@@ -106,7 +109,8 @@ describe("ClaudeUsageIndicator", () => {
 
     render(<ClaudeUsageIndicator />)
 
-    const circle = screen.getByTestId("usage-indicator-5-hour-limit")
-    expect(circle).toHaveClass("bg-red-500")
+    const svg = screen.getByTestId("usage-indicator-5-hour-limit")
+    const progressCircle = svg.querySelector("circle:last-child")
+    expect(progressCircle).toHaveAttribute("stroke", "#ff4d6d") // ovr-bad red
   })
 })
