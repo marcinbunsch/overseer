@@ -64,6 +64,7 @@ const FALLBACK_OPENCODE_PATH = "opencode"
 const DEFAULT_CLAUDE_MODELS: AgentModel[] = [
   { alias: "claude-opus-4-6", displayName: "Opus 4.6" },
   { alias: "claude-opus-4-5", displayName: "Opus 4.5" },
+  { alias: "claude-sonnet-4-6", displayName: "Sonnet 4.6" },
   { alias: "claude-sonnet-4-5", displayName: "Sonnet 4.5" },
   { alias: "claude-haiku-4-5", displayName: "Haiku 4.5" },
 ]
