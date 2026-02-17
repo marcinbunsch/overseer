@@ -10,9 +10,9 @@ interface CircleIndicatorProps {
 
 function CircleIndicator({ utilization, label, resetsAt }: CircleIndicatorProps) {
   const getColor = (util: number) => {
-    if (util >= 90) return "#ef4444" // red-500
-    if (util >= 70) return "#eab308" // yellow-500
-    return "#22c55e" // green-500
+    if (util >= 90) return "#ff4d6d" // ovr-bad (red)
+    if (util >= 70) return "#ffee00" // ovr-warn (bright yellow)
+    return "#2de2a6" // ovr-ok (green)
   }
 
   const formatResetTime = (isoString: string | null) => {
