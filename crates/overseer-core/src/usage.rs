@@ -46,10 +46,6 @@ pub async fn fetch_claude_usage() -> Result<ClaudeUsageResponse, UsageError> {
                -H "Authorization: Bearer $(security find-generic-password -s 'Claude Code-credentials' -w | grep -o '"accessToken":"[^"]\+"' | sed 's/"accessToken":"//;s/"$//' | head -n 1)" \
                -H "anthropic-beta: oauth-2025-04-20""#;
 
-    println!("=== Claude Usage Command ===");
-    println!("{}", command);
-    println!("============================\n");
-
     let output = Command::new("sh")
         .arg("-c")
         .arg(command)
@@ -63,10 +59,6 @@ pub async fn fetch_claude_usage() -> Result<ClaudeUsageResponse, UsageError> {
     }
 
     let response_text = String::from_utf8_lossy(&output.stdout);
-
-    println!("=== Claude Usage Response ===");
-    println!("{}", response_text);
-    println!("=============================\n");
 
     serde_json::from_str(&response_text).map_err(|e| UsageError::JsonParseError(e.to_string()))
 }
