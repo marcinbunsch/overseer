@@ -287,6 +287,29 @@ describe("ChatStore", () => {
     expect(refreshChangedFiles).toHaveBeenCalledTimes(1)
   })
 
+  it("emits agent:turnComplete event with chat info on turnComplete", () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.isSending = true
+      store.chat.status = "running"
+      store.chat.agentType = "claude"
+      store.chat.id = "test-chat-123"
+    })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({ kind: "turnComplete" })
+
+    expect(eventBus.emit).toHaveBeenCalledWith("agent:turnComplete", {
+      agentType: "claude",
+      chatId: "test-chat-123",
+    })
+  })
+
   it("handleAgentEvent processes tool approval events", () => {
     const store = createChatStore()
 

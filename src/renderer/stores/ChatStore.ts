@@ -17,6 +17,7 @@ import type { AgentEvent, AgentService } from "../services/types"
 import { configStore } from "./ConfigStore"
 import { extractOverseerBlocks, type OverseerAction } from "../utils/overseerActions"
 import { executeOverseerAction } from "../services/overseerActionExecutor"
+import { eventBus } from "../utils/eventBus"
 
 export interface ChatStoreContext {
   getChatDir: () => Promise<string | null>
@@ -583,6 +584,12 @@ export class ChatStore {
           this.processOverseerBlocksFromRecentMessages()
           // Refresh changed files - the agent may have created/modified/deleted files
           this.context.refreshChangedFiles()
+
+          // Emit turn complete event for other stores to listen to
+          eventBus.emit("agent:turnComplete", {
+            agentType: this.chat.agentType ?? "claude",
+            chatId: this.chat.id,
+          })
 
           // If there are pending follow-ups, combine and send them
           if (this.pendingFollowUps.length > 0) {

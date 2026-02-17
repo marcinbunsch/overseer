@@ -5,6 +5,7 @@ import { debugStore } from "../../stores/DebugStore"
 import { eventBus } from "../../utils/eventBus"
 import { ModelSelector } from "./ModelSelector"
 import { ClaudePermissionModeSelector } from "./ClaudePermissionModeSelector"
+import { ClaudeUsageIndicator } from "./ClaudeUsageIndicator"
 import { AtSearch } from "./AtSearch"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 
@@ -241,6 +242,7 @@ export const ChatInput = observer(function ChatInput({
                 disabled={isSending || hasMessages}
               />
             )}
+            {agentType === "claude" && <ClaudeUsageIndicator />}
           </div>
           <div className="flex gap-2">
             {isSending && onStop && (
