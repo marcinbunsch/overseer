@@ -20,7 +20,7 @@ checks-ui:
 
 test:
 	pnpm test
-	cargo test -q 
+	cargo test -q
 
 # macOS only: open the built app
 open:
