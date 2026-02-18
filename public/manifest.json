@@ -1,0 +1,17 @@
+{
+  "name": "Overseer",
+  "short_name": "Overseer",
+  "description": "Desktop GUI frontend for AI coding agents",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1b1f24",
+  "theme_color": "#1b1f24",
+  "icons": [
+    {
+      "src": "/overseer-logo-v2.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
