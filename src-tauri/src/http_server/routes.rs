@@ -115,23 +115,7 @@ pub async fn invoke_handler(
         "agent_stdin" => dispatch_agent_stdin(&state, request.args).await,
         "list_running" => dispatch_list_running(&state).await,
 
-        // start_agent and send_message require event forwarding to work properly.
-        // HTTP clients receive events via WebSocket instead of Tauri IPC.
-        // TODO: Implement start_agent/send_message for HTTP with WebSocket event streaming.
-        "start_agent" | "send_message" => {
-            (
-                StatusCode::NOT_IMPLEMENTED,
-                Json(InvokeResponse {
-                    success: false,
-                    data: None,
-                    error: Some(format!(
-                        "Command '{}' is not yet available via HTTP. \
-                        Agent start requires refactoring to support WebSocket event streaming.",
-                        command
-                    )),
-                }),
-            )
-        }
+        "send_message" => dispatch_send_message(&state, request.args).await,
 
         // =====================================================================
         // AGENTS (Codex, Copilot, Gemini, OpenCode) - Not yet implemented
@@ -3391,6 +3375,138 @@ async fn dispatch_list_running(state: &SharedState) -> (StatusCode, Json<InvokeR
             error: None,
         }),
     )
+}
+
+async fn dispatch_send_message(
+    state: &SharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    // Extract required arguments
+    let conversation_id = match args.get("conversationId").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: conversationId".to_string()),
+                }),
+            );
+        }
+    };
+
+    let prompt = match args.get("prompt").and_then(|v| v.as_str()) {
+        Some(p) => p.to_string(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: prompt".to_string()),
+                }),
+            );
+        }
+    };
+
+    let working_dir = match args.get("workingDir").and_then(|v| v.as_str()) {
+        Some(d) => d.to_string(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: workingDir".to_string()),
+                }),
+            );
+        }
+    };
+
+    let agent_path = match args.get("agentPath").and_then(|v| v.as_str()) {
+        Some(p) => p.to_string(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: agentPath".to_string()),
+                }),
+            );
+        }
+    };
+
+    // Extract optional arguments
+    let project_name = args
+        .get("projectName")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let session_id = args
+        .get("sessionId")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let model_version = args
+        .get("modelVersion")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let log_dir = args
+        .get("logDir")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let log_id = args
+        .get("logId")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let permission_mode = args
+        .get("permissionMode")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let agent_shell = args
+        .get("agentShell")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let config = overseer_core::managers::ClaudeStartConfig {
+        conversation_id,
+        project_name,
+        prompt,
+        working_dir,
+        agent_path,
+        session_id,
+        model_version,
+        log_dir,
+        log_id,
+        permission_mode,
+        agent_shell,
+    };
+
+    // Events will flow through EventBus -> WebSocket automatically
+    match state.context.claude_agents.send_message(
+        config,
+        std::sync::Arc::clone(&state.context.event_bus),
+        std::sync::Arc::clone(&state.context.approval_manager),
+        std::sync::Arc::clone(&state.context.chat_sessions),
+    ) {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(InvokeResponse {
+                success: true,
+                data: Some(serde_json::json!(null)),
+                error: None,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(e),
+            }),
+        ),
+    }
 }
 
 // ============================================================================

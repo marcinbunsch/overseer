@@ -357,7 +357,6 @@ pub fn run() {
             git::get_pr_status,
             git::delete_branch,
             git::is_git_repo,
-            agents::claude::start_agent,
             agents::claude::stop_agent,
             agents::claude::agent_stdin,
             agents::claude::list_running,
