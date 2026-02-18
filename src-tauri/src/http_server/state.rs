@@ -51,7 +51,7 @@ impl SharedState {
 
     /// Get the config directory.
     pub fn get_config_dir(&self) -> Option<PathBuf> {
-        self.context.config_dir().cloned()
+        self.context.config_dir()
     }
 
     /// Get the chats directory for a project/workspace.

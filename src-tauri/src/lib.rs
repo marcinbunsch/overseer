@@ -302,8 +302,12 @@ pub fn run() {
                     .build(),
             )?;
 
-            // Set up the config directory for approvals persistence
+            // Set up the config directory on the context itself
+            // This is used by the HTTP server's SharedState
             let context_state = app.state::<OverseerContextState>();
+            context_state.0.set_config_dir(config_dir.clone());
+
+            // Set up the config directory for approvals persistence
             context_state.0.approval_manager.set_config_dir(config_dir.clone());
 
             // Set up the config directory for chat session persistence

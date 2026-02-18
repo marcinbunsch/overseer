@@ -36,7 +36,7 @@ use crate::managers::{
     GeminiAgentManager, OpenCodeAgentManager, ProjectApprovalManager, PtyManager,
 };
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 /// Configuration for building an OverseerContext.
 #[derive(Default)]
@@ -149,7 +149,7 @@ impl OverseerContextBuilder {
 
         OverseerContext {
             event_bus,
-            config_dir: self.config_dir,
+            config_dir: Arc::new(RwLock::new(self.config_dir)),
             approval_manager,
             chat_sessions,
             claude_agents,
@@ -174,7 +174,8 @@ pub struct OverseerContext {
     /// The event bus for publishing/subscribing to events.
     pub event_bus: Arc<EventBus>,
     /// The configuration directory for persistence.
-    config_dir: Option<PathBuf>,
+    /// Uses RwLock because it may be set after construction (e.g., in Tauri setup).
+    config_dir: Arc<RwLock<Option<PathBuf>>>,
     /// Project approval manager for auto-approval decisions.
     pub approval_manager: Arc<ProjectApprovalManager>,
     /// Chat session manager for persistence.
@@ -200,13 +201,21 @@ impl OverseerContext {
     }
 
     /// Get the configuration directory.
-    pub fn config_dir(&self) -> Option<&PathBuf> {
-        self.config_dir.as_ref()
+    pub fn config_dir(&self) -> Option<PathBuf> {
+        self.config_dir.read().unwrap().clone()
+    }
+
+    /// Set the configuration directory.
+    ///
+    /// This is useful when the config directory is determined after context creation
+    /// (e.g., in Tauri's setup phase).
+    pub fn set_config_dir(&self, dir: PathBuf) {
+        *self.config_dir.write().unwrap() = Some(dir);
     }
 
     /// Get the chats directory for a project/workspace.
     pub fn get_chat_dir(&self, project_name: &str, workspace_name: &str) -> Option<PathBuf> {
-        self.config_dir.as_ref().map(|dir| {
+        self.config_dir.read().unwrap().as_ref().map(|dir| {
             dir.join("chats")
                 .join(project_name)
                 .join(workspace_name)
@@ -216,6 +225,8 @@ impl OverseerContext {
     /// Get the project directory for approvals.
     pub fn get_project_dir(&self, project_name: &str) -> Option<PathBuf> {
         self.config_dir
+            .read()
+            .unwrap()
             .as_ref()
             .map(|dir| dir.join("chats").join(project_name))
     }
@@ -242,7 +253,16 @@ mod tests {
         let ctx = OverseerContext::builder()
             .config_dir(PathBuf::from("/test/config"))
             .build();
-        assert_eq!(ctx.config_dir(), Some(&PathBuf::from("/test/config")));
+        assert_eq!(ctx.config_dir(), Some(PathBuf::from("/test/config")));
+    }
+
+    #[test]
+    fn set_config_dir_after_construction() {
+        let ctx = OverseerContext::builder().build();
+        assert!(ctx.config_dir().is_none());
+
+        ctx.set_config_dir(PathBuf::from("/late/config"));
+        assert_eq!(ctx.config_dir(), Some(PathBuf::from("/late/config")));
     }
 
     #[test]
