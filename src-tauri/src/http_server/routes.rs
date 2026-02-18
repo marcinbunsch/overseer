@@ -115,20 +115,20 @@ pub async fn invoke_handler(
         "agent_stdin" => dispatch_agent_stdin(&state, request.args).await,
         "list_running" => dispatch_list_running(&state).await,
 
-        // start_agent requires tauri::AppHandle for event forwarding back to
-        // desktop app. HTTP clients receive events via WebSocket instead.
-        // TODO: Implement start_agent for HTTP with WebSocket event streaming.
-        "start_agent" => {
+        // start_agent and send_message require event forwarding to work properly.
+        // HTTP clients receive events via WebSocket instead of Tauri IPC.
+        // TODO: Implement start_agent/send_message for HTTP with WebSocket event streaming.
+        "start_agent" | "send_message" => {
             (
                 StatusCode::NOT_IMPLEMENTED,
                 Json(InvokeResponse {
                     success: false,
                     data: None,
-                    error: Some(
-                        "Command 'start_agent' is not yet available via HTTP. \
-                        Agent start requires refactoring to support WebSocket event streaming."
-                            .to_string(),
-                    ),
+                    error: Some(format!(
+                        "Command '{}' is not yet available via HTTP. \
+                        Agent start requires refactoring to support WebSocket event streaming.",
+                        command
+                    )),
                 }),
             )
         }

@@ -32,12 +32,12 @@ describe("ClaudeAgentService", () => {
     expect(service.getSessionId("any-id")).toBeNull()
   })
 
-  it("sendMessage invokes start_agent for new conversation", async () => {
+  it("sendMessage invokes send_message for new conversation", async () => {
     const service = await freshService()
 
     await service.sendMessage("conv-1", "hello", "/tmp/workdir")
 
-    expect(invoke).toHaveBeenCalledWith("start_agent", {
+    expect(invoke).toHaveBeenCalledWith("send_message", {
       conversationId: "conv-1",
       projectName: "",
       prompt: "hello",
@@ -53,12 +53,12 @@ describe("ClaudeAgentService", () => {
     expect(service.isRunning("conv-1")).toBe(true)
   })
 
-  it("sendMessage passes modelVersion to start_agent", async () => {
+  it("sendMessage passes modelVersion to send_message", async () => {
     const service = await freshService()
 
     await service.sendMessage("conv-1", "hello", "/tmp/workdir", undefined, "opus")
 
-    expect(invoke).toHaveBeenCalledWith("start_agent", {
+    expect(invoke).toHaveBeenCalledWith("send_message", {
       conversationId: "conv-1",
       projectName: "",
       prompt: "hello",
@@ -78,7 +78,7 @@ describe("ClaudeAgentService", () => {
 
     await service.sendMessage("conv-1", "hello", "/tmp/workdir", "/tmp/logs", "haiku")
 
-    expect(invoke).toHaveBeenCalledWith("start_agent", {
+    expect(invoke).toHaveBeenCalledWith("send_message", {
       conversationId: "conv-1",
       projectName: "",
       prompt: "hello",
@@ -93,7 +93,7 @@ describe("ClaudeAgentService", () => {
     })
   })
 
-  it("sendMessage prepends initPrompt to prompt", async () => {
+  it("sendMessage prepends initPrompt to prompt when no sessionId yet", async () => {
     const service = await freshService()
 
     await service.sendMessage(
@@ -106,7 +106,7 @@ describe("ClaudeAgentService", () => {
       "Read docs/ARCH.md first"
     )
 
-    expect(invoke).toHaveBeenCalledWith("start_agent", {
+    expect(invoke).toHaveBeenCalledWith("send_message", {
       conversationId: "conv-1",
       projectName: "",
       prompt: "Read docs/ARCH.md first\n\nhello",
@@ -121,7 +121,39 @@ describe("ClaudeAgentService", () => {
     })
   })
 
-  it("sendMessage sends follow-up via stdin when already running", async () => {
+  it("sendMessage does NOT prepend initPrompt when sessionId exists", async () => {
+    const service = await freshService()
+
+    // Set session ID first (simulating resumed session)
+    service.setSessionId("conv-1", "session-abc")
+
+    await service.sendMessage(
+      "conv-1",
+      "hello",
+      "/tmp/workdir",
+      undefined,
+      null,
+      null,
+      "Read docs/ARCH.md first"
+    )
+
+    // initPrompt should NOT be prepended since we have a sessionId
+    expect(invoke).toHaveBeenCalledWith("send_message", {
+      conversationId: "conv-1",
+      projectName: "",
+      prompt: "hello", // No initPrompt prepended
+      workingDir: "/tmp/workdir",
+      agentPath: "claude",
+      sessionId: "session-abc",
+      modelVersion: null,
+      logDir: null,
+      logId: "conv-1",
+      permissionMode: null,
+      agentShell: null,
+    })
+  })
+
+  it("sendMessage calls send_message for follow-up (backend decides start vs stdin)", async () => {
     const service = await freshService()
 
     // Start first message
@@ -130,12 +162,26 @@ describe("ClaudeAgentService", () => {
     // Manually set session ID (normally comes from event)
     service.setSessionId("conv-1", "session-abc")
 
-    // Send follow-up
+    // Clear mocks to check only follow-up call
+    vi.clearAllMocks()
+    vi.mocked(invoke).mockResolvedValue(undefined)
+
+    // Send follow-up - backend now decides whether to start new or use stdin
     await service.sendMessage("conv-1", "follow up", "/tmp")
 
-    expect(invoke).toHaveBeenCalledWith("agent_stdin", {
+    // Backend handles the start-vs-stdin logic now
+    expect(invoke).toHaveBeenCalledWith("send_message", {
       conversationId: "conv-1",
-      data: expect.stringContaining("follow up"),
+      projectName: "",
+      prompt: "follow up",
+      workingDir: "/tmp",
+      agentPath: "claude",
+      sessionId: "session-abc",
+      modelVersion: null,
+      logDir: null,
+      logId: "conv-1",
+      permissionMode: null,
+      agentShell: null,
     })
   })
 
@@ -475,8 +521,7 @@ describe("ClaudeAgentService", () => {
   })
 
   it("throws user-friendly error when spawn fails with command not found", async () => {
-    // listen is called first, then invoke for start_agent
-    vi.mocked(invoke).mockResolvedValueOnce(undefined) // stopChat
+    // send_message fails with command not found
     vi.mocked(invoke).mockRejectedValueOnce(new Error("Failed to spawn: command not found"))
 
     const service = await freshService()
@@ -487,7 +532,6 @@ describe("ClaudeAgentService", () => {
   })
 
   it("throws user-friendly error when spawn fails with ENOENT", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce(undefined) // stopChat
     vi.mocked(invoke).mockRejectedValueOnce(new Error("Failed to spawn: ENOENT"))
 
     const service = await freshService()
@@ -498,7 +542,6 @@ describe("ClaudeAgentService", () => {
   })
 
   it("preserves original error message for non-spawn errors", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce(undefined) // stopChat
     vi.mocked(invoke).mockRejectedValueOnce(new Error("Network timeout"))
 
     const service = await freshService()
@@ -512,7 +555,6 @@ describe("ClaudeAgentService", () => {
 
     // Re-mock before imports
     vi.mocked(listen).mockResolvedValue(vi.fn())
-    vi.mocked(invoke).mockResolvedValueOnce(undefined) // stopChat
     vi.mocked(invoke).mockRejectedValueOnce(new Error("Failed to spawn: command not found"))
 
     const { claudeAgentService } = await import("../claude")

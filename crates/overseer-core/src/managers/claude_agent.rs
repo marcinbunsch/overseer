@@ -272,6 +272,55 @@ impl ClaudeAgentManager {
             .map(|(id, _)| id.clone())
             .collect()
     }
+
+    /// Check if a process is running for a conversation.
+    pub fn is_running(&self, conversation_id: &str) -> bool {
+        let map = self.processes.lock().unwrap();
+        if let Some(entry) = map.get(conversation_id) {
+            entry.process.lock().unwrap().is_some()
+        } else {
+            false
+        }
+    }
+
+    /// Send a message to a conversation.
+    ///
+    /// If a process is already running, sends the message via stdin.
+    /// Otherwise, starts a new process with the given config.
+    ///
+    /// This is the unified entry point for all message sending - the backend
+    /// decides whether to start a new process or continue an existing one.
+    pub fn send_message(
+        &self,
+        config: ClaudeStartConfig,
+        event_bus: Arc<EventBus>,
+        approval_manager: Arc<ProjectApprovalManager>,
+        chat_sessions: Arc<ChatSessionManager>,
+    ) -> Result<(), String> {
+        // Check if we have a running process for this conversation
+        if self.is_running(&config.conversation_id) {
+            // Format the prompt as a user message envelope and send via stdin
+            let envelope = serde_json::json!({
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": config.prompt
+                }
+            });
+            log::info!(
+                "Sending follow-up via stdin for conversation {}",
+                config.conversation_id
+            );
+            self.write_stdin(&config.conversation_id, &envelope.to_string())
+        } else {
+            // No running process - start a new one
+            log::info!(
+                "Starting new process for conversation {}",
+                config.conversation_id
+            );
+            self.start(config, event_bus, approval_manager, chat_sessions)
+        }
+    }
 }
 
 /// Build a control_response JSON to send approval to the agent.

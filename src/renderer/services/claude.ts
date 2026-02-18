@@ -191,39 +191,15 @@ class ClaudeAgentService implements AgentService {
     await this.attachListeners(chatId)
     const conv = this.getOrCreateConversation(chatId)
 
-    // If process is already running, send follow-up via stdin
-    if (conv.running && conv.sessionId) {
-      const envelope = {
-        type: "user",
-        message: {
-          role: "user",
-          content: prompt,
-        },
-      }
-      console.log(`Sending follow-up via stdin [${chatId}], session:`, conv.sessionId)
-      await backend.invoke("agent_stdin", {
-        conversationId: chatId,
-        data: JSON.stringify(envelope),
-      })
-      return
-    }
+    // Prepend initPrompt only on the first message (no session yet)
+    const isFirstMessage = !conv.sessionId
+    const messageText = isFirstMessage && initPrompt ? `${initPrompt}\n\n${prompt}` : prompt
 
-    // Otherwise start a new process
-    await this.stopChat(chatId)
-    conv.rawOutput = ""
-
-    // Prepend initPrompt to the first message (meta instruction)
-    const messageText = initPrompt ? `${initPrompt}\n\n${prompt}` : prompt
-
-    console.log(
-      `Starting Claude process [${chatId}] in dir:`,
-      workingDir,
-      "session:",
-      conv.sessionId
-    )
+    console.log(`Sending message [${chatId}] in dir:`, workingDir, "session:", conv.sessionId)
 
     try {
-      await backend.invoke("start_agent", {
+      // Backend decides whether to start a new process or send via stdin
+      await backend.invoke("send_message", {
         conversationId: chatId,
         projectName: projectName ?? "",
         prompt: messageText,

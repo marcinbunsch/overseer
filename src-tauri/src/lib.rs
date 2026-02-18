@@ -357,6 +357,7 @@ pub fn run() {
             agents::claude::stop_agent,
             agents::claude::agent_stdin,
             agents::claude::list_running,
+            agents::claude::send_message,
             agents::codex::start_codex_server,
             agents::codex::stop_codex_server,
             agents::codex::codex_stdin,

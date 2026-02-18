@@ -55,6 +55,47 @@ pub fn agent_stdin(
     context_state.0.claude_agents.write_stdin(&conversation_id, &data)
 }
 
+/// Send a message to a Claude conversation.
+///
+/// This is the unified entry point - the backend decides whether to
+/// start a new process or send via stdin to an existing one.
+#[tauri::command]
+pub fn send_message(
+    context_state: tauri::State<OverseerContextState>,
+    conversation_id: String,
+    project_name: String,
+    prompt: String,
+    working_dir: String,
+    agent_path: String,
+    session_id: Option<String>,
+    model_version: Option<String>,
+    log_dir: Option<String>,
+    log_id: Option<String>,
+    permission_mode: Option<String>,
+    agent_shell: Option<String>,
+) -> Result<(), String> {
+    let config = ClaudeStartConfig {
+        conversation_id,
+        project_name,
+        prompt,
+        working_dir,
+        agent_path,
+        session_id,
+        model_version,
+        log_dir,
+        log_id,
+        permission_mode,
+        agent_shell,
+    };
+
+    context_state.0.claude_agents.send_message(
+        config,
+        Arc::clone(&context_state.0.event_bus),
+        Arc::clone(&context_state.0.approval_manager),
+        Arc::clone(&context_state.0.chat_sessions),
+    )
+}
+
 /// Stop a running Claude CLI process.
 #[tauri::command]
 pub fn stop_agent(
