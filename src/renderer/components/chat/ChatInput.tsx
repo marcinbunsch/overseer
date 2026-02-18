@@ -9,6 +9,12 @@ import { ClaudeUsageIndicator } from "./ClaudeUsageIndicator"
 import { AtSearch } from "./AtSearch"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 
+// Detect touch-only devices (mobile/tablet without keyboard)
+const isTouchDevice =
+  typeof window !== "undefined" &&
+  ("ontouchstart" in window || navigator.maxTouchPoints > 0) &&
+  !window.matchMedia("(pointer: fine)").matches
+
 interface ChatInputProps {
   onSend: (content: string) => void
   onStop?: () => void
@@ -186,7 +192,9 @@ export const ChatInput = observer(function ChatInput({
       }
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    // On desktop: Enter sends, Shift+Enter adds newline
+    // On mobile/touch: Enter adds newline (use Send button to send)
+    if (e.key === "Enter" && !e.shiftKey && !isTouchDevice) {
       e.preventDefault()
       handleSubmit()
     }
@@ -212,7 +220,9 @@ export const ChatInput = observer(function ChatInput({
           placeholder={
             isSending
               ? "Type a follow-up message to queue..."
-              : `Ask ${getAgentDisplayName(agentType)}... (Enter to send, Shift+Enter for newline, @ to search files)`
+              : isTouchDevice
+                ? `Ask ${getAgentDisplayName(agentType)}...`
+                : `Ask ${getAgentDisplayName(agentType)}... (Enter to send, Shift+Enter for newline, @ to search files)`
           }
           rows={1}
           autoComplete="off"
