@@ -132,7 +132,7 @@ pub fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use overseer_core::event_bus::EventBus;
+    use overseer_core::OverseerContext;
 
     #[test]
     fn http_server_handle_default() {
@@ -142,8 +142,8 @@ mod tests {
 
     #[test]
     fn server_starts_and_stops() {
-        let event_bus = Arc::new(EventBus::new());
-        let state = Arc::new(SharedState::new(event_bus));
+        let context = Arc::new(OverseerContext::builder().build());
+        let state = Arc::new(SharedState::new(context));
 
         // Use a random high port to avoid conflicts
         let port = 19876;

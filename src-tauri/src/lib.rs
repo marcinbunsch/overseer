@@ -3,54 +3,22 @@ mod approvals;
 mod chat_session;
 mod git;
 mod http_server;
-mod logging;
 mod persistence;
 mod pty;
 
-use overseer_core::event_bus::EventBus;
 use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
 use overseer_core::paths;
 use overseer_core::shell::build_login_shell_command;
+use overseer_core::OverseerContext;
 use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager, WindowEvent};
 
-/// Wrapper for EventBus to use with Tauri's managed state.
-pub struct EventBusState(pub Arc<EventBus>);
-
-impl Default for EventBusState {
-    fn default() -> Self {
-        Self(Arc::new(EventBus::new()))
-    }
-}
-
-/// Wrapper for shared state that can be passed to the HTTP server.
-/// This holds Arc references to all state, allowing sharing between Tauri and HTTP.
-pub struct SharedStateHolder {
-    pub agent_processes: Arc<agents::AgentProcessMap>,
-    pub codex_servers: Arc<agents::CodexServerMap>,
-    pub copilot_servers: Arc<agents::CopilotServerMap>,
-    pub gemini_servers: Arc<agents::GeminiServerMap>,
-    pub opencode_servers: Arc<agents::OpenCodeServerMap>,
-    pub approval_manager: Arc<approvals::ProjectApprovalManager>,
-    pub chat_sessions: Arc<chat_session::ChatSessionManager>,
-    pub pty_map: Arc<pty::PtyMap>,
-}
-
-impl Default for SharedStateHolder {
-    fn default() -> Self {
-        Self {
-            agent_processes: Arc::new(agents::AgentProcessMap::default()),
-            codex_servers: Arc::new(agents::CodexServerMap::default()),
-            copilot_servers: Arc::new(agents::CopilotServerMap::default()),
-            gemini_servers: Arc::new(agents::GeminiServerMap::default()),
-            opencode_servers: Arc::new(agents::OpenCodeServerMap::default()),
-            approval_manager: Arc::new(approvals::ProjectApprovalManager::default()),
-            chat_sessions: Arc::new(chat_session::ChatSessionManager::default()),
-            pty_map: Arc::new(pty::PtyMap::default()),
-        }
-    }
-}
+/// Wrapper for OverseerContext to use with Tauri's managed state.
+///
+/// OverseerContext lives in overseer-core and is framework-agnostic.
+/// This wrapper allows it to be used with Tauri's state management.
+pub struct OverseerContextState(pub Arc<OverseerContext>);
 
 /// State for the HTTP server.
 pub struct HttpServerState {
@@ -190,10 +158,8 @@ async fn fetch_claude_usage() -> Result<overseer_core::usage::ClaudeUsageRespons
 /// Start the HTTP server.
 #[tauri::command]
 fn start_http_server(
-    event_bus_state: tauri::State<EventBusState>,
     http_server_state: tauri::State<HttpServerState>,
-    persistence_config: tauri::State<persistence::PersistenceConfig>,
-    shared_state_holder: tauri::State<SharedStateHolder>,
+    context_state: tauri::State<OverseerContextState>,
     host: String,
     port: u16,
     static_dir: Option<String>,
@@ -205,22 +171,8 @@ fn start_http_server(
         handle.stop();
     }
 
-    // Get config_dir from persistence config
-    let config_dir = persistence_config.get_config_dir_public();
-
-    // Create shared state for HTTP server with all hoisted state
-    let shared_state = Arc::new(http_server::SharedState::with_all_state(
-        Arc::clone(&event_bus_state.0),
-        config_dir,
-        Arc::clone(&shared_state_holder.agent_processes),
-        Arc::clone(&shared_state_holder.codex_servers),
-        Arc::clone(&shared_state_holder.copilot_servers),
-        Arc::clone(&shared_state_holder.gemini_servers),
-        Arc::clone(&shared_state_holder.opencode_servers),
-        Arc::clone(&shared_state_holder.approval_manager),
-        Arc::clone(&shared_state_holder.chat_sessions),
-        Arc::clone(&shared_state_holder.pty_map),
-    ));
+    // Create shared state for HTTP server from the context
+    let shared_state = Arc::new(http_server::SharedState::from_context(&context_state.0));
 
     // Start the server
     *handle = http_server::start(shared_state, host, port, static_dir)?;
@@ -245,25 +197,16 @@ fn get_http_server_status(http_server_state: tauri::State<HttpServerState>) -> b
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Create EventBus and wrap in state
-    let event_bus_state = EventBusState::default();
-
-    // Create shared state holder with Arc-wrapped instances
-    let shared_state_holder = SharedStateHolder::default();
+    // Create OverseerContext - the central shared state
+    let context = Arc::new(OverseerContext::builder().build());
+    let context_state = OverseerContextState(Arc::clone(&context));
 
     tauri::Builder::default()
-        .manage(event_bus_state)
+        .manage(context_state)
         .manage(HttpServerState::default())
-        .manage(Arc::clone(&shared_state_holder.agent_processes))
-        .manage(Arc::clone(&shared_state_holder.codex_servers))
-        .manage(Arc::clone(&shared_state_holder.copilot_servers))
-        .manage(Arc::clone(&shared_state_holder.gemini_servers))
-        .manage(Arc::clone(&shared_state_holder.opencode_servers))
-        .manage(Arc::clone(&shared_state_holder.approval_manager))
-        .manage(Arc::clone(&shared_state_holder.chat_sessions))
+        .manage(Arc::clone(&context.approval_manager))
+        .manage(Arc::clone(&context.chat_sessions))
         .manage(persistence::PersistenceConfig::default())
-        .manage(Arc::clone(&shared_state_holder.pty_map))
-        .manage(shared_state_holder)
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
@@ -360,12 +303,11 @@ pub fn run() {
             )?;
 
             // Set up the config directory for approvals persistence
-            let approval_manager = app.state::<Arc<approvals::ProjectApprovalManager>>();
-            approval_manager.set_config_dir(config_dir.clone());
+            let context_state = app.state::<OverseerContextState>();
+            context_state.0.approval_manager.set_config_dir(config_dir.clone());
 
             // Set up the config directory for chat session persistence
-            let chat_session_manager = app.state::<Arc<chat_session::ChatSessionManager>>();
-            chat_session_manager.set_config_dir(config_dir.clone());
+            context_state.0.chat_sessions.set_config_dir(config_dir.clone());
 
             // Set up the config directory for general persistence
             let persistence_config = app.state::<persistence::PersistenceConfig>();
@@ -373,8 +315,8 @@ pub fn run() {
 
             // Set up EventBus -> Tauri event forwarding
             // This allows all events emitted to the EventBus to be forwarded to Tauri's IPC
-            let event_bus_state = app.state::<EventBusState>();
-            let mut event_rx = event_bus_state.0.subscribe();
+            let context_state = app.state::<OverseerContextState>();
+            let mut event_rx = context_state.0.event_bus.subscribe();
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
                 // Use a simple blocking loop since broadcast::Receiver has blocking_recv

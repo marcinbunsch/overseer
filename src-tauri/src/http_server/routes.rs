@@ -2518,7 +2518,7 @@ async fn dispatch_load_project_approvals(
         }
     };
 
-    let data = state.approval_manager.load_approvals(project_name);
+    let data = state.context.approval_manager.load_approvals(project_name);
     (
         StatusCode::OK,
         Json(InvokeResponse {
@@ -2563,7 +2563,7 @@ async fn dispatch_add_approval(
 
     let is_prefix = args.get("isPrefix").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    match state.approval_manager.add_approval(project_name, tool_or_prefix, is_prefix) {
+    match state.context.approval_manager.add_approval(project_name, tool_or_prefix, is_prefix) {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -2617,7 +2617,7 @@ async fn dispatch_remove_approval(
 
     let is_prefix = args.get("isPrefix").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    match state.approval_manager.remove_approval(project_name, tool_or_prefix, is_prefix) {
+    match state.context.approval_manager.remove_approval(project_name, tool_or_prefix, is_prefix) {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -2655,7 +2655,7 @@ async fn dispatch_clear_project_approvals(
         }
     };
 
-    match state.approval_manager.clear_approvals(project_name) {
+    match state.context.approval_manager.clear_approvals(project_name) {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -2740,7 +2740,7 @@ async fn dispatch_register_chat_session(
             }
         };
 
-    match state.chat_sessions.register_session(chat_id, project_name, workspace_name, metadata) {
+    match state.context.chat_sessions.register_session(chat_id, project_name, workspace_name, metadata) {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -2778,7 +2778,7 @@ async fn dispatch_unregister_chat_session(
         }
     };
 
-    match state.chat_sessions.unregister_session(chat_id) {
+    match state.context.chat_sessions.unregister_session(chat_id) {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -2831,7 +2831,7 @@ async fn dispatch_append_chat_event(
             }
         };
 
-    match state.chat_sessions.append_event(chat_id, event) {
+    match state.context.chat_sessions.append_event(chat_id, event) {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -2897,7 +2897,7 @@ async fn dispatch_load_chat_events(
         }
     };
 
-    match state.chat_sessions.load_events(project_name, workspace_name, chat_id) {
+    match state.context.chat_sessions.load_events(project_name, workspace_name, chat_id) {
         Ok(events) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -2963,7 +2963,7 @@ async fn dispatch_load_chat_metadata(
         }
     };
 
-    match state.chat_sessions.load_metadata(project_name, workspace_name, chat_id) {
+    match state.context.chat_sessions.load_metadata(project_name, workspace_name, chat_id) {
         Ok(metadata) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -3030,7 +3030,7 @@ async fn dispatch_save_chat_metadata(
             }
         };
 
-    match state.chat_sessions.save_metadata(project_name, workspace_name, metadata) {
+    match state.context.chat_sessions.save_metadata(project_name, workspace_name, metadata) {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -3084,7 +3084,7 @@ async fn dispatch_add_user_message(
 
     let meta = args.get("meta").cloned();
 
-    match state.chat_sessions.add_user_message(chat_id, content, meta) {
+    match state.context.chat_sessions.add_user_message(chat_id, content, meta) {
         Ok(event) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -3318,7 +3318,7 @@ async fn dispatch_stop_agent(
         }
     };
 
-    state.agent_processes.stop(conversation_id);
+    state.context.claude_agents.stop(conversation_id);
     (
         StatusCode::OK,
         Json(InvokeResponse {
@@ -3361,7 +3361,7 @@ async fn dispatch_agent_stdin(
         }
     };
 
-    match state.agent_processes.write_stdin(conversation_id, data) {
+    match state.context.claude_agents.write_stdin(conversation_id, data) {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -3382,7 +3382,7 @@ async fn dispatch_agent_stdin(
 }
 
 async fn dispatch_list_running(state: &SharedState) -> (StatusCode, Json<InvokeResponse>) {
-    let running = state.agent_processes.list_running();
+    let running = state.context.claude_agents.list_running();
     (
         StatusCode::OK,
         Json(InvokeResponse {
@@ -3471,8 +3471,8 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_get_config_dir_without_config() {
-        let event_bus = Arc::new(overseer_core::EventBus::new());
-        let state = SharedState::new(event_bus);
+        let context = Arc::new(overseer_core::OverseerContext::builder().build());
+        let state = SharedState::new(context);
         let (status, Json(response)) = dispatch_get_config_dir(&state).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert!(!response.success);
@@ -3481,8 +3481,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_get_config_dir_with_config() {
-        let event_bus = Arc::new(overseer_core::EventBus::new());
-        let state = SharedState::with_config_dir(event_bus, PathBuf::from("/tmp/test"));
+        let state = SharedState::with_config_dir(PathBuf::from("/tmp/test"));
         let (status, Json(response)) = dispatch_get_config_dir(&state).await;
         assert_eq!(status, StatusCode::OK);
         assert!(response.success);
@@ -3491,8 +3490,8 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_load_project_registry_without_config() {
-        let event_bus = Arc::new(overseer_core::EventBus::new());
-        let state = SharedState::new(event_bus);
+        let context = Arc::new(overseer_core::OverseerContext::builder().build());
+        let state = SharedState::new(context);
         let (status, Json(response)) = dispatch_load_project_registry(&state).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert!(!response.success);

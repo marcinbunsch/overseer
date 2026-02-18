@@ -2687,6 +2687,8 @@ dependencies = [
  "chrono",
  "libc",
  "log",
+ "portable-pty",
+ "rand 0.8.5",
  "regex",
  "serde",
  "serde_json",
@@ -2694,6 +2696,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "ureq",
  "uuid",
 ]
 

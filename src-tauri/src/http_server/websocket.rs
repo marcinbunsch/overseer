@@ -56,7 +56,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SharedState>) {
     let subscriptions: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
     // Subscribe to the event bus
-    let mut event_rx = state.event_bus.subscribe();
+    let mut event_rx = state.context.event_bus.subscribe();
 
     // Spawn task to handle incoming messages (subscription requests)
     let subs_clone = Arc::clone(&subscriptions);
