@@ -377,8 +377,114 @@ const AgentsTab = observer(function AgentsTab() {
 })
 
 const AdvancedTab = observer(function AdvancedTab() {
+  const [httpServerRunning, setHttpServerRunning] = useState(false)
+  const [httpServerLoading, setHttpServerLoading] = useState(false)
+  const [httpHost, setHttpHost] = useState("127.0.0.1")
+  const [httpPort, setHttpPort] = useState("6767")
+
+  // Check server status on mount
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const { backend } = await import("../../backend")
+        const running = await backend.invoke<boolean>("get_http_server_status")
+        setHttpServerRunning(running)
+      } catch {
+        // Ignore errors
+      }
+    }
+    checkStatus()
+  }, [])
+
+  const handleToggleHttpServer = async () => {
+    setHttpServerLoading(true)
+    try {
+      const { backend } = await import("../../backend")
+      if (httpServerRunning) {
+        await backend.invoke("stop_http_server")
+        setHttpServerRunning(false)
+      } else {
+        await backend.invoke("start_http_server", {
+          host: httpHost,
+          port: parseInt(httpPort, 10),
+          staticDir: null,
+        })
+        setHttpServerRunning(true)
+      }
+    } catch (err) {
+      console.error("Failed to toggle HTTP server:", err)
+    } finally {
+      setHttpServerLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
+      {/* HTTP Server */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-ovr-text-muted">HTTP Server</label>
+        <p className="mb-3 text-[11px] text-ovr-text-dim">
+          Start an HTTP server to access Overseer from a web browser.
+        </p>
+        <div className="space-y-3 rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <label className="mb-1 block text-[11px] text-ovr-text-muted">Host</label>
+              <input
+                type="text"
+                value={httpHost}
+                onChange={(e) => setHttpHost(e.target.value)}
+                disabled={httpServerRunning}
+                className="ovr-input w-full px-2 py-1.5 text-xs disabled:opacity-50"
+                data-testid="http-host-input"
+              />
+            </div>
+            <div className="w-24">
+              <label className="mb-1 block text-[11px] text-ovr-text-muted">Port</label>
+              <input
+                type="text"
+                value={httpPort}
+                onChange={(e) => setHttpPort(e.target.value)}
+                disabled={httpServerRunning}
+                className="ovr-input w-full px-2 py-1.5 text-xs disabled:opacity-50"
+                data-testid="http-port-input"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span
+                className={classNames("size-2 rounded-full", {
+                  "bg-ovr-ok": httpServerRunning,
+                  "bg-ovr-text-dim": !httpServerRunning,
+                })}
+              />
+              <span className="text-xs text-ovr-text-primary">
+                {httpServerRunning ? `Running on http://${httpHost}:${httpPort}` : "Stopped"}
+              </span>
+            </div>
+            <button
+              onClick={handleToggleHttpServer}
+              disabled={httpServerLoading}
+              className={classNames("px-3 py-1.5 text-xs", {
+                "ovr-btn-danger": httpServerRunning,
+                "ovr-btn-primary": !httpServerRunning,
+              })}
+              data-testid="http-server-toggle"
+            >
+              {httpServerLoading ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : httpServerRunning ? (
+                "Stop Server"
+              ) : (
+                "Start Server"
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Shell Prefix */}
       <div>
         <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Shell Prefix</label>
         <input
