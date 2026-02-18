@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { readTextFile, writeTextFile, exists, mkdir } from "@tauri-apps/plugin-fs"
+import { invoke } from "@tauri-apps/api/core"
 import { homeDir } from "@tauri-apps/api/path"
 
 // We need to test ConfigStore's class logic without triggering the singleton's
@@ -8,20 +8,30 @@ describe("ConfigStore", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(homeDir).mockResolvedValue("/home/testuser/")
+    // Default mock for invoke - can be overridden in individual tests
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") return Promise.resolve(null)
+      if (cmd === "save_json_config") return Promise.resolve(undefined)
+      return Promise.resolve(undefined)
+    })
   })
 
   it("loads config from disk and expands $HOME", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(
-      JSON.stringify({
-        claudePath: "$HOME/.local/bin/claude",
-        leftPaneWidth: 300,
-        rightPaneWidth: 400,
-        changesHeight: 200,
-        editorCommand: "vim",
-        terminalCommand: "xterm",
-      })
-    )
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({
+          claudePath: "$HOME/.local/bin/claude",
+          leftPaneWidth: 300,
+          rightPaneWidth: 400,
+          changesHeight: 200,
+          editorCommand: "vim",
+          terminalCommand: "xterm",
+        })
+      }
+      return Promise.resolve(undefined)
+    })
 
     // Import fresh to trigger constructor
     vi.resetModules()
@@ -41,18 +51,12 @@ describe("ConfigStore", () => {
   })
 
   it("creates default config when file does not exist", async () => {
-    vi.mocked(exists).mockResolvedValueOnce(false) // config file
-    vi.mocked(exists).mockResolvedValueOnce(false) // config dir
-    vi.mocked(readTextFile).mockResolvedValue(
-      JSON.stringify({
-        claudePath: "$HOME/.local/bin/claude",
-        leftPaneWidth: 250,
-        rightPaneWidth: 300,
-        changesHeight: 250,
-        editorCommand: "code",
-        terminalCommand: "open -a iTerm",
-      })
-    )
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(false)
+      if (cmd === "save_json_config") return Promise.resolve(undefined)
+      if (cmd === "load_json_config") return Promise.resolve(null)
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -61,9 +65,11 @@ describe("ConfigStore", () => {
       expect(configStore.loaded).toBe(true)
     })
 
-    // In test/dev mode, uses overseer-dev directory
-    expect(mkdir).toHaveBeenCalledWith("/home/testuser/.config/overseer-dev", { recursive: true })
-    expect(writeTextFile).toHaveBeenCalled()
+    // Should have called save_json_config to create default config
+    expect(invoke).toHaveBeenCalledWith(
+      "save_json_config",
+      expect.objectContaining({ filename: "config.json" })
+    )
   })
 
   it("falls back to bare 'claude' on load error", async () => {
@@ -80,12 +86,13 @@ describe("ConfigStore", () => {
   })
 
   it("uses defaults for missing config fields", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(
-      JSON.stringify({
-        claudePath: "$HOME/bin/claude",
-      })
-    )
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ claudePath: "$HOME/bin/claude" })
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -102,8 +109,13 @@ describe("ConfigStore", () => {
   })
 
   it("saves config when pane width is changed", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ claudePath: "claude" })
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -112,20 +124,25 @@ describe("ConfigStore", () => {
       expect(configStore.loaded).toBe(true)
     })
 
-    vi.mocked(writeTextFile).mockClear()
+    vi.mocked(invoke).mockClear()
     configStore.setLeftPaneWidth(500)
 
     expect(configStore.leftPaneWidth).toBe(500)
     // save is async, wait for it
     await vi.waitFor(() => {
-      expect(writeTextFile).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("save_json_config", expect.anything())
     })
   })
 
   it("strips trailing slash from home directory", async () => {
     vi.mocked(homeDir).mockResolvedValue("/home/testuser/")
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "$HOME/claude" }))
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ claudePath: "$HOME/claude" })
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -139,8 +156,13 @@ describe("ConfigStore", () => {
   })
 
   it("expands unknown env vars to empty string", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "$UNKNOWN_VAR/claude" }))
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ claudePath: "$UNKNOWN_VAR/claude" })
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -153,8 +175,13 @@ describe("ConfigStore", () => {
   })
 
   it("uses default Claude models when not in config", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ claudePath: "claude" })
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -166,14 +193,20 @@ describe("ConfigStore", () => {
     expect(configStore.claudeModels).toEqual([
       { alias: "claude-opus-4-6", displayName: "Opus 4.6" },
       { alias: "claude-opus-4-5", displayName: "Opus 4.5" },
+      { alias: "claude-sonnet-4-6", displayName: "Sonnet 4.6" },
       { alias: "claude-sonnet-4-5", displayName: "Sonnet 4.5" },
       { alias: "claude-haiku-4-5", displayName: "Haiku 4.5" },
     ])
   })
 
   it("uses default Codex models when not in config", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ claudePath: "claude" })
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -191,15 +224,17 @@ describe("ConfigStore", () => {
   })
 
   it("loads custom model arrays from config", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    // Custom model arrays in config should be loaded
-    vi.mocked(readTextFile).mockResolvedValue(
-      JSON.stringify({
-        claudePath: "claude",
-        claudeModels: [{ alias: "custom-claude", displayName: "Custom Claude" }],
-        codexModels: [{ alias: "custom-codex", displayName: "Custom Codex" }],
-      })
-    )
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({
+          claudePath: "claude",
+          claudeModels: [{ alias: "custom-claude", displayName: "Custom Claude" }],
+          codexModels: [{ alias: "custom-codex", displayName: "Custom Codex" }],
+        })
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -218,15 +253,18 @@ describe("ConfigStore", () => {
   })
 
   it("loads default models for agents from config", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(
-      JSON.stringify({
-        claudePath: "claude",
-        defaultClaudeModel: "opus",
-        defaultCodexModel: "gpt-5.3-codex",
-        defaultCopilotModel: "claude-sonnet-4-5",
-      })
-    )
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({
+          claudePath: "claude",
+          defaultClaudeModel: "opus",
+          defaultCodexModel: "gpt-5.3-codex",
+          defaultCopilotModel: "claude-sonnet-4-5",
+        })
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -241,8 +279,13 @@ describe("ConfigStore", () => {
   })
 
   it("defaults to null when default models are not in config", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ claudePath: "claude" })
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -257,8 +300,18 @@ describe("ConfigStore", () => {
   })
 
   it("saves config when default Claude model is changed", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+    let savedConfig: Record<string, unknown> | null = null
+    vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ claudePath: "claude" })
+      }
+      if (cmd === "save_json_config") {
+        savedConfig = (args as { content: Record<string, unknown> }).content
+        return Promise.resolve(undefined)
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -267,21 +320,29 @@ describe("ConfigStore", () => {
       expect(configStore.loaded).toBe(true)
     })
 
-    vi.mocked(writeTextFile).mockClear()
     configStore.setDefaultClaudeModel("sonnet")
 
     expect(configStore.defaultClaudeModel).toBe("sonnet")
     await vi.waitFor(() => {
-      expect(writeTextFile).toHaveBeenCalled()
+      expect(savedConfig).not.toBeNull()
     })
 
-    const writtenConfig = JSON.parse(vi.mocked(writeTextFile).mock.calls[0]![1] as string)
-    expect(writtenConfig.defaultClaudeModel).toBe("sonnet")
+    expect(savedConfig!.defaultClaudeModel).toBe("sonnet")
   })
 
   it("saves config when default Codex model is changed", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+    let savedConfig: Record<string, unknown> | null = null
+    vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ claudePath: "claude" })
+      }
+      if (cmd === "save_json_config") {
+        savedConfig = (args as { content: Record<string, unknown> }).content
+        return Promise.resolve(undefined)
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -290,21 +351,29 @@ describe("ConfigStore", () => {
       expect(configStore.loaded).toBe(true)
     })
 
-    vi.mocked(writeTextFile).mockClear()
     configStore.setDefaultCodexModel("gpt-5.2-codex")
 
     expect(configStore.defaultCodexModel).toBe("gpt-5.2-codex")
     await vi.waitFor(() => {
-      expect(writeTextFile).toHaveBeenCalled()
+      expect(savedConfig).not.toBeNull()
     })
 
-    const writtenConfig = JSON.parse(vi.mocked(writeTextFile).mock.calls[0]![1] as string)
-    expect(writtenConfig.defaultCodexModel).toBe("gpt-5.2-codex")
+    expect(savedConfig!.defaultCodexModel).toBe("gpt-5.2-codex")
   })
 
   it("saves config when default Copilot model is changed", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+    let savedConfig: Record<string, unknown> | null = null
+    vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({ claudePath: "claude" })
+      }
+      if (cmd === "save_json_config") {
+        savedConfig = (args as { content: Record<string, unknown> }).content
+        return Promise.resolve(undefined)
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -313,28 +382,29 @@ describe("ConfigStore", () => {
       expect(configStore.loaded).toBe(true)
     })
 
-    vi.mocked(writeTextFile).mockClear()
     configStore.setDefaultCopilotModel("gpt-4o")
 
     expect(configStore.defaultCopilotModel).toBe("gpt-4o")
     await vi.waitFor(() => {
-      expect(writeTextFile).toHaveBeenCalled()
+      expect(savedConfig).not.toBeNull()
     })
 
-    const writtenConfig = JSON.parse(vi.mocked(writeTextFile).mock.calls[0]![1] as string)
-    expect(writtenConfig.defaultCopilotModel).toBe("gpt-4o")
+    expect(savedConfig!.defaultCopilotModel).toBe("gpt-4o")
   })
 
   it("getDefaultModelForAgent returns correct model for each agent type", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(
-      JSON.stringify({
-        claudePath: "claude",
-        defaultClaudeModel: "opus",
-        defaultCodexModel: "gpt-5.3-codex",
-        defaultCopilotModel: "claude-sonnet-4-5",
-      })
-    )
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({
+          claudePath: "claude",
+          defaultClaudeModel: "opus",
+          defaultCodexModel: "gpt-5.3-codex",
+          defaultCopilotModel: "claude-sonnet-4-5",
+        })
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -349,13 +419,21 @@ describe("ConfigStore", () => {
   })
 
   it("allows setting default model to null", async () => {
-    vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(
-      JSON.stringify({
-        claudePath: "claude",
-        defaultClaudeModel: "opus",
-      })
-    )
+    let savedConfig: Record<string, unknown> | null = null
+    vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+      if (cmd === "config_file_exists") return Promise.resolve(true)
+      if (cmd === "load_json_config") {
+        return Promise.resolve({
+          claudePath: "claude",
+          defaultClaudeModel: "opus",
+        })
+      }
+      if (cmd === "save_json_config") {
+        savedConfig = (args as { content: Record<string, unknown> }).content
+        return Promise.resolve(undefined)
+      }
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -366,22 +444,25 @@ describe("ConfigStore", () => {
 
     expect(configStore.defaultClaudeModel).toBe("opus")
 
-    vi.mocked(writeTextFile).mockClear()
     configStore.setDefaultClaudeModel(null)
 
     expect(configStore.defaultClaudeModel).toBeNull()
     await vi.waitFor(() => {
-      expect(writeTextFile).toHaveBeenCalled()
+      expect(savedConfig).not.toBeNull()
     })
 
-    const writtenConfig = JSON.parse(vi.mocked(writeTextFile).mock.calls[0]![1] as string)
-    expect(writtenConfig.defaultClaudeModel).toBeNull()
+    expect(savedConfig!.defaultClaudeModel).toBeNull()
   })
 
   describe("enabledAgents", () => {
     it("defaults to all agents enabled", async () => {
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+      vi.mocked(invoke).mockImplementation((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        return Promise.resolve(undefined)
+      })
 
       vi.resetModules()
       const { configStore } = await import("../ConfigStore")
@@ -402,13 +483,16 @@ describe("ConfigStore", () => {
     })
 
     it("loads enabledAgents from config", async () => {
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(
-        JSON.stringify({
-          claudePath: "claude",
-          enabledAgents: ["claude", "gemini"],
-        })
-      )
+      vi.mocked(invoke).mockImplementation((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({
+            claudePath: "claude",
+            enabledAgents: ["claude", "gemini"],
+          })
+        }
+        return Promise.resolve(undefined)
+      })
 
       vi.resetModules()
       const { configStore } = await import("../ConfigStore")
@@ -424,13 +508,16 @@ describe("ConfigStore", () => {
     })
 
     it("enables an agent", async () => {
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(
-        JSON.stringify({
-          claudePath: "claude",
-          enabledAgents: ["claude"],
-        })
-      )
+      vi.mocked(invoke).mockImplementation((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({
+            claudePath: "claude",
+            enabledAgents: ["claude"],
+          })
+        }
+        return Promise.resolve(undefined)
+      })
 
       vi.resetModules()
       const { configStore } = await import("../ConfigStore")
@@ -441,20 +528,25 @@ describe("ConfigStore", () => {
 
       expect(configStore.isAgentEnabled("codex")).toBe(false)
 
-      vi.mocked(writeTextFile).mockClear()
+      vi.mocked(invoke).mockClear()
       configStore.setAgentEnabled("codex", true)
 
       expect(configStore.isAgentEnabled("codex")).toBe(true)
       expect(configStore.enabledAgents).toContain("codex")
 
       await vi.waitFor(() => {
-        expect(writeTextFile).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("save_json_config", expect.anything())
       })
     })
 
     it("disables an agent", async () => {
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+      vi.mocked(invoke).mockImplementation((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        return Promise.resolve(undefined)
+      })
 
       vi.resetModules()
       const { configStore } = await import("../ConfigStore")
@@ -465,25 +557,28 @@ describe("ConfigStore", () => {
 
       expect(configStore.isAgentEnabled("codex")).toBe(true)
 
-      vi.mocked(writeTextFile).mockClear()
+      vi.mocked(invoke).mockClear()
       configStore.setAgentEnabled("codex", false)
 
       expect(configStore.isAgentEnabled("codex")).toBe(false)
       expect(configStore.enabledAgents).not.toContain("codex")
 
       await vi.waitFor(() => {
-        expect(writeTextFile).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith("save_json_config", expect.anything())
       })
     })
 
     it("clears defaultAgent when disabled agent was the default", async () => {
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(
-        JSON.stringify({
-          claudePath: "claude",
-          defaultAgent: "codex",
-        })
-      )
+      vi.mocked(invoke).mockImplementation((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({
+            claudePath: "claude",
+            defaultAgent: "codex",
+          })
+        }
+        return Promise.resolve(undefined)
+      })
 
       vi.resetModules()
       const { configStore } = await import("../ConfigStore")
@@ -500,8 +595,13 @@ describe("ConfigStore", () => {
     })
 
     it("does not duplicate agent when enabling already enabled agent", async () => {
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+      vi.mocked(invoke).mockImplementation((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        return Promise.resolve(undefined)
+      })
 
       vi.resetModules()
       const { configStore } = await import("../ConfigStore")
@@ -519,8 +619,13 @@ describe("ConfigStore", () => {
 
   describe("defaultAgent", () => {
     it("defaults to claude", async () => {
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+      vi.mocked(invoke).mockImplementation((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        return Promise.resolve(undefined)
+      })
 
       vi.resetModules()
       const { configStore } = await import("../ConfigStore")
@@ -533,13 +638,16 @@ describe("ConfigStore", () => {
     })
 
     it("loads null defaultAgent from config", async () => {
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(
-        JSON.stringify({
-          claudePath: "claude",
-          defaultAgent: null,
-        })
-      )
+      vi.mocked(invoke).mockImplementation((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({
+            claudePath: "claude",
+            defaultAgent: null,
+          })
+        }
+        return Promise.resolve(undefined)
+      })
 
       vi.resetModules()
       const { configStore } = await import("../ConfigStore")
@@ -552,8 +660,18 @@ describe("ConfigStore", () => {
     })
 
     it("sets defaultAgent to null", async () => {
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+      let savedConfig: Record<string, unknown> | null = null
+      vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        if (cmd === "save_json_config") {
+          savedConfig = (args as { content: Record<string, unknown> }).content
+          return Promise.resolve(undefined)
+        }
+        return Promise.resolve(undefined)
+      })
 
       vi.resetModules()
       const { configStore } = await import("../ConfigStore")
@@ -564,22 +682,30 @@ describe("ConfigStore", () => {
 
       expect(configStore.defaultAgent).toBe("claude")
 
-      vi.mocked(writeTextFile).mockClear()
       configStore.setDefaultAgent(null)
 
       expect(configStore.defaultAgent).toBeNull()
 
       await vi.waitFor(() => {
-        expect(writeTextFile).toHaveBeenCalled()
+        expect(savedConfig).not.toBeNull()
       })
 
-      const writtenConfig = JSON.parse(vi.mocked(writeTextFile).mock.calls[0]![1] as string)
-      expect(writtenConfig.defaultAgent).toBeNull()
+      expect(savedConfig!.defaultAgent).toBeNull()
     })
 
     it("sets defaultAgent to a specific agent", async () => {
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ claudePath: "claude" }))
+      let savedConfig: Record<string, unknown> | null = null
+      vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        if (cmd === "save_json_config") {
+          savedConfig = (args as { content: Record<string, unknown> }).content
+          return Promise.resolve(undefined)
+        }
+        return Promise.resolve(undefined)
+      })
 
       vi.resetModules()
       const { configStore } = await import("../ConfigStore")
@@ -588,17 +714,15 @@ describe("ConfigStore", () => {
         expect(configStore.loaded).toBe(true)
       })
 
-      vi.mocked(writeTextFile).mockClear()
       configStore.setDefaultAgent("gemini")
 
       expect(configStore.defaultAgent).toBe("gemini")
 
       await vi.waitFor(() => {
-        expect(writeTextFile).toHaveBeenCalled()
+        expect(savedConfig).not.toBeNull()
       })
 
-      const writtenConfig = JSON.parse(vi.mocked(writeTextFile).mock.calls[0]![1] as string)
-      expect(writtenConfig.defaultAgent).toBe("gemini")
+      expect(savedConfig!.defaultAgent).toBe("gemini")
     })
   })
 })

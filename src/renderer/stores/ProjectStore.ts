@@ -1,9 +1,7 @@
 import { observable, computed, action, makeObservable, runInAction } from "mobx"
-import { homeDir } from "@tauri-apps/api/path"
-import { readTextFile, writeTextFile, exists, mkdir } from "@tauri-apps/plugin-fs"
 import type { Project, Workspace } from "../types"
 import { WorkspaceStore, type WorkspaceStatus } from "./WorkspaceStore"
-import { getConfigPath } from "../utils/paths"
+import { backend } from "../backend"
 
 /**
  * ProjectStore wraps a single Project object with MobX observability and computed properties.
@@ -56,8 +54,6 @@ export class ProjectStore {
 
   // WorkspaceStore cache - lazily created
   private _workspaceStoreCache = new Map<string, WorkspaceStore>()
-
-  private home: string | null = null
 
   constructor(project: Project) {
     this.id = project.id
@@ -218,45 +214,18 @@ export class ProjectStore {
 
   // --- Approval persistence ---
 
-  private async resolveHome(): Promise<string> {
-    if (!this.home) {
-      this.home = await homeDir()
-      if (this.home.endsWith("/")) {
-        this.home = this.home.slice(0, -1)
-      }
-    }
-    return this.home
-  }
-
-  private async getProjectChatsDir(): Promise<string> {
-    const home = await this.resolveHome()
-    return `${getConfigPath(home)}/chats/${this.name}`
-  }
-
   /**
-   * Load approvals from project-level storage.
-   * Called by WorkspaceStore when loading a workspace.
+   * Load approvals from Rust backend.
+   * @param force If true, reload even if already loaded (for settings UI refresh)
    */
-  async loadApprovals(): Promise<void> {
-    if (this.approvalsLoaded) return
+  async loadApprovals(force = false): Promise<void> {
+    if (this.approvalsLoaded && !force) return
 
     try {
-      const projectDir = await this.getProjectChatsDir()
-      const approvalsPath = `${projectDir}/approvals.json`
-
-      const fileExists = await exists(approvalsPath)
-      if (!fileExists) {
-        runInAction(() => {
-          this.approvalsLoaded = true
-        })
-        return
-      }
-
-      const raw = await readTextFile(approvalsPath)
-      const data = JSON.parse(raw) as {
-        toolNames?: string[]
-        commandPrefixes?: string[]
-      }
+      const data = await backend.invoke<{ toolNames: string[]; commandPrefixes: string[] }>(
+        "load_project_approvals",
+        { projectName: this.name }
+      )
 
       runInAction(() => {
         if (Array.isArray(data.toolNames)) {
@@ -268,7 +237,7 @@ export class ProjectStore {
         this.approvalsLoaded = true
       })
     } catch (err) {
-      console.error("Failed to load approvals from disk:", err)
+      console.error("Failed to load approvals from Rust:", err)
       runInAction(() => {
         this.approvalsLoaded = true
       })
@@ -276,54 +245,51 @@ export class ProjectStore {
   }
 
   /**
-   * Save approvals to project-level storage.
-   */
-  async saveApprovals(): Promise<void> {
-    try {
-      const projectDir = await this.getProjectChatsDir()
-
-      // Ensure directory exists
-      const dirExists = await exists(projectDir)
-      if (!dirExists) {
-        await mkdir(projectDir, { recursive: true })
-      }
-
-      const data = {
-        toolNames: Array.from(this.approvedToolNames),
-        commandPrefixes: Array.from(this.approvedCommandPrefixes),
-      }
-      await writeTextFile(`${projectDir}/approvals.json`, JSON.stringify(data, null, 2) + "\n")
-    } catch (err) {
-      console.error("Failed to save approvals to disk:", err)
-    }
-  }
-
-  /**
    * Remove a tool from the approved list
    */
   @action
-  removeToolApproval(tool: string): void {
+  async removeToolApproval(tool: string): Promise<void> {
     this.approvedToolNames.delete(tool)
-    void this.saveApprovals()
+    try {
+      await backend.invoke("remove_approval", {
+        projectName: this.name,
+        toolOrPrefix: tool,
+        isPrefix: false,
+      })
+    } catch (err) {
+      console.error("Failed to remove tool approval:", err)
+    }
   }
 
   /**
    * Remove a command prefix from the approved list
    */
   @action
-  removeCommandApproval(command: string): void {
+  async removeCommandApproval(command: string): Promise<void> {
     this.approvedCommandPrefixes.delete(command)
-    void this.saveApprovals()
+    try {
+      await backend.invoke("remove_approval", {
+        projectName: this.name,
+        toolOrPrefix: command,
+        isPrefix: true,
+      })
+    } catch (err) {
+      console.error("Failed to remove command approval:", err)
+    }
   }
 
   /**
    * Clear all approvals (both tools and commands)
    */
   @action
-  clearAllApprovals(): void {
+  async clearAllApprovals(): Promise<void> {
     this.approvedToolNames.clear()
     this.approvedCommandPrefixes.clear()
-    void this.saveApprovals()
+    try {
+      await backend.invoke("clear_project_approvals", { projectName: this.name })
+    } catch (err) {
+      console.error("Failed to clear approvals:", err)
+    }
   }
 
   /**

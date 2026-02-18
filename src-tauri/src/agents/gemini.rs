@@ -1,31 +1,31 @@
 //! Gemini CLI process management.
 //!
-//! Handles spawning and communication with the Gemini CLI using the headless
-//! NDJSON streaming protocol. Unlike Claude/Codex, Gemini uses a one-shot
-//! process model where each message spawns a new process.
+//! Thin wrapper around overseer-core spawn for Tauri event forwarding.
+//! Uses GeminiParser from overseer-core for NDJSON parsing.
 
 use std::{
     collections::HashMap,
-    io::BufRead,
-    process::{Child, Stdio},
     sync::{Arc, Mutex},
-    time::Duration,
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
-use super::shared::{build_login_shell_command, AgentExit};
+use crate::chat_session::ChatSessionManager;
 use crate::logging::{log_line, open_log_file, LogHandle};
+use overseer_core::agents::gemini::{GeminiConfig, GeminiParser};
+use overseer_core::spawn::{AgentProcess, ProcessEvent};
 
 struct GeminiProcessEntry {
-    child: Arc<Mutex<Option<Child>>>,
+    process: Arc<Mutex<Option<AgentProcess>>>,
     log_file: LogHandle,
+    parser: Arc<Mutex<GeminiParser>>,
 }
 
 impl Default for GeminiProcessEntry {
     fn default() -> Self {
         Self {
-            child: Arc::new(Mutex::new(None)),
+            process: Arc::new(Mutex::new(None)),
             log_file: Arc::new(Mutex::new(None)),
+            parser: Arc::new(Mutex::new(GeminiParser::new())),
         }
     }
 }
@@ -35,11 +35,7 @@ pub struct GeminiServerMap {
     processes: Mutex<HashMap<String, GeminiProcessEntry>>,
 }
 
-/// Start a `gemini` process for a given server_id (typically chat id).
-///
-/// Gemini CLI uses a one-shot model: each message spawns a new process with
-/// `--output-format stream-json`. The process streams NDJSON events on stdout
-/// and exits when done. Session continuity is handled via `--resume` flag.
+/// Start a `gemini` process for a given server_id.
 #[tauri::command]
 pub fn start_gemini_server(
     app: tauri::AppHandle,
@@ -59,137 +55,126 @@ pub fn start_gemini_server(
     {
         let map = state.processes.lock().unwrap();
         if let Some(entry) = map.get(&server_id) {
-            if let Some(mut child) = entry.child.lock().unwrap().take() {
-                let _ = child.kill();
+            if let Some(process) = entry.process.lock().unwrap().take() {
+                process.kill();
             }
         }
     }
 
-    // Build command arguments
-    let mut args: Vec<String> = vec![
-        "-p".to_string(),
-        prompt,
-        "--output-format".to_string(),
-        "stream-json".to_string(),
-    ];
-
-    // Add approval mode (defaults to yolo if not specified)
-    let mode = approval_mode.unwrap_or_else(|| "yolo".to_string());
-    args.push("--approval-mode".to_string());
-    args.push(mode);
-
-    // Add model if specified
-    if let Some(ref model) = model_version {
-        if !model.is_empty() {
-            args.push("-m".to_string());
-            args.push(model.clone());
-        }
-    }
-
-    // Add resume if we have a session
-    if let Some(ref sid) = session_id {
-        if !sid.is_empty() {
-            args.push("--resume".to_string());
-            args.push(sid.clone());
-        }
-    }
-
-    let mut cmd =
-        build_login_shell_command(&gemini_path, &args, Some(&working_dir), agent_shell.as_deref())?;
-    cmd.stdin(Stdio::null()) // No stdin communication for Gemini headless
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn gemini: {}", e))?;
-
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Failed to capture gemini stdout".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "Failed to capture gemini stderr".to_string())?;
-
-    // Open log file if log_dir provided
+    // Open log file
     let lid = log_id.as_deref().unwrap_or(&server_id);
-    let log_handle = open_log_file(&log_dir, lid);
+    let log_handle = open_log_file(log_dir.as_deref(), lid);
 
+    // Build config using core
+    let config = GeminiConfig {
+        binary_path: gemini_path,
+        working_dir,
+        prompt,
+        session_id,
+        model: model_version,
+        approval_mode,
+        shell_prefix: agent_shell,
+    };
+
+    // Spawn the process
+    let mut process = AgentProcess::spawn(config.build())?;
+
+    // Take the event receiver out so we can do blocking receives
+    // without holding the lock on the process
+    let event_receiver = process
+        .take_receiver()
+        .ok_or_else(|| "Failed to take event receiver".to_string())?;
+
+    // Store the process entry
     let mut entry = GeminiProcessEntry::default();
     entry.log_file = Arc::clone(&log_handle);
-    *entry.child.lock().unwrap() = Some(child);
+    *entry.process.lock().unwrap() = Some(process);
 
-    let child_arc = Arc::clone(&entry.child);
+    let process_arc = Arc::clone(&entry.process);
+    let parser_arc = Arc::clone(&entry.parser);
 
     {
         let mut map = state.processes.lock().unwrap();
         map.insert(server_id.clone(), entry);
     }
 
-    // stdout reader — emit each line as a Tauri event
-    let sid_stdout = server_id.clone();
-    let app_stdout = app.clone();
-    let log_stdout = Arc::clone(&log_handle);
+    // Spawn event forwarding thread
+    let sid = server_id.clone();
+    let log_file = Arc::clone(&log_handle);
     std::thread::spawn(move || {
-        let reader = std::io::BufReader::new(stdout);
-        for line in reader.lines().flatten() {
-            log::debug!("gemini stdout [{}]: {}", sid_stdout, line);
-            log_line(&log_stdout, "STDOUT", &line);
-            let _ = app_stdout.emit(&format!("gemini:stdout:{}", sid_stdout), line);
-        }
-    });
-
-    // stderr reader — log and emit
-    let sid_stderr = server_id.clone();
-    let app_stderr = app.clone();
-    let log_stderr = Arc::clone(&log_handle);
-    std::thread::spawn(move || {
-        let reader = std::io::BufReader::new(stderr);
-        for line in reader.lines().flatten() {
-            log::warn!("gemini stderr [{}]: {}", sid_stderr, line);
-            log_line(&log_stderr, "STDERR", &line);
-            let _ = app_stderr.emit(&format!("gemini:stderr:{}", sid_stderr), line);
-        }
-    });
-
-    // exit watcher
-    let sid_exit = server_id.clone();
-    let app_exit = app.clone();
-    std::thread::spawn(move || loop {
-        let mut guard = child_arc.lock().unwrap();
-        if let Some(child) = guard.as_mut() {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    let _ = app_exit.emit(
-                        &format!("gemini:close:{}", sid_exit),
-                        AgentExit {
-                            code: status.code().unwrap_or_default(),
-                            signal: None,
-                        },
-                    );
-                    guard.take();
-                    break;
+        // Helper to flush parser and emit remaining events
+        let flush_and_emit =
+            |parser_arc: &Arc<Mutex<GeminiParser>>,
+             app: &tauri::AppHandle,
+             sid: &str,
+             process_arc: &Arc<Mutex<Option<AgentProcess>>>| {
+                let parsed_events = {
+                    let mut parser = parser_arc.lock().unwrap();
+                    parser.flush()
+                };
+                for event in parsed_events {
+                    let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                    if let Err(err) = chat_sessions.append_event(sid, event.clone()) {
+                        log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
+                    }
+                    let _ = app.emit(&format!("gemini:event:{}", sid), event);
                 }
-                Ok(None) => {}
-                Err(_) => {
-                    guard.take();
+                process_arc.lock().unwrap().take();
+            };
+
+        // Use blocking receive - no polling needed
+        while let Ok(event) = event_receiver.recv() {
+            match event {
+                ProcessEvent::Stdout(line) => {
+                    log::debug!("gemini stdout [{}]: {}", sid, line);
+                    log_line(&log_file, "STDOUT", &line);
+
+                    // Also emit raw stdout for debugging
+                    let _ = app.emit(&format!("gemini:stdout:{}", sid), &line);
+
+                    // Parse through GeminiParser
+                    let parsed_events = {
+                        let mut parser = parser_arc.lock().unwrap();
+                        parser.feed(&format!("{line}\n"))
+                    };
+
+                    // Emit parsed events
+                    for event in parsed_events {
+                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        if let Err(err) = chat_sessions.append_event(&sid, event.clone()) {
+                            log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
+                        }
+                        let _ = app.emit(&format!("gemini:event:{}", sid), event);
+                    }
+                }
+                ProcessEvent::Stderr(line) => {
+                    log::warn!("gemini stderr [{}]: {}", sid, line);
+                    log_line(&log_file, "STDERR", &line);
+                    let _ = app.emit(&format!("gemini:stderr:{}", sid), line);
+                }
+                ProcessEvent::Exit(exit) => {
+                    flush_and_emit(&parser_arc, &app, &sid, &process_arc);
+                    let _ = app.emit(&format!("gemini:close:{}", sid), exit);
                     break;
                 }
             }
-        } else {
-            break;
         }
-        drop(guard);
-        std::thread::sleep(Duration::from_millis(100));
+
+        // Channel closed without Exit event - emit close anyway
+        flush_and_emit(&parser_arc, &app, &sid, &process_arc);
+        let _ = app.emit(
+            &format!("gemini:close:{}", sid),
+            overseer_core::shell::AgentExit {
+                code: 0,
+                signal: None,
+            },
+        );
     });
 
     Ok(())
 }
 
-/// Placeholder for stdin - Gemini headless mode doesn't use stdin for communication.
-/// Kept for interface consistency with other agents.
+/// Placeholder for stdin - Gemini headless mode doesn't use stdin.
 #[tauri::command]
 pub fn gemini_stdin(
     _state: tauri::State<GeminiServerMap>,
@@ -208,8 +193,8 @@ pub fn stop_gemini_server(
 ) -> Result<(), String> {
     let map = state.processes.lock().unwrap();
     if let Some(entry) = map.get(&server_id) {
-        if let Some(mut child) = entry.child.lock().unwrap().take() {
-            let _ = child.kill();
+        if let Some(process) = entry.process.lock().unwrap().take() {
+            process.kill();
         }
     }
     Ok(())

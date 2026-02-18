@@ -1,16 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
-import { readTextFile, writeTextFile, exists, mkdir } from "@tauri-apps/plugin-fs"
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest"
 
-// Mock Tauri APIs before importing ProjectStore
-vi.mock("@tauri-apps/api/path", () => ({
-  homeDir: vi.fn(() => Promise.resolve("/home/testuser/")),
-}))
-
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  readTextFile: vi.fn(() => Promise.resolve("{}")),
-  writeTextFile: vi.fn(() => Promise.resolve()),
-  exists: vi.fn(() => Promise.resolve(false)),
-  mkdir: vi.fn(() => Promise.resolve()),
+// Mock backend for approval commands
+const mockBackendInvoke: Mock = vi.fn(() => Promise.resolve({ toolNames: [], commandPrefixes: [] }))
+vi.mock("../../backend", () => ({
+  backend: {
+    invoke: (cmd: string, args: unknown) => mockBackendInvoke(cmd, args),
+  },
 }))
 
 import { ProjectStore } from "../ProjectStore"
@@ -499,20 +494,24 @@ describe("ProjectStore", () => {
     })
 
     describe("loadApprovals", () => {
-      it("loads approvals from disk when file exists", async () => {
-        vi.mocked(exists).mockResolvedValueOnce(true)
-        vi.mocked(readTextFile).mockResolvedValueOnce(
-          JSON.stringify({
-            toolNames: ["Read", "Write"],
-            commandPrefixes: ["cd", "git status"],
-          })
-        )
+      beforeEach(() => {
+        mockBackendInvoke.mockClear()
+      })
+
+      it("loads approvals from backend", async () => {
+        mockBackendInvoke.mockResolvedValueOnce({
+          toolNames: ["Read", "Write"],
+          commandPrefixes: ["cd", "git status"],
+        })
 
         const repo = createProject({ name: "my-project" })
         const store = new ProjectStore(repo)
 
         await store.loadApprovals()
 
+        expect(mockBackendInvoke).toHaveBeenCalledWith("load_project_approvals", {
+          projectName: "my-project",
+        })
         expect(store.approvedToolNames.has("Read")).toBe(true)
         expect(store.approvedToolNames.has("Write")).toBe(true)
         expect(store.approvedCommandPrefixes.has("cd")).toBe(true)
@@ -520,10 +519,10 @@ describe("ProjectStore", () => {
       })
 
       it("does not load if already loaded", async () => {
-        vi.mocked(exists).mockResolvedValueOnce(true)
-        vi.mocked(readTextFile).mockResolvedValueOnce(
-          JSON.stringify({ toolNames: ["Read"], commandPrefixes: [] })
-        )
+        mockBackendInvoke.mockResolvedValueOnce({
+          toolNames: ["Read"],
+          commandPrefixes: [],
+        })
 
         const repo = createProject()
         const store = new ProjectStore(repo)
@@ -531,25 +530,11 @@ describe("ProjectStore", () => {
         await store.loadApprovals()
         await store.loadApprovals() // Second call should be no-op
 
-        expect(readTextFile).toHaveBeenCalledTimes(1)
+        expect(mockBackendInvoke).toHaveBeenCalledTimes(1)
       })
 
-      it("handles missing file gracefully", async () => {
-        vi.mocked(exists).mockResolvedValueOnce(false)
-
-        const repo = createProject()
-        const store = new ProjectStore(repo)
-
-        await store.loadApprovals()
-
-        expect(store.approvedToolNames.size).toBe(0)
-        expect(store.approvedCommandPrefixes.size).toBe(0)
-        expect(readTextFile).not.toHaveBeenCalled()
-      })
-
-      it("handles read error gracefully", async () => {
-        vi.mocked(exists).mockResolvedValueOnce(true)
-        vi.mocked(readTextFile).mockRejectedValueOnce(new Error("Read failed"))
+      it("handles backend error gracefully", async () => {
+        mockBackendInvoke.mockRejectedValueOnce(new Error("Backend failed"))
 
         const repo = createProject()
         const store = new ProjectStore(repo)
@@ -561,9 +546,11 @@ describe("ProjectStore", () => {
         expect(store.approvedCommandPrefixes.size).toBe(0)
       })
 
-      it("handles malformed JSON gracefully", async () => {
-        vi.mocked(exists).mockResolvedValueOnce(true)
-        vi.mocked(readTextFile).mockResolvedValueOnce("not valid json")
+      it("handles empty response gracefully", async () => {
+        mockBackendInvoke.mockResolvedValueOnce({
+          toolNames: [],
+          commandPrefixes: [],
+        })
 
         const repo = createProject()
         const store = new ProjectStore(repo)
@@ -576,52 +563,61 @@ describe("ProjectStore", () => {
       })
     })
 
-    describe("saveApprovals", () => {
-      it("saves approvals to disk", async () => {
-        vi.mocked(exists).mockResolvedValueOnce(true)
-
+    describe("removeToolApproval", () => {
+      it("removes tool from local set and calls backend", async () => {
         const repo = createProject({ name: "my-project" })
         const store = new ProjectStore(repo)
 
         store.approvedToolNames.add("Read")
         store.approvedToolNames.add("Write")
-        store.approvedCommandPrefixes.add("cd")
 
-        await store.saveApprovals()
+        await store.removeToolApproval("Read")
 
-        expect(writeTextFile).toHaveBeenCalledWith(
-          expect.stringContaining("my-project/approvals.json"),
-          expect.stringContaining('"toolNames"')
-        )
-        const writtenContent = vi.mocked(writeTextFile).mock.calls[0][1]
-        const parsed = JSON.parse(writtenContent.replace(/\n$/, ""))
-        expect(parsed.toolNames).toContain("Read")
-        expect(parsed.toolNames).toContain("Write")
-        expect(parsed.commandPrefixes).toContain("cd")
-      })
-
-      it("creates directory if it does not exist", async () => {
-        vi.mocked(exists).mockResolvedValueOnce(false)
-
-        const repo = createProject({ name: "new-project" })
-        const store = new ProjectStore(repo)
-
-        await store.saveApprovals()
-
-        expect(mkdir).toHaveBeenCalledWith(expect.stringContaining("new-project"), {
-          recursive: true,
+        expect(store.approvedToolNames.has("Read")).toBe(false)
+        expect(store.approvedToolNames.has("Write")).toBe(true)
+        expect(mockBackendInvoke).toHaveBeenCalledWith("remove_approval", {
+          projectName: "my-project",
+          toolOrPrefix: "Read",
+          isPrefix: false,
         })
       })
+    })
 
-      it("handles write error gracefully", async () => {
-        vi.mocked(exists).mockResolvedValueOnce(true)
-        vi.mocked(writeTextFile).mockRejectedValueOnce(new Error("Write failed"))
-
-        const repo = createProject()
+    describe("removeCommandApproval", () => {
+      it("removes command from local set and calls backend", async () => {
+        const repo = createProject({ name: "my-project" })
         const store = new ProjectStore(repo)
 
-        // Should not throw
-        await store.saveApprovals()
+        store.approvedCommandPrefixes.add("cd")
+        store.approvedCommandPrefixes.add("pnpm install")
+
+        await store.removeCommandApproval("cd")
+
+        expect(store.approvedCommandPrefixes.has("cd")).toBe(false)
+        expect(store.approvedCommandPrefixes.has("pnpm install")).toBe(true)
+        expect(mockBackendInvoke).toHaveBeenCalledWith("remove_approval", {
+          projectName: "my-project",
+          toolOrPrefix: "cd",
+          isPrefix: true,
+        })
+      })
+    })
+
+    describe("clearAllApprovals", () => {
+      it("clears local sets and calls backend", async () => {
+        const repo = createProject({ name: "my-project" })
+        const store = new ProjectStore(repo)
+
+        store.approvedToolNames.add("Read")
+        store.approvedCommandPrefixes.add("cd")
+
+        await store.clearAllApprovals()
+
+        expect(store.approvedToolNames.size).toBe(0)
+        expect(store.approvedCommandPrefixes.size).toBe(0)
+        expect(mockBackendInvoke).toHaveBeenCalledWith("clear_project_approvals", {
+          projectName: "my-project",
+        })
       })
     })
   })

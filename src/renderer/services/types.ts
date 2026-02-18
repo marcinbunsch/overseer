@@ -1,4 +1,4 @@
-import type { QuestionItem, ToolMeta } from "../types"
+import type { MessageMeta, QuestionItem, ToolMeta } from "../types"
 
 export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "opencode"
 
@@ -21,8 +21,12 @@ export type AgentEvent =
       name: string
       input: Record<string, unknown>
       displayInput: string
-      /** Command prefixes extracted from Bash commands (handles chained commands) */
+      /** Command prefixes extracted from Bash commands (for "approve command" option) */
       commandPrefixes?: string[]
+      /** If true, Rust has already sent approval to the agent */
+      autoApproved?: boolean
+      /** If true, this prompt has already been processed (for replayed events) */
+      isProcessed?: boolean
       /** Permission options from Copilot (allow_once, allow_always, etc.) */
       options?: Array<{ id: string; name: string; kind: string }>
     }
@@ -31,8 +35,17 @@ export type AgentEvent =
       id: string
       questions: QuestionItem[]
       rawInput: Record<string, unknown>
+      /** If true, this prompt has already been processed (for replayed events) */
+      isProcessed?: boolean
     }
-  | { kind: "planApproval"; id: string; planContent: string }
+  | { kind: "planApproval"; id: string; planContent: string; isProcessed?: boolean }
+  | {
+      kind: "userMessage"
+      id: string
+      content: string
+      timestamp: Date
+      meta?: MessageMeta
+    }
   | { kind: "sessionId"; sessionId: string }
   | { kind: "turnComplete" }
   | { kind: "done" }
@@ -48,7 +61,8 @@ export interface AgentService {
     logDir?: string,
     modelVersion?: string | null,
     permissionMode?: string | null,
-    initPrompt?: string
+    initPrompt?: string,
+    projectName?: string
   ): Promise<void>
   sendToolApproval(
     chatId: string,

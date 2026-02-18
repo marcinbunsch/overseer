@@ -1,7 +1,5 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { backend, type Unsubscribe } from "../backend"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
-import { getCommandPrefixes } from "../types"
 import { configStore } from "../stores/ConfigStore"
 import { toolAvailabilityStore } from "../stores/ToolAvailabilityStore"
 
@@ -41,47 +39,53 @@ Current path: ${copilotPath}`
 }
 
 /**
- * JSON-RPC message types for the ACP protocol.
+ * JSON-RPC response type for handling client request responses.
+ * This is the only message type we parse in TypeScript - notifications
+ * and server requests are parsed in Rust.
  */
-interface JsonRpcNotification {
-  method: string
-  params?: Record<string, unknown>
-}
-
 interface JsonRpcResponse {
   id: number | string
   result?: unknown
   error?: { code: number; message: string }
 }
 
-interface JsonRpcServerRequest {
-  method: string
-  id: number | string
-  params?: Record<string, unknown>
+/**
+ * AgentEvent from Rust (matches overseer-core AgentEvent enum).
+ *
+ * Rust uses `#[serde(tag = "kind", rename_all = "camelCase")]` which produces
+ * internally tagged enums: `{"kind": "text", "text": "Hello"}`
+ */
+interface RustAgentEvent {
+  kind: string
+  // Text variant
+  text?: string
+  // Message variant
+  content?: string
+  tool_meta?: { tool_name: string; lines_added?: number; lines_removed?: number }
+  parent_tool_use_id?: string
+  tool_use_id?: string
+  is_info?: boolean
+  // ToolApproval variant
+  request_id?: string
+  name?: string
+  input?: Record<string, unknown>
+  display_input?: string
+  prefixes?: string[]
+  auto_approved?: boolean
+  is_processed?: boolean
+  // SessionId variant
+  session_id?: string
 }
-
-type JsonRpcMessage = JsonRpcNotification | JsonRpcResponse | JsonRpcServerRequest
 
 interface CopilotChat {
   serverId: string
   sessionId: string | null
   running: boolean
-  buffer: string
   workingDir: string
   supportsLoadSession: boolean
-  unlistenStdout: UnlistenFn | null
-  unlistenStderr: UnlistenFn | null
-  unlistenClose: UnlistenFn | null
-  /** Track active tool calls for status updates */
-  activeToolCalls: Map<string, { title: string; kind: string }>
-  /** Currently active task for child tool grouping */
-  activeTask: { toolCallId: string } | null
-}
-
-interface PermissionOption {
-  optionId: string
-  name: string
-  kind: "allow_once" | "allow_always" | "reject_once" | "reject_always"
+  unlistenStdout: Unsubscribe | null
+  unlistenEvent: Unsubscribe | null
+  unlistenClose: Unsubscribe | null
 }
 
 /**
@@ -89,8 +93,8 @@ interface PermissionOption {
  *
  * Architecture:
  * - One `copilot --acp --stdio` process per serverId (chat).
- * - Uses JSON-RPC 2.0 over stdio for communication.
- * - Translates ACP session/update notifications into AgentEvents.
+ * - Rust handles protocol parsing and emits typed AgentEvents.
+ * - TypeScript only handles JSON-RPC responses for client-initiated requests (initialize, session/new, session/prompt).
  */
 class CopilotAgentService implements AgentService {
   private chats: Map<string, CopilotChat> = new Map()
@@ -110,14 +114,11 @@ class CopilotAgentService implements AgentService {
         serverId: chatId,
         sessionId: null,
         running: false,
-        buffer: "",
         workingDir: "",
         supportsLoadSession: false,
         unlistenStdout: null,
-        unlistenStderr: null,
+        unlistenEvent: null,
         unlistenClose: null,
-        activeToolCalls: new Map(),
-        activeTask: null,
       }
       this.chats.set(chatId, chat)
     }
@@ -128,25 +129,35 @@ class CopilotAgentService implements AgentService {
     const chat = this.getOrCreateChat(chatId)
     const serverId = chat.serverId
 
+    // Listen for raw stdout to handle JSON-RPC responses to our requests
     if (!chat.unlistenStdout) {
-      chat.unlistenStdout = await listen<string>(`copilot:stdout:${serverId}`, (event) => {
-        const line = event.payload ?? ""
-        this.handleOutput(chatId, `${line}\n`)
-      })
+      chat.unlistenStdout = await backend.listen<string>(
+        `copilot:stdout:${serverId}`,
+        (payload) => {
+          const line = payload ?? ""
+          this.handleResponseLine(chatId, line)
+        }
+      )
     }
 
-    if (!chat.unlistenStderr) {
-      chat.unlistenStderr = await listen<string>(`copilot:stderr:${serverId}`, (event) => {
-        const line = event.payload ?? ""
-        console.warn(`Copilot stderr [${chatId}]:`, line)
-      })
+    // Listen for pre-parsed events from Rust
+    if (!chat.unlistenEvent) {
+      chat.unlistenEvent = await backend.listen<RustAgentEvent>(
+        `copilot:event:${serverId}`,
+        (payload) => {
+          this.handleRustEvent(chatId, payload)
+        }
+      )
     }
 
     if (!chat.unlistenClose) {
-      chat.unlistenClose = await listen<{ code: number }>(`copilot:close:${serverId}`, () => {
-        chat.running = false
-        this.doneCallbacks.get(chatId)?.()
-      })
+      chat.unlistenClose = await backend.listen<{ code: number }>(
+        `copilot:close:${serverId}`,
+        () => {
+          chat.running = false
+          this.doneCallbacks.get(chatId)?.()
+        }
+      )
     }
   }
 
@@ -157,7 +168,8 @@ class CopilotAgentService implements AgentService {
     logDir?: string,
     modelVersion?: string | null,
     _permissionMode?: string | null,
-    initPrompt?: string
+    initPrompt?: string,
+    projectName?: string
   ): Promise<void> {
     const chat = this.getOrCreateChat(chatId)
     chat.workingDir = workingDir
@@ -168,14 +180,14 @@ class CopilotAgentService implements AgentService {
     // Start server if not running
     if (!chat.running) {
       await this.attachListeners(chatId)
-      chat.buffer = ""
       // Clear stale session ID from a previous server session
       chat.sessionId = null
 
       console.log(`Starting Copilot ACP server [${chatId}]`)
       try {
-        await invoke("start_copilot_server", {
+        await backend.invoke("start_copilot_server", {
           serverId: chat.serverId,
+          projectName: projectName ?? "default",
           copilotPath: configStore.copilotPath,
           modelVersion: modelVersion ?? null,
           logDir: logDir ?? null,
@@ -251,7 +263,7 @@ class CopilotAgentService implements AgentService {
     if (!chat) return
 
     console.log(`Sending permission response [${chatId}]:`, response)
-    await invoke("copilot_stdin", {
+    await backend.invoke("copilot_stdin", {
       serverId: chat.serverId,
       data: response,
     })
@@ -273,7 +285,7 @@ class CopilotAgentService implements AgentService {
     await this.interruptTurn(chatId)
 
     chat.running = false
-    await invoke("stop_copilot_server", { serverId: chat.serverId })
+    await backend.invoke("stop_copilot_server", { serverId: chat.serverId })
   }
 
   isRunning(chatId: string): boolean {
@@ -293,7 +305,7 @@ class CopilotAgentService implements AgentService {
     const chat = this.chats.get(chatId)
     if (chat) {
       chat.unlistenStdout?.()
-      chat.unlistenStderr?.()
+      chat.unlistenEvent?.()
       chat.unlistenClose?.()
     }
     this.chats.delete(chatId)
@@ -324,7 +336,7 @@ class CopilotAgentService implements AgentService {
 
     return new Promise((resolve, reject) => {
       this.pendingResponses.set(id, { chatId, resolve, reject })
-      invoke("copilot_stdin", { serverId: chat.serverId, data: msg }).catch(reject)
+      backend.invoke("copilot_stdin", { serverId: chat.serverId, data: msg }).catch(reject)
     })
   }
 
@@ -333,43 +345,30 @@ class CopilotAgentService implements AgentService {
     if (!chat) return
 
     const msg = JSON.stringify({ jsonrpc: "2.0", method, params })
-    invoke("copilot_stdin", { serverId: chat.serverId, data: msg }).catch((err) => {
+    backend.invoke("copilot_stdin", { serverId: chat.serverId, data: msg }).catch((err) => {
       console.warn(`Failed to send copilot notification [${chatId}]:`, err)
     })
   }
 
-  // --- Private: Output parsing ---
+  // --- Private: Event handling ---
 
-  private handleOutput(chatId: string, data: string): void {
-    const chat = this.chats.get(chatId)
-    if (!chat) return
+  /**
+   * Handle raw stdout lines - only for JSON-RPC responses to our requests.
+   * All other parsing is done in Rust.
+   */
+  private handleResponseLine(_chatId: string, line: string): void {
+    const trimmed = line.trim()
+    if (!trimmed) return
 
-    chat.buffer += data
-    const lines = chat.buffer.split("\n")
-    chat.buffer = lines.pop() || ""
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed) {
-        this.parseLine(chatId, trimmed)
-      }
-    }
-  }
-
-  private parseLine(chatId: string, line: string): void {
-    let msg: JsonRpcMessage
+    let msg: unknown
     try {
-      msg = JSON.parse(line) as JsonRpcMessage
+      msg = JSON.parse(trimmed)
     } catch {
-      // Not valid JSON, ignore
-      return
+      return // Not valid JSON, ignore
     }
-    this.handleMessage(chatId, msg)
-  }
 
-  private handleMessage(chatId: string, msg: JsonRpcMessage): void {
-    // Response to a client request (has id + result/error, no method)
-    if ("id" in msg && !("method" in msg)) {
+    // Only handle responses (has id, no method)
+    if (typeof msg === "object" && msg !== null && "id" in msg && !("method" in msg)) {
       const resp = msg as JsonRpcResponse
       const id = typeof resp.id === "number" ? resp.id : parseInt(String(resp.id), 10)
       const pending = this.pendingResponses.get(id)
@@ -381,275 +380,76 @@ class CopilotAgentService implements AgentService {
           pending.resolve(resp.result)
         }
       }
-      return
-    }
-
-    // Server-initiated request (has id + method) — permission requests
-    if ("id" in msg && "method" in msg) {
-      this.handleServerRequest(chatId, msg as JsonRpcServerRequest)
-      return
-    }
-
-    // Notification (method, no id)
-    if ("method" in msg) {
-      this.handleNotification(chatId, msg as JsonRpcNotification)
-      return
     }
   }
 
-  private handleServerRequest(chatId: string, req: JsonRpcServerRequest): void {
-    const params = req.params ?? {}
-
-    if (req.method === "session/request_permission") {
-      // Copilot permission request structure:
-      // params.toolCall: { toolCallId, title, kind, status, rawInput }
-      // params.options: [{ optionId, kind, name }]
-      const toolCall =
-        (params.toolCall as {
-          toolCallId?: string
-          title?: string
-          kind?: string
-          rawInput?: Record<string, unknown>
-        }) ?? {}
-      const options = (params.options as PermissionOption[]) ?? []
-
-      const title = toolCall.title ?? "Permission"
-      const kind = toolCall.kind ?? "other"
-      const rawInput = toolCall.rawInput ?? {}
-
-      // Convert kind to tool name
-      const toolName = this.kindToToolName(kind, title)
-
-      // Extract command prefixes for Bash approvals (handles chained commands)
-      let commandPrefixes: string[] | undefined
-      if (toolName === "Bash" && rawInput.command) {
-        commandPrefixes = getCommandPrefixes({ command: rawInput.command })
-      }
-
-      // Build display input based on tool type
-      let displayInput: string
-      if (toolName === "Bash" && rawInput.command) {
-        displayInput = rawInput.command as string
-      } else if (rawInput.url) {
-        displayInput = rawInput.url as string
-      } else if (rawInput.path) {
-        displayInput = rawInput.path as string
-      } else {
-        displayInput = JSON.stringify(rawInput, null, 2)
-      }
-
-      this.emitEvent(chatId, {
-        kind: "toolApproval",
-        id: String(req.id),
-        name: toolName,
-        input: rawInput,
-        displayInput,
-        commandPrefixes,
-        // Include options for potential future use (allow_always support)
-        options: options.map((o) => ({ id: o.optionId, name: o.name, kind: o.kind })),
-      })
-      return
-    }
-
-    // Unknown server request — log it
-    console.warn(`Unknown copilot server request: ${req.method}`, req)
-  }
-
-  private handleNotification(chatId: string, notif: JsonRpcNotification): void {
-    const params = notif.params ?? {}
-    const chat = this.chats.get(chatId)
-
-    if (notif.method === "session/update") {
-      // ACP nests update data under params.update, with sessionUpdate as the type field
-      const update = (params.update as Record<string, unknown>) ?? params
-      const updateType = (update.sessionUpdate as string) ?? (params.type as string)
-
-      switch (updateType) {
-        case "agent_message_chunk": {
-          const content = update.content as { type: string; text?: string } | undefined
-          if (content?.type === "text" && content.text) {
-            this.emitEvent(chatId, { kind: "text", text: content.text })
-          }
-          break
+  /**
+   * Handle pre-parsed events from Rust.
+   * Translates Rust AgentEvent enum to TypeScript AgentEvent.
+   *
+   * Rust uses internally tagged enums: {"kind": "text", "text": "Hello"}
+   */
+  private handleRustEvent(chatId: string, event: RustAgentEvent): void {
+    switch (event.kind) {
+      case "text":
+        if (event.text !== undefined) {
+          this.emitEvent(chatId, { kind: "text", text: event.text })
         }
+        break
 
-        case "agent_thought_chunk": {
-          // Thinking/reasoning - emit as text
-          const content = update.content as { type: string; text?: string } | undefined
-          if (content?.type === "text" && content.text) {
-            this.emitEvent(chatId, { kind: "text", text: content.text })
-          }
-          break
-        }
-
-        case "tool_call": {
-          // New tool call started
-          const toolCallId = update.toolCallId as string
-          const title = (update.title as string) ?? "Tool"
-          const kind = (update.kind as string) ?? "other"
-          const status = update.status as string
-          const input = (update.rawInput ?? update.input) as Record<string, unknown> | undefined
-
-          if (chat) {
-            chat.activeToolCalls.set(toolCallId, { title, kind })
-          }
-
-          if (status === "pending" || status === "in_progress") {
-            // Check if this is a Task (has agent_type in input)
-            const isTask = input && typeof input.agent_type === "string"
-
-            if (isTask) {
-              // This is a Task - track it and emit with toolUseId
-              if (chat) {
-                chat.activeTask = { toolCallId }
-              }
-
-              // Transform input: rename agent_type -> subagent_type for TaskToolItem
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              const { agent_type, ...rest } = input
-              const transformedInput = {
-                ...rest,
-                subagent_type: agent_type,
-              }
-
-              const inputStr = JSON.stringify(transformedInput, null, 2)
-              this.emitEvent(chatId, {
-                kind: "message",
-                content: `[Task]\n${inputStr}`,
-                toolMeta: { toolName: "Task" },
-                toolUseId: toolCallId,
-              })
-            } else {
-              // Regular tool - may be a child of an active Task
-              const toolName = this.kindToToolName(kind, title)
-              const inputStr = input ? JSON.stringify(input, null, 2) : ""
-              const parentToolUseId = chat?.activeTask?.toolCallId ?? undefined
-              this.emitEvent(chatId, {
-                kind: "message",
-                content: inputStr ? `[${toolName}]\n${inputStr}` : `[${toolName}]`,
-                toolMeta: { toolName },
-                parentToolUseId,
-              })
-            }
-          }
-          break
-        }
-
-        case "tool_call_update": {
-          const toolCallId = update.toolCallId as string
-          const status = update.status as string
-          const output = (update.rawOutput ?? update.output) as Record<string, unknown> | undefined
-          const content = update.content as
-            | Array<{ type: string; [key: string]: unknown }>
-            | undefined
-
-          // Get the tool info to know how to handle output
-          const toolInfo = chat?.activeToolCalls.get(toolCallId)
-
-          if (status === "completed") {
-            // Handle Read tool output specially - it has content + detailedContent
-            // For Read tools, we don't emit the file content to chat since
-            // the filename is already shown in the tool call message
-            if (toolInfo?.kind === "read" && output) {
-              // Skip emitting file content - just mark tool as complete
-              // The user can see what was read from the tool call itself
-            } else if (content) {
-              // Handle tool output/content array
-              for (const item of content) {
-                if (item.type === "text" && item.text) {
-                  this.emitEvent(chatId, { kind: "bashOutput", text: item.text as string })
-                } else if (item.type === "terminal_output" && item.output) {
-                  this.emitEvent(chatId, { kind: "bashOutput", text: item.output as string })
-                } else if (item.type === "diff") {
-                  // File diff - emit as message
-                  const path = (item.path as string) ?? ""
-                  const diff = (item.diff as string) ?? ""
-                  this.emitEvent(chatId, {
-                    kind: "message",
-                    content: `[Edit]\n${JSON.stringify({ file_path: path, diff }, null, 2)}`,
-                    toolMeta: { toolName: "Edit" },
-                  })
+      case "message":
+        if (event.content !== undefined) {
+          this.emitEvent(chatId, {
+            kind: "message",
+            content: event.content,
+            toolMeta: event.tool_meta
+              ? {
+                  toolName: event.tool_meta.tool_name,
+                  linesAdded: event.tool_meta.lines_added,
+                  linesRemoved: event.tool_meta.lines_removed,
                 }
-              }
-            } else if (output) {
-              // Other tool output - stringify but skip detailedContent if present
-              const cleanOutput = { ...output }
-              delete cleanOutput.detailedContent
-              const outputStr = JSON.stringify(cleanOutput, null, 2)
-              this.emitEvent(chatId, { kind: "bashOutput", text: outputStr })
-            }
-
-            if (chat) {
-              chat.activeToolCalls.delete(toolCallId)
-              // Clear active task if this was the task completing
-              if (chat.activeTask?.toolCallId === toolCallId) {
-                chat.activeTask = null
-              }
-            }
-          }
-          break
+              : undefined,
+            parentToolUseId: event.parent_tool_use_id,
+            toolUseId: event.tool_use_id,
+            isInfo: event.is_info,
+          })
         }
+        break
 
-        case "plan": {
-          // Plan mode - emit as message
-          const steps = update.steps as Array<{ description: string; status: string }> | undefined
-          if (steps && steps.length > 0) {
-            const planText = steps
-              .map((s, i) => `${i + 1}. [${s.status}] ${s.description}`)
-              .join("\n")
-            this.emitEvent(chatId, {
-              kind: "message",
-              content: `Plan:\n${planText}`,
-            })
-          }
-          break
+      case "bashOutput":
+        if (event.text !== undefined) {
+          this.emitEvent(chatId, { kind: "bashOutput", text: event.text })
         }
+        break
 
-        case "user_message_chunk":
-          // Echo of user message - ignore
-          break
+      case "toolApproval":
+        // Skip auto-approved tools (Rust already handled them)
+        if (event.auto_approved) {
+          return
+        }
+        this.emitEvent(chatId, {
+          kind: "toolApproval",
+          id: event.request_id ?? "",
+          name: event.name ?? "",
+          input: event.input ?? {},
+          displayInput: event.display_input ?? "",
+          commandPrefixes: event.prefixes,
+          isProcessed: event.is_processed ?? false,
+        })
+        break
 
-        case "available_commands_update":
-        case "current_mode_update":
-          // Informational - ignore
-          break
+      case "turnComplete":
+        this.emitEvent(chatId, { kind: "turnComplete" })
+        break
 
-        default:
-          console.debug(`Copilot session/update [${chatId}]:`, updateType, update)
-          break
-      }
-      return
-    }
-
-    // Handle other notifications
-    switch (notif.method) {
-      case "$/progress":
-      case "$/cancelRequest":
-        // Protocol-level notifications - ignore
+      case "sessionId":
+        if (event.session_id !== undefined) {
+          this.emitEvent(chatId, { kind: "sessionId", sessionId: event.session_id })
+        }
         break
 
       default:
-        console.debug(`Copilot notification [${chatId}]:`, notif.method, params)
-        break
-    }
-  }
-
-  private kindToToolName(kind: string, title: string): string {
-    switch (kind) {
-      case "execute":
-        return "Bash"
-      case "edit":
-        return "Edit"
-      case "read":
-        return "Read"
-      case "search":
-        return "Grep"
-      case "fetch":
-        return "WebFetch"
-      case "think":
-        return "Think"
-      default:
-        return title
+        console.warn(`Unknown Copilot event kind: ${event.kind}`)
     }
   }
 

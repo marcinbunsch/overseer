@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { observer } from "mobx-react-lite"
 import type { PendingToolUse } from "../../stores/WorkspaceStore"
 
@@ -6,6 +7,7 @@ interface ToolApprovalPanelProps {
   onApprove: (toolId: string) => void
   onApproveAll: (toolId: string, scope: "tool" | "command") => void
   onDeny: (toolId: string) => void
+  onDenyWithExplanation: (toolId: string, explanation: string) => void
 }
 
 /**
@@ -22,7 +24,11 @@ export const ToolApprovalPanel = observer(function ToolApprovalPanel({
   onApprove,
   onApproveAll,
   onDeny,
+  onDenyWithExplanation,
 }: ToolApprovalPanelProps) {
+  const [showFeedbackFor, setShowFeedbackFor] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState("")
+
   if (pendingTools.length === 0) return null
 
   return (
@@ -30,6 +36,7 @@ export const ToolApprovalPanel = observer(function ToolApprovalPanel({
       {pendingTools.map((tool) => {
         const hasPrefixes = tool.commandPrefixes && tool.commandPrefixes.length > 0
         const prefixDisplay = hasPrefixes ? formatPrefixes(tool.commandPrefixes!) : null
+        const showingFeedback = showFeedbackFor === tool.id
 
         return (
           <div
@@ -42,43 +49,91 @@ export const ToolApprovalPanel = observer(function ToolApprovalPanel({
                 {tool.input}
               </pre>
             )}
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => onApprove(tool.id)}
-                className="rounded bg-green-600 px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
-              >
-                Approve
-              </button>
-              {hasPrefixes ? (
-                <>
+            {showingFeedback ? (
+              <div>
+                <textarea
+                  autoFocus
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && e.metaKey && feedback.trim()) {
+                      onDenyWithExplanation(tool.id, feedback)
+                      setShowFeedbackFor(null)
+                      setFeedback("")
+                    }
+                  }}
+                  placeholder="Describe what you'd like the agent to do instead..."
+                  rows={3}
+                  className="mb-2 w-full resize-none rounded border border-ovr-border-subtle bg-ovr-bg-panel px-2 py-1.5 text-xs text-ovr-text-primary outline-none focus:border-ovr-azure-500"
+                />
+                <div className="flex gap-2">
                   <button
-                    onClick={() => onApproveAll(tool.id, "command")}
-                    className="rounded border border-green-600 px-3 py-1 text-xs font-medium text-green-400 transition-opacity hover:opacity-90"
+                    onClick={() => {
+                      onDenyWithExplanation(tool.id, feedback)
+                      setShowFeedbackFor(null)
+                      setFeedback("")
+                    }}
+                    disabled={!feedback.trim()}
+                    className="rounded bg-ovr-azure-500 px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                   >
-                    Approve all "{prefixDisplay}"
+                    Send
                   </button>
+                  <button
+                    onClick={() => {
+                      setShowFeedbackFor(null)
+                      setFeedback("")
+                    }}
+                    className="rounded border border-ovr-border-strong bg-ovr-bg-surface px-3 py-1 text-xs font-medium text-ovr-text-primary transition-colors hover:bg-ovr-bg-elevated"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => onApprove(tool.id)}
+                  className="rounded bg-green-600 px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                >
+                  Approve
+                </button>
+                {hasPrefixes ? (
+                  <>
+                    <button
+                      onClick={() => onApproveAll(tool.id, "command")}
+                      className="rounded border border-green-600 px-3 py-1 text-xs font-medium text-green-400 transition-opacity hover:opacity-90"
+                    >
+                      Approve all "{prefixDisplay}"
+                    </button>
+                    <button
+                      onClick={() => onApproveAll(tool.id, "tool")}
+                      className="rounded border border-green-600 px-3 py-1 text-xs font-medium text-green-400 transition-opacity hover:opacity-90"
+                    >
+                      Approve all {tool.name}
+                    </button>
+                  </>
+                ) : (
                   <button
                     onClick={() => onApproveAll(tool.id, "tool")}
                     className="rounded border border-green-600 px-3 py-1 text-xs font-medium text-green-400 transition-opacity hover:opacity-90"
                   >
                     Approve all {tool.name}
                   </button>
-                </>
-              ) : (
+                )}
                 <button
-                  onClick={() => onApproveAll(tool.id, "tool")}
-                  className="rounded border border-green-600 px-3 py-1 text-xs font-medium text-green-400 transition-opacity hover:opacity-90"
+                  onClick={() => setShowFeedbackFor(tool.id)}
+                  className="rounded border border-ovr-border-strong bg-ovr-bg-surface px-3 py-1 text-xs font-medium text-ovr-text-primary transition-colors hover:bg-ovr-bg-elevated"
                 >
-                  Approve all {tool.name}
+                  Do something else
                 </button>
-              )}
-              <button
-                onClick={() => onDeny(tool.id)}
-                className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
-              >
-                Deny
-              </button>
-            </div>
+                <button
+                  onClick={() => onDeny(tool.id)}
+                  className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                >
+                  Deny
+                </button>
+              </div>
+            )}
           </div>
         )
       })}

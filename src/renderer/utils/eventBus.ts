@@ -13,6 +13,7 @@ interface EventMap {
   "overseer:new_workspace": void
   "overseer:open_diff_review": void
   "overseer:focus_chat_input": void
+  "agent:turnComplete": { agentType: string; chatId: string }
 }
 
 type EventName = keyof EventMap

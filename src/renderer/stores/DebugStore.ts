@@ -1,5 +1,5 @@
 import { observable, action, computed, makeObservable, runInAction } from "mobx"
-import { invoke } from "@tauri-apps/api/core"
+import { backend } from "../backend"
 
 class DebugStore {
   @observable isDebugMode: boolean = false
@@ -28,8 +28,8 @@ class DebugStore {
     if (this.loaded) return
     try {
       const [isDebug, isDemo] = await Promise.all([
-        invoke<boolean>("is_debug_mode"),
-        invoke<boolean>("is_demo_mode"),
+        backend.invoke<boolean>("is_debug_mode"),
+        backend.invoke<boolean>("is_demo_mode"),
       ])
       runInAction(() => {
         // Enable debug mode if OVERSEER_DEBUG is set OR if running in dev mode

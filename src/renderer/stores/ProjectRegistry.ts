@@ -1,22 +1,18 @@
 import { observable, computed, action, makeObservable, runInAction } from "mobx"
-import { homeDir } from "@tauri-apps/api/path"
-import { readTextFile, writeTextFile, exists, mkdir } from "@tauri-apps/plugin-fs"
 import type { Project, Workspace } from "../types"
 import { gitService } from "../services/git"
 import { terminalService } from "../services/terminal"
 import { ProjectStore } from "./ProjectStore"
-import { getConfigPath } from "../utils/paths"
 import type { WorkspaceStore, WorkspaceStatus } from "./WorkspaceStore"
 import { toastStore } from "./ToastStore"
 import { workspaceHistoryStore } from "./WorkspaceHistoryStore"
+import { backend } from "../backend"
 
 class ProjectRegistry {
   @observable private _projects: Project[] = []
   private _projectStoreCache = new Map<string, ProjectStore>()
   @observable selectedProjectId: string | null = null
   @observable selectedWorkspaceId: string | null = null
-
-  private home: string = ""
 
   constructor() {
     makeObservable(this)
@@ -507,24 +503,10 @@ class ProjectRegistry {
 
   private async saveToFile(): Promise<void> {
     try {
-      const configPath = `${getConfigPath(this.home)}/projects.json`
-      // Write with backwards compatibility aliases
-      const projectsWithCompat = this._projects.map((project) => ({
-        ...project,
-        // Backwards compatibility for workspaces
-        worktrees: project.workspaces,
-        worktreeFilter: project.workspaceFilter,
-        // Map workspaces with repoId alias for backwards compat
-        workspaces: project.workspaces.map((ws) => ({
-          ...ws,
-          repoId: ws.projectId,
-        })),
-      }))
-
-      await writeTextFile(
-        configPath,
-        JSON.stringify({ projects: projectsWithCompat }, null, 2) + "\n"
-      )
+      // Rust handles backward compatibility (writes to both projects.json and repos.json)
+      await backend.invoke("save_project_registry", {
+        registry: { projects: this._projects },
+      })
     } catch (err) {
       console.error("Failed to save projects:", err)
     }
@@ -552,106 +534,17 @@ class ProjectRegistry {
    * Called before window close to ensure no data is lost.
    */
   async flushAllChats(): Promise<void> {
-    const saves: Promise<void>[] = []
-    for (const projectStore of this._projectStoreCache.values()) {
-      for (const workspaceStore of projectStore.workspaceStores) {
-        for (const chatStore of workspaceStore.allChats) {
-          saves.push(chatStore.saveToDisk())
-        }
-      }
-    }
-    await Promise.all(saves)
+    // Chat persistence now flushes events immediately in Rust.
+    return
   }
 
   private async loadFromFile(): Promise<void> {
     try {
-      this.home = await homeDir()
-      if (this.home.endsWith("/")) {
-        this.home = this.home.slice(0, -1)
-      }
-
-      const configDir = getConfigPath(this.home)
-      const projectsPath = `${configDir}/projects.json`
-      const reposPath = `${configDir}/repos.json`
-
-      const dirExists = await exists(configDir)
-      if (!dirExists) {
-        await mkdir(configDir, { recursive: true })
-      }
-
-      // Try to load from projects.json first, fall back to repos.json
-      let configPath = projectsPath
-      let projectsFileExists = await exists(projectsPath)
-      if (!projectsFileExists) {
-        const reposFileExists = await exists(reposPath)
-        if (reposFileExists) {
-          configPath = reposPath
-          projectsFileExists = true
-        }
-      }
-
-      if (projectsFileExists) {
-        const raw = await readTextFile(configPath)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let parsed = JSON.parse(raw) as any[] | { projects: any[] }
-        let needsMigration = false
-
-        if (Array.isArray(parsed)) {
-          // Old format: array of projects
-        } else if (parsed.projects && Array.isArray(parsed.projects)) {
-          // New format: { projects: [...] }
-          parsed = parsed.projects
-        } else {
-          throw new Error("Invalid projects file format")
-        }
-
-        const migrated = parsed.map((item) => {
-          const result = { ...item }
-
-          // Migrate old "worktrees" property to "workspaces"
-          if (item.worktrees && !item.workspaces) {
-            result.workspaces = item.worktrees
-            delete result.worktrees
-            needsMigration = true
-          }
-          if (item.worktreeFilter && !item.workspaceFilter) {
-            result.workspaceFilter = item.worktreeFilter
-            delete result.worktreeFilter
-            needsMigration = true
-          }
-
-          // Default isGitRepo to true for existing projects (they were all git repos before)
-          if (result.isGitRepo === undefined) {
-            result.isGitRepo = true
-            needsMigration = true
-          }
-
-          // Migrate repoId to projectId in workspaces
-          if (result.workspaces) {
-            result.workspaces = result.workspaces.map(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (ws: any) => {
-                if (ws.repoId && !ws.projectId) {
-                  needsMigration = true
-                  return { ...ws, projectId: ws.repoId }
-                }
-                return ws
-              }
-            )
-          }
-
-          return result
-        }) as Project[]
-
-        runInAction(() => {
-          this._projects = migrated
-        })
-
-        // Save migrated data back to disk
-        if (needsMigration) {
-          await this.saveToFile()
-        }
-      }
+      // Rust handles all migration logic (worktrees→workspaces, repoId→projectId, etc.)
+      const registry = await backend.invoke<{ projects: Project[] }>("load_project_registry")
+      runInAction(() => {
+        this._projects = registry.projects
+      })
     } catch (err) {
       console.error("Failed to load projects:", err)
     }

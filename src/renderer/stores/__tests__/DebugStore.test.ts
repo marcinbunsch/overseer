@@ -21,8 +21,8 @@ describe("DebugStore", () => {
     })
 
     expect(debugStore.isDebugMode).toBe(true)
-    expect(invoke).toHaveBeenCalledWith("is_debug_mode")
-    expect(invoke).toHaveBeenCalledWith("is_demo_mode")
+    expect(invoke).toHaveBeenCalledWith("is_debug_mode", undefined)
+    expect(invoke).toHaveBeenCalledWith("is_demo_mode", undefined)
   })
 
   it("enables debug mode in dev mode even when OVERSEER_DEBUG is not set", async () => {

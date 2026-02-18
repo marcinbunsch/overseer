@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { invoke } from "@tauri-apps/api/core"
 import { runInAction } from "mobx"
 import type { Chat } from "../../types"
 import { ChatStore, type ChatStoreContext } from "../ChatStore"
@@ -28,17 +29,9 @@ vi.mock("../ConfigStore", () => ({
     codexPath: "codex",
     claudePermissionMode: "default",
     codexApprovalPolicy: "untrusted",
+    agentShell: "zsh -l -c",
     loaded: true,
   },
-}))
-
-// Mock Tauri filesystem
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  readTextFile: vi.fn(),
-  writeTextFile: vi.fn(() => Promise.resolve()),
-  exists: vi.fn(() => Promise.resolve(false)),
-  mkdir: vi.fn(() => Promise.resolve()),
-  remove: vi.fn(() => Promise.resolve()),
 }))
 
 // Mock eventBus
@@ -52,29 +45,15 @@ import { eventBus } from "../../utils/eventBus"
 
 // Helper type for test context overrides
 // Allows passing Sets directly (for convenience) plus any ChatStoreContext overrides
-interface TestContextOverrides extends Partial<ChatStoreContext> {
-  approvedToolNames?: Set<string>
-  approvedCommandPrefixes?: Set<string>
-}
+type TestContextOverrides = Partial<ChatStoreContext>
 
 function createTestContext(overrides?: TestContextOverrides): ChatStoreContext {
-  // Allow passing Sets directly for test convenience
-  const approvedToolNames = overrides?.approvedToolNames ?? new Set<string>()
-  const approvedCommandPrefixes = overrides?.approvedCommandPrefixes ?? new Set<string>()
-
   return {
     getChatDir: overrides?.getChatDir ?? (() => Promise.resolve("/tmp/test-chats")),
     getInitPrompt: overrides?.getInitPrompt ?? (() => undefined),
-    getApprovedToolNames: overrides?.getApprovedToolNames ?? (() => approvedToolNames),
-    getApprovedCommandPrefixes:
-      overrides?.getApprovedCommandPrefixes ?? (() => approvedCommandPrefixes),
-    addApprovedToolName:
-      overrides?.addApprovedToolName ?? ((name: string) => approvedToolNames.add(name)),
-    addApprovedCommandPrefix:
-      overrides?.addApprovedCommandPrefix ??
-      ((prefix: string) => approvedCommandPrefixes.add(prefix)),
+    getProjectName: overrides?.getProjectName ?? (() => "test-project"),
+    getWorkspaceName: overrides?.getWorkspaceName ?? (() => "test-workspace"),
     saveIndex: overrides?.saveIndex ?? vi.fn(),
-    saveApprovals: overrides?.saveApprovals ?? vi.fn(),
     getActiveChatId: overrides?.getActiveChatId ?? (() => "test-chat-id"),
     getWorkspacePath: overrides?.getWorkspacePath ?? (() => "/tmp/test-workspace"),
     renameChat: overrides?.renameChat ?? vi.fn(),
@@ -111,6 +90,26 @@ describe("ChatStore", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      switch (command) {
+        case "add_user_message": {
+          const payload = args as { content?: string; meta?: Record<string, unknown> | null }
+          return {
+            kind: "userMessage",
+            id: "user-1",
+            content: payload?.content ?? "",
+            timestamp: new Date().toISOString(),
+            meta: payload?.meta ?? null,
+          }
+        }
+        case "load_chat_events":
+          return []
+        case "load_chat_metadata":
+          return null
+        default:
+          return undefined
+      }
+    })
   })
 
   it("initializes with correct defaults", () => {
@@ -288,6 +287,29 @@ describe("ChatStore", () => {
     expect(refreshChangedFiles).toHaveBeenCalledTimes(1)
   })
 
+  it("emits agent:turnComplete event with chat info on turnComplete", () => {
+    const store = createChatStore()
+
+    runInAction(() => {
+      store.isSending = true
+      store.chat.status = "running"
+      store.chat.agentType = "claude"
+      store.chat.id = "test-chat-123"
+    })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({ kind: "turnComplete" })
+
+    expect(eventBus.emit).toHaveBeenCalledWith("agent:turnComplete", {
+      agentType: "claude",
+      chatId: "test-chat-123",
+    })
+  })
+
   it("handleAgentEvent processes tool approval events", () => {
     const store = createChatStore()
 
@@ -302,17 +324,14 @@ describe("ChatStore", () => {
       name: "Bash",
       input: { command: "git commit -m 'test'" },
       displayInput: '{"command": "git commit -m \'test\'"}',
-      commandPrefixes: ["git commit"],
     })
 
     expect(store.pendingToolUses).toHaveLength(1)
     expect(store.pendingToolUses[0].name).toBe("Bash")
-    expect(store.pendingToolUses[0].commandPrefixes).toEqual(["git commit"])
   })
 
-  it("handleAgentEvent auto-approves tools in the approved set", () => {
-    const approvedToolNames = new Set(["Read"])
-    const store = createChatStore(undefined, { approvedToolNames })
+  it("handleAgentEvent adds non-Bash tools to pending list", () => {
+    const store = createChatStore()
 
     const eventCall = mockAgentService.onEvent.mock.calls.find(
       (c: unknown[]) => c[0] === "test-chat-id"
@@ -327,124 +346,9 @@ describe("ChatStore", () => {
       displayInput: '{"path": "/tmp/file.txt"}',
     })
 
-    // Should auto-approve, not add to pending
-    expect(store.pendingToolUses).toHaveLength(0)
-    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-1", true, {
-      path: "/tmp/file.txt",
-    })
-  })
-
-  it("handleAgentEvent auto-approves Bash when all command prefixes are approved", () => {
-    const approvedCommandPrefixes = new Set(["cd", "pnpm install"])
-    const store = createChatStore(undefined, { approvedCommandPrefixes })
-
-    const eventCall = mockAgentService.onEvent.mock.calls.find(
-      (c: unknown[]) => c[0] === "test-chat-id"
-    )
-    const eventCallback = eventCall![1]
-
-    eventCallback({
-      kind: "toolApproval",
-      id: "req-1",
-      name: "Bash",
-      input: { command: "cd /foo && pnpm install" },
-      displayInput: '{"command": "cd /foo && pnpm install"}',
-      commandPrefixes: ["cd", "pnpm install"],
-    })
-
-    // Should auto-approve since both prefixes are approved
-    expect(store.pendingToolUses).toHaveLength(0)
-    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-1", true, {
-      command: "cd /foo && pnpm install",
-    })
-  })
-
-  it("handleAgentEvent does NOT auto-approve Bash when only some prefixes are approved", () => {
-    const approvedCommandPrefixes = new Set(["cd"]) // pnpm install not approved
-    const store = createChatStore(undefined, { approvedCommandPrefixes })
-
-    const eventCall = mockAgentService.onEvent.mock.calls.find(
-      (c: unknown[]) => c[0] === "test-chat-id"
-    )
-    const eventCallback = eventCall![1]
-
-    eventCallback({
-      kind: "toolApproval",
-      id: "req-1",
-      name: "Bash",
-      input: { command: "cd /foo && pnpm install" },
-      displayInput: '{"command": "cd /foo && pnpm install"}',
-      commandPrefixes: ["cd", "pnpm install"],
-    })
-
-    // Should NOT auto-approve since pnpm install is not approved
+    // Should add to pending list (no auto-approval in frontend)
     expect(store.pendingToolUses).toHaveLength(1)
-    expect(store.pendingToolUses[0].commandPrefixes).toEqual(["cd", "pnpm install"])
-    expect(mockAgentService.sendToolApproval).not.toHaveBeenCalled()
-  })
-
-  it("handleAgentEvent auto-approves single-command Bash when prefix is approved", () => {
-    const approvedCommandPrefixes = new Set(["git commit"])
-    const store = createChatStore(undefined, { approvedCommandPrefixes })
-
-    const eventCall = mockAgentService.onEvent.mock.calls.find(
-      (c: unknown[]) => c[0] === "test-chat-id"
-    )
-    const eventCallback = eventCall![1]
-
-    eventCallback({
-      kind: "toolApproval",
-      id: "req-1",
-      name: "Bash",
-      input: { command: "git commit -m 'test'" },
-      displayInput: '{"command": "git commit -m \'test\'"}',
-      commandPrefixes: ["git commit"],
-    })
-
-    // Should auto-approve
-    expect(store.pendingToolUses).toHaveLength(0)
-    expect(mockAgentService.sendToolApproval).toHaveBeenCalled()
-  })
-
-  it("handleAgentEvent auto-approves safe git commands without prior approval", () => {
-    const store = createChatStore()
-
-    const eventCall = mockAgentService.onEvent.mock.calls.find(
-      (c: unknown[]) => c[0] === "test-chat-id"
-    )
-    const eventCallback = eventCall![1]
-
-    // Test git status (safe command)
-    eventCallback({
-      kind: "toolApproval",
-      id: "req-1",
-      name: "Bash",
-      input: { command: "git status" },
-      displayInput: '{"command": "git status"}',
-      commandPrefixes: ["git status"],
-    })
-
-    // Should auto-approve without prior approval
-    expect(store.pendingToolUses).toHaveLength(0)
-    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-1", true, {
-      command: "git status",
-    })
-
-    // Test git diff (safe command)
-    eventCallback({
-      kind: "toolApproval",
-      id: "req-2",
-      name: "Bash",
-      input: { command: "git diff" },
-      displayInput: '{"command": "git diff"}',
-      commandPrefixes: ["git diff"],
-    })
-
-    // Should auto-approve
-    expect(store.pendingToolUses).toHaveLength(0)
-    expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith("test-chat-id", "req-2", true, {
-      command: "git diff",
-    })
+    expect(store.pendingToolUses[0].name).toBe("Read")
   })
 
   it("handleAgentEvent processes question events", () => {
@@ -493,10 +397,12 @@ describe("ChatStore", () => {
   })
 
   describe("approveToolUseAll", () => {
-    it("adds tool name to approved set when scope is tool", async () => {
-      const approvedToolNames = new Set<string>()
-      const saveApprovals = vi.fn()
-      const store = createChatStore(undefined, { approvedToolNames, saveApprovals })
+    beforeEach(() => {
+      vi.mocked(invoke).mockClear()
+    })
+
+    it("calls backend to add tool approval when scope is tool", async () => {
+      const store = createChatStore()
 
       runInAction(() => {
         store.pendingToolUses.push({
@@ -509,14 +415,15 @@ describe("ChatStore", () => {
 
       await store.approveToolUseAll("tool-1", "tool")
 
-      expect(approvedToolNames.has("Read")).toBe(true)
-      expect(saveApprovals).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("add_approval", {
+        projectName: "test-project",
+        toolOrPrefix: "Read",
+        isPrefix: false,
+      })
     })
 
-    it("adds all command prefixes when scope is command", async () => {
-      const approvedCommandPrefixes = new Set<string>()
-      const saveApprovals = vi.fn()
-      const store = createChatStore(undefined, { approvedCommandPrefixes, saveApprovals })
+    it("calls backend to add all command prefixes when scope is command", async () => {
+      const store = createChatStore()
 
       runInAction(() => {
         store.pendingToolUses.push({
@@ -530,15 +437,20 @@ describe("ChatStore", () => {
 
       await store.approveToolUseAll("tool-1", "command")
 
-      expect(approvedCommandPrefixes.has("cd")).toBe(true)
-      expect(approvedCommandPrefixes.has("pnpm install")).toBe(true)
-      expect(saveApprovals).toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledWith("add_approval", {
+        projectName: "test-project",
+        toolOrPrefix: "cd",
+        isPrefix: true,
+      })
+      expect(invoke).toHaveBeenCalledWith("add_approval", {
+        projectName: "test-project",
+        toolOrPrefix: "pnpm install",
+        isPrefix: true,
+      })
     })
 
-    it("auto-approves other pending Bash tools when all their prefixes become approved", async () => {
-      const approvedCommandPrefixes = new Set<string>()
-      const saveApprovals = vi.fn()
-      const store = createChatStore(undefined, { approvedCommandPrefixes, saveApprovals })
+    it("auto-approves other pending Bash tools when all their prefixes match", async () => {
+      const store = createChatStore()
 
       runInAction(() => {
         // First tool with cd and pnpm install
@@ -569,7 +481,7 @@ describe("ChatStore", () => {
 
       await store.approveToolUseAll("tool-1", "command")
 
-      // tool-1 and tool-2 should be approved (cd is now approved)
+      // tool-1 and tool-2 should be approved (cd is in tool-1's prefixes)
       expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
         "test-chat-id",
         "tool-1",
@@ -583,15 +495,13 @@ describe("ChatStore", () => {
         { command: "cd /bar" }
       )
 
-      // tool-3 should remain pending (pnpm test not approved)
+      // tool-3 should remain pending (pnpm test not in tool-1's prefixes)
       expect(store.pendingToolUses).toHaveLength(1)
       expect(store.pendingToolUses[0].id).toBe("tool-3")
     })
 
-    it("does NOT auto-approve other Bash tools if only some of their prefixes are approved", async () => {
-      const approvedCommandPrefixes = new Set<string>()
-      const saveApprovals = vi.fn()
-      const store = createChatStore(undefined, { approvedCommandPrefixes, saveApprovals })
+    it("does NOT auto-approve other Bash tools if only some of their prefixes match", async () => {
+      const store = createChatStore()
 
       runInAction(() => {
         // First tool with just cd
@@ -602,7 +512,7 @@ describe("ChatStore", () => {
           rawInput: { command: "cd /foo" },
           commandPrefixes: ["cd"],
         })
-        // Second tool with cd AND git push (git push not approved)
+        // Second tool with cd AND git push (git push not in tool-1's prefixes)
         store.pendingToolUses.push({
           id: "tool-2",
           name: "Bash",
@@ -622,15 +532,13 @@ describe("ChatStore", () => {
         { command: "cd /foo" }
       )
 
-      // tool-2 should remain pending (git push not approved)
+      // tool-2 should remain pending (git push not in tool-1's prefixes)
       expect(store.pendingToolUses).toHaveLength(1)
       expect(store.pendingToolUses[0].id).toBe("tool-2")
     })
 
     it("auto-approves other Read tools when approving Read by tool name", async () => {
-      const approvedToolNames = new Set<string>()
-      const saveApprovals = vi.fn()
-      const store = createChatStore(undefined, { approvedToolNames, saveApprovals })
+      const store = createChatStore()
 
       runInAction(() => {
         store.pendingToolUses.push({
@@ -661,6 +569,72 @@ describe("ChatStore", () => {
       // tool-3 (Write) should remain pending
       expect(store.pendingToolUses).toHaveLength(1)
       expect(store.pendingToolUses[0].name).toBe("Write")
+    })
+  })
+
+  describe("denyToolUseWithExplanation", () => {
+    it("sends denial with explanation message to agent", async () => {
+      const store = createChatStore()
+
+      runInAction(() => {
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Write",
+          input: '{"path": "/tmp/file.txt"}',
+          rawInput: { path: "/tmp/file.txt" },
+        })
+      })
+
+      await store.denyToolUseWithExplanation("tool-1", "Please use Edit instead")
+
+      expect(mockAgentService.sendToolApproval).toHaveBeenCalledWith(
+        "test-chat-id",
+        "tool-1",
+        false,
+        { path: "/tmp/file.txt" },
+        "User denied this tool use and requested something different:\n\nPlease use Edit instead"
+      )
+      expect(store.pendingToolUses).toHaveLength(0)
+    })
+
+    it("adds user message to chat when explanation provided", async () => {
+      const store = createChatStore()
+
+      runInAction(() => {
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Bash",
+          input: '{"command": "rm -rf /"}',
+          rawInput: { command: "rm -rf /" },
+        })
+      })
+
+      const initialMessageCount = store.chat.messages.length
+      await store.denyToolUseWithExplanation("tool-1", "Don't delete everything")
+
+      expect(store.chat.messages.length).toBe(initialMessageCount + 1)
+      expect(store.chat.messages[store.chat.messages.length - 1]).toMatchObject({
+        role: "user",
+        content: "Don't delete everything",
+      })
+    })
+
+    it("does not add user message when explanation is empty", async () => {
+      const store = createChatStore()
+
+      runInAction(() => {
+        store.pendingToolUses.push({
+          id: "tool-1",
+          name: "Bash",
+          input: '{"command": "ls"}',
+          rawInput: { command: "ls" },
+        })
+      })
+
+      const initialMessageCount = store.chat.messages.length
+      await store.denyToolUseWithExplanation("tool-1", "   ")
+
+      expect(store.chat.messages.length).toBe(initialMessageCount)
     })
   })
 
@@ -841,7 +815,8 @@ describe("ChatStore", () => {
       "/tmp/test-chats",
       "opus",
       "default", // permission mode
-      undefined // initPrompt
+      undefined, // initPrompt
+      "test-project"
     )
   })
 
@@ -857,7 +832,8 @@ describe("ChatStore", () => {
       "/tmp/test-chats",
       null,
       "default", // permission mode
-      undefined // initPrompt
+      undefined, // initPrompt
+      "test-project"
     )
   })
 
@@ -1022,126 +998,6 @@ describe("ChatStore", () => {
     expect(mockAgentService.sendToolApproval).not.toHaveBeenCalled()
   })
 
-  describe("save timing", () => {
-    it("message events trigger scheduleSave", async () => {
-      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
-      const store = createChatStore()
-
-      const eventCall = mockAgentService.onEvent.mock.calls.find(
-        (c: unknown[]) => c[0] === "test-chat-id"
-      )
-      const eventCallback = eventCall![1]
-
-      eventCallback({
-        kind: "message",
-        content: "Work message from agent",
-      })
-
-      // The save is scheduled with a 1-second delay
-      expect(store.messages).toHaveLength(1)
-
-      // Wait for the scheduled save
-      await vi.waitFor(
-        () => {
-          expect(writeTextFile).toHaveBeenCalled()
-        },
-        { timeout: 2000 }
-      )
-    })
-
-    it("text events trigger scheduleSave", async () => {
-      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
-      vi.mocked(writeTextFile).mockClear()
-
-      const store = createChatStore()
-
-      const eventCall = mockAgentService.onEvent.mock.calls.find(
-        (c: unknown[]) => c[0] === "test-chat-id"
-      )
-      const eventCallback = eventCall![1]
-
-      eventCallback({
-        kind: "text",
-        text: "Streamed text",
-      })
-
-      expect(store.messages).toHaveLength(1)
-
-      // Wait for the scheduled save
-      await vi.waitFor(
-        () => {
-          expect(writeTextFile).toHaveBeenCalled()
-        },
-        { timeout: 2000 }
-      )
-    })
-
-    it("turnComplete triggers immediate save", async () => {
-      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
-      vi.mocked(writeTextFile).mockClear()
-
-      const store = createChatStore()
-
-      runInAction(() => {
-        store.isSending = true
-        store.chat.status = "running"
-        store.chat.messages.push({
-          id: "msg-1",
-          role: "assistant",
-          content: "Some content",
-          timestamp: new Date(),
-        })
-      })
-
-      const eventCall = mockAgentService.onEvent.mock.calls.find(
-        (c: unknown[]) => c[0] === "test-chat-id"
-      )
-      const eventCallback = eventCall![1]
-
-      eventCallback({ kind: "turnComplete" })
-
-      // Save should be triggered immediately (not after 1 second delay)
-      await vi.waitFor(() => {
-        expect(writeTextFile).toHaveBeenCalled()
-      })
-    })
-
-    it("onDone callback triggers immediate save", async () => {
-      const { writeTextFile } = await import("@tauri-apps/plugin-fs")
-      vi.mocked(writeTextFile).mockClear()
-
-      const store = createChatStore()
-
-      runInAction(() => {
-        store.isSending = true
-        store.chat.status = "running"
-        store.chat.messages.push({
-          id: "msg-1",
-          role: "assistant",
-          content: "Final response",
-          timestamp: new Date(),
-        })
-      })
-
-      // Find and call the onDone callback
-      const onDoneCall = mockAgentService.onDone.mock.calls.find(
-        (c: unknown[]) => c[0] === "test-chat-id"
-      )
-      expect(onDoneCall).toBeDefined()
-      const onDoneCallback = onDoneCall![1]
-
-      onDoneCallback()
-
-      // Save should be triggered immediately
-      await vi.waitFor(() => {
-        expect(writeTextFile).toHaveBeenCalled()
-      })
-
-      expect(store.isSending).toBe(false)
-      expect(store.status).toBe("idle")
-    })
-  })
-
   describe("follow-up queuing", () => {
     it("initializes with empty pendingFollowUps", () => {
       const store = createChatStore()
@@ -1270,7 +1126,8 @@ describe("ChatStore", () => {
         "/tmp/test-chats",
         null,
         "default",
-        undefined
+        undefined,
+        "test-project"
       )
     })
 
@@ -1654,7 +1511,8 @@ Final text.`,
         "/tmp/test-chats",
         null, // modelVersion
         "acceptEdits", // permission mode from chat
-        undefined // initPrompt
+        undefined, // initPrompt
+        "test-project"
       )
     })
 
@@ -1670,8 +1528,92 @@ Final text.`,
         "/tmp/test-chats",
         null, // modelVersion
         "default", // fallback to configStore.claudePermissionMode which is mocked as "default"
-        undefined // initPrompt
+        undefined, // initPrompt
+        "test-project"
       )
+    })
+
+    it("adds shell instructions to initPrompt for Codex on first message when agentShell is configured", async () => {
+      const store = createChatStore(
+        { agentType: "codex" },
+        { getInitPrompt: () => "Custom init prompt" }
+      )
+
+      await store.sendMessage("first message", "/home/user/wt")
+
+      expect(mockAgentService.sendMessage).toHaveBeenCalledWith(
+        "test-chat-id",
+        "first message",
+        "/home/user/wt",
+        "/tmp/test-chats",
+        null,
+        "untrusted",
+        expect.stringContaining("Custom init prompt"),
+        "test-project"
+      )
+
+      // Verify the shell instruction is included
+      const calls = vi.mocked(mockAgentService.sendMessage).mock.calls as unknown[][]
+      expect(calls.length).toBeGreaterThan(0)
+      const initPrompt = calls[0][6] as string | undefined
+      expect(initPrompt).toContain("IMPORTANT: All bash commands are already running in zsh -l -c")
+      expect(initPrompt).toContain('Do NOT wrap commands with "zsh -l -c"')
+    })
+
+    it("does not add shell instructions for non-Codex agents", async () => {
+      const store = createChatStore(
+        { agentType: "claude" },
+        { getInitPrompt: () => "Custom init prompt" }
+      )
+
+      await store.sendMessage("first message", "/home/user/wt")
+
+      const calls = vi.mocked(mockAgentService.sendMessage).mock.calls as unknown[][]
+      expect(calls.length).toBeGreaterThan(0)
+      const initPrompt = calls[0][6] as string | undefined
+      expect(initPrompt).toBe("Custom init prompt")
+      expect(initPrompt).not.toContain("All bash commands are already running")
+    })
+
+    it("does not add shell instructions on subsequent messages", async () => {
+      const store = createChatStore(
+        {
+          agentType: "codex",
+          messages: [{ id: "1", role: "user", content: "first", timestamp: new Date() }],
+        },
+        { getInitPrompt: () => "Custom init prompt" }
+      )
+
+      await store.sendMessage("second message", "/home/user/wt")
+
+      const calls = vi.mocked(mockAgentService.sendMessage).mock.calls as unknown[][]
+      expect(calls.length).toBeGreaterThan(0)
+      const initPrompt = calls[0][6] as string | undefined
+      expect(initPrompt).toBeUndefined()
+    })
+
+    it("adds generic shell instructions when agentShell is not configured", async () => {
+      // Mock ConfigStore with empty agentShell
+      const { configStore } = await import("../ConfigStore")
+      const originalShell = configStore.agentShell
+      configStore.agentShell = ""
+
+      const store = createChatStore(
+        { agentType: "codex" },
+        { getInitPrompt: () => "Custom init prompt" }
+      )
+
+      await store.sendMessage("first message", "/home/user/wt")
+
+      const calls = vi.mocked(mockAgentService.sendMessage).mock.calls as unknown[][]
+      expect(calls.length).toBeGreaterThan(0)
+      const initPrompt = calls[0][6] as string | undefined
+      expect(initPrompt).toContain("Custom init prompt")
+      expect(initPrompt).toContain("All bash commands are already running in a login shell")
+      expect(initPrompt).toContain("determined by $SHELL environment variable")
+
+      // Restore original value
+      configStore.agentShell = originalShell
     })
   })
 })

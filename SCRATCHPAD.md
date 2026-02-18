@@ -21,6 +21,9 @@ My learning journal for this codebase. **Rules** are patterns I must follow. **M
 ### MobX
 
 - **Use decorators, not makeAutoObservable** — Always use `@observable`, `@computed`, `@action` on separate lines. Makes reactive structure explicit.
+- **Always call makeObservable(this)** — Required in constructor when using decorators. Don't forget this!
+- **Store event unsubscribe functions** — Event subscriptions return unsubscribe callbacks. Store them in the instance.
+- **Add dispose() methods** — Stores need cleanup: unsubscribe from events, clear timeouts, null out stored functions.
 - **Store view state in stores, not components** — For things like `viewMode`, `highlightedLine`, put them in MobX stores so they persist across re-renders and are accessible from multiple components.
 
 ### UI Patterns
@@ -41,6 +44,9 @@ My learning journal for this codebase. **Rules** are patterns I must follow. **M
 ### Architecture
 
 - **Keep invoke() in services** — Low-level Tauri `invoke()` calls should stay in the service layer, not leak into stores. Expose clean methods like `terminalService.write()` instead of having stores call `invoke("pty_write", ...)`.
+- **Credentials never in memory** — When dealing with tokens/secrets, use shell subprocesses with pipes. Never store credentials in variables, even temporarily. Let the shell handle the token flow.
+- **Don't overthink working solutions** — If user provides a working shell command, use it exactly. Don't try to "improve" by removing dependencies or using alternatives.
+- **Platform-specific features** — Use `#[cfg(target_os = "macos")]` in Rust. Frontend should detect unsupported platforms once and gracefully disable the feature (use `isSupported` flag pattern).
 
 ### Code Style
 
@@ -106,3 +112,32 @@ My learning journal for this codebase. **Rules** are patterns I must follow. **M
 **Issue**: "Open in terminal" button felt slow/laggy.
 **Cause**: `open_external` was a synchronous Tauri command (`fn` instead of `async fn`). Even though `spawn()` returns quickly, the synchronous command blocks the main thread during the entire JS→Rust→JS IPC roundtrip.
 **Fix**: Add `async` to all Tauri command functions. This moves them off the main thread to Tauri's async runtime.
+
+### 2026-02-16: Process recv() vs try_recv() deadlock
+
+**Issue**: Codex agent caused app to beachball (freeze) when sending a message.
+**Cause**: The event forwarding thread used `process.recv()` (blocking) while holding a mutex lock on the process. When TypeScript tried to send stdin via `codex_stdin`, it couldn't acquire the lock because the event thread was blocked waiting for data while holding it.
+**Fix**: Use `process.try_recv()` (non-blocking) instead, with a small sleep (10ms) when no data is available. This pattern releases the mutex between checks, allowing stdin writes to proceed. See `src-tauri/src/agents/claude.rs` for the correct pattern.
+
+### 2026-02-17: Claude Usage Indicators - Security & Lifecycle
+
+**Issue**: Adding usage limit indicators for Claude API.
+**Mistakes**:
+1. Initially tried to extract OAuth token into Overseer memory and use reqwest
+2. Overthought the shell command, tried to replace jq with Python
+3. Used `jq` in final solution - not available on fresh macOS installations
+4. Forgot `makeObservable(this)` in MobX store constructor
+5. Didn't store event bus unsubscribe function
+6. Didn't add `dispose()` method for cleanup
+
+**Correct approach**:
+- Run entire curl pipeline in shell subprocess with token extraction
+- Token never enters Overseer memory - stays in shell pipes
+- Use standard Unix tools only (`grep`, `sed`) - available on every Mac
+- Parse token: `security ... | grep -o '"accessToken":"[^"]*"' | sed 's/"accessToken":"//;s/"$//'`
+- Always add `makeObservable(this)` when using MobX decorators
+- Store unsubscribe functions from event subscriptions
+- Add `dispose()` method to clean up resources (events + timeouts)
+- Write comprehensive tests before claiming feature is complete
+
+**Key insight**: Security architecture trumps convenience. When dealing with credentials, use shell subprocesses even if it seems less "clean" than using a library. Only use tools guaranteed to exist on target platform.

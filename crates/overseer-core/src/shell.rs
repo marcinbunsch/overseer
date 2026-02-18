@@ -1,10 +1,32 @@
-//! Shared utilities for agent process management.
+//! Shell command execution utilities.
+//!
+//! This module provides platform-aware shell command building for running
+//! external commands in the user's login shell environment.
+//!
+//! # Overview
+//!
+//! When spawning agent processes or running external commands, we need to:
+//! - Use the user's login shell to pick up PATH and environment variables
+//! - Handle non-POSIX shells (fish, nushell) by falling back to bash/sh
+//! - Properly quote arguments with spaces or special characters
+//!
+//! # Example
+//!
+//! ```ignore
+//! use overseer_core::shell::build_login_shell_command;
+//!
+//! let cmd = build_login_shell_command(
+//!     "/usr/bin/claude",
+//!     &["--help".to_string()],
+//!     Some("/path/to/workspace"),
+//!     None, // Use default shell
+//! )?;
+//! ```
 
-use serde::Serialize;
 use std::process::Command;
 
 /// Exit status emitted when an agent process terminates.
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct AgentExit {
     pub code: i32,
     pub signal: Option<i32>,
@@ -153,9 +175,35 @@ pub fn build_login_shell_command(
     Ok(cmd)
 }
 
+// ============================================================================
+// TESTS
+// ============================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_exit_serializes() {
+        let exit = AgentExit {
+            code: 1,
+            signal: Some(9),
+        };
+        let json = serde_json::to_string(&exit).unwrap();
+        assert!(json.contains("\"code\":1"));
+        assert!(json.contains("\"signal\":9"));
+    }
+
+    #[test]
+    fn agent_exit_serializes_without_signal() {
+        let exit = AgentExit {
+            code: 0,
+            signal: None,
+        };
+        let json = serde_json::to_string(&exit).unwrap();
+        assert!(json.contains("\"code\":0"));
+        assert!(json.contains("\"signal\":null"));
+    }
 
     #[test]
     #[cfg(unix)]

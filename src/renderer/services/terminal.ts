@@ -1,6 +1,5 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { platform } from "@tauri-apps/plugin-os"
+import { backend, type Unsubscribe } from "../backend"
 import { open } from "@tauri-apps/plugin-shell"
 import { Terminal, type IDisposable } from "xterm"
 import { FitAddon } from "@xterm/addon-fit"
@@ -50,8 +49,8 @@ export interface TerminalInstance {
   xterm: Terminal
   fitAddon: FitAddon
   containerEl: HTMLDivElement
-  dataUnlisten: UnlistenFn
-  exitUnlisten: UnlistenFn
+  dataUnlisten: Unsubscribe
+  exitUnlisten: Unsubscribe
   inputDisposable: IDisposable
   /** Resolves when the shell has produced its first output (ready for input) */
   readyPromise: Promise<void>
@@ -111,7 +110,7 @@ class TerminalService {
     const shell = this.getDefaultShell()
 
     // Spawn PTY in Rust
-    await invoke("pty_spawn", {
+    await backend.invoke("pty_spawn", {
       id: ptyId,
       cwd: workspacePath,
       shell,
@@ -132,8 +131,8 @@ class TerminalService {
     })
 
     // Listen for PTY output
-    const dataUnlisten = await listen<number[]>(`pty:data:${ptyId}`, (event) => {
-      const bytes = new Uint8Array(event.payload)
+    const dataUnlisten = await backend.listen<number[]>(`pty:data:${ptyId}`, (payload) => {
+      const bytes = new Uint8Array(payload)
       let text = this.decoder.decode(bytes, { stream: true })
 
       // Strip zsh's PROMPT_EOL_MARK from the initial output
@@ -148,7 +147,7 @@ class TerminalService {
     })
 
     // Listen for PTY exit
-    const exitUnlisten = await listen(`pty:exit:${ptyId}`, () => {
+    const exitUnlisten = await backend.listen(`pty:exit:${ptyId}`, () => {
       this.destroy(workspacePath)
     })
 
@@ -168,7 +167,7 @@ class TerminalService {
     instance.inputDisposable = xterm.onData((data: string) => {
       instance.hasInput = true
       const bytes = Array.from(this.encoder.encode(data))
-      invoke("pty_write", { id: ptyId, data: bytes })
+      backend.invoke("pty_write", { id: ptyId, data: bytes })
     })
 
     this.terminals.set(workspacePath, instance)
@@ -180,7 +179,7 @@ class TerminalService {
         // Send export command and clear the screen to hide it
         const initScript = `export WORKSPACE_ROOT="${workspaceRoot}" && clear\r`
         const bytes = Array.from(this.encoder.encode(initScript))
-        await invoke("pty_write", { id: ptyId, data: bytes })
+        await backend.invoke("pty_write", { id: ptyId, data: bytes })
       })
     }
 
@@ -194,7 +193,7 @@ class TerminalService {
     instance.dataUnlisten()
     instance.exitUnlisten()
     instance.inputDisposable.dispose()
-    invoke("pty_kill", { id: instance.ptyId })
+    backend.invoke("pty_kill", { id: instance.ptyId })
     instance.xterm.dispose()
     this.terminals.delete(workspacePath)
   }
@@ -208,7 +207,7 @@ class TerminalService {
   resize(workspacePath: string, cols: number, rows: number): void {
     const instance = this.terminals.get(workspacePath)
     if (!instance) return
-    invoke("pty_resize", { id: instance.ptyId, cols, rows })
+    backend.invoke("pty_resize", { id: instance.ptyId, cols, rows })
   }
 
   write(workspacePath: string, data: string): void {
@@ -216,7 +215,7 @@ class TerminalService {
     if (!instance) return
     instance.hasInput = true
     const bytes = Array.from(this.encoder.encode(data))
-    invoke("pty_write", { id: instance.ptyId, data: bytes })
+    backend.invoke("pty_write", { id: instance.ptyId, data: bytes })
   }
 
   /** Wait for the shell to be ready for input (first output received) */

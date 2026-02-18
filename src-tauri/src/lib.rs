@@ -1,11 +1,16 @@
 mod agents;
+mod approvals;
+mod chat_session;
 mod git;
 mod logging;
+mod persistence;
 mod pty;
 
-use crate::agents::build_login_shell_command;
+use overseer_core::shell::build_login_shell_command;
+use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
+use overseer_core::paths;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 
 #[tauri::command]
 async fn show_main_window(window: tauri::Window) {
@@ -20,6 +25,31 @@ async fn is_debug_mode() -> bool {
 #[tauri::command]
 async fn is_demo_mode() -> bool {
     std::env::var("OVERSEER_DEMO").is_ok()
+}
+
+#[tauri::command]
+async fn get_home_dir() -> Result<String, String> {
+    paths::get_home_dir()
+}
+
+/// Result of extracting overseer action blocks from content.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtractOverseerBlocksResult {
+    clean_content: String,
+    actions: Vec<OverseerAction>,
+}
+
+/// Extract overseer action blocks from content.
+///
+/// Returns the cleaned content (with blocks removed) and the list of parsed actions.
+#[tauri::command]
+fn extract_overseer_blocks_cmd(content: String) -> ExtractOverseerBlocksResult {
+    let (clean_content, actions) = extract_overseer_blocks(&content);
+    ExtractOverseerBlocksResult {
+        clean_content,
+        actions,
+    }
 }
 
 #[tauri::command]
@@ -97,6 +127,13 @@ async fn check_command_exists(command: String) -> CommandCheckResult {
     }
 }
 
+#[tauri::command]
+async fn fetch_claude_usage() -> Result<overseer_core::usage::ClaudeUsageResponse, String> {
+    overseer_core::usage::fetch_claude_usage()
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -105,6 +142,9 @@ pub fn run() {
         .manage(agents::CopilotServerMap::default())
         .manage(agents::GeminiServerMap::default())
         .manage(agents::OpenCodeServerMap::default())
+        .manage(approvals::ProjectApprovalManager::default())
+        .manage(chat_session::ChatSessionManager::default())
+        .manage(persistence::PersistenceConfig::default())
         .manage(pty::PtyMap::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
@@ -170,13 +210,49 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Debug)
-                        .build(),
-                )?;
-            }
+            // Determine config directory: ~/.config/overseer-dev (dev) or ~/.config/overseer (prod)
+            // This matches the frontend's getConfigPath() behavior
+            let config_dir = if let Some(home) = app.path().home_dir().ok() {
+                let dir_name = if cfg!(debug_assertions) {
+                    "overseer-dev"
+                } else {
+                    "overseer"
+                };
+                home.join(".config").join(dir_name)
+            } else {
+                // Fallback to Tauri's config_dir if home is not available
+                app.path().config_dir().ok().unwrap_or_default()
+            };
+
+            // Set up file logging to config_dir/logs/
+            let log_dir = config_dir.join("logs");
+            // Create logs directory if it doesn't exist
+            let _ = std::fs::create_dir_all(&log_dir);
+
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .target(tauri_plugin_log::Target::new(
+                        tauri_plugin_log::TargetKind::Folder {
+                            path: log_dir,
+                            file_name: Some("overseer".into()),
+                        },
+                    ))
+                    .build(),
+            )?;
+
+            // Set up the config directory for approvals persistence
+            let approval_manager = app.state::<approvals::ProjectApprovalManager>();
+            approval_manager.set_config_dir(config_dir.clone());
+
+            // Set up the config directory for chat session persistence
+            let chat_session_manager = app.state::<chat_session::ChatSessionManager>();
+            chat_session_manager.set_config_dir(config_dir.clone());
+
+            // Set up the config directory for general persistence
+            let persistence_config = app.state::<persistence::PersistenceConfig>();
+            persistence_config.set_config_dir(config_dir);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -219,10 +295,46 @@ pub fn run() {
             show_main_window,
             is_debug_mode,
             is_demo_mode,
+            get_home_dir,
+            extract_overseer_blocks_cmd,
+            approvals::load_project_approvals,
+            approvals::add_approval,
+            approvals::remove_approval,
+            approvals::clear_project_approvals,
+            chat_session::register_chat_session,
+            chat_session::unregister_chat_session,
+            chat_session::append_chat_event,
+            chat_session::load_chat_events,
+            chat_session::load_chat_metadata,
+            chat_session::save_chat_metadata,
+            chat_session::add_user_message,
+            persistence::save_chat,
+            persistence::load_chat,
+            persistence::delete_chat,
+            persistence::list_chat_ids,
+            persistence::migrate_chat_if_needed,
+            persistence::save_chat_index,
+            persistence::load_chat_index,
+            persistence::upsert_chat_entry,
+            persistence::remove_chat_entry,
+            persistence::save_workspace_state,
+            persistence::load_workspace_state,
+            persistence::save_project_registry,
+            persistence::load_project_registry,
+            persistence::upsert_project,
+            persistence::remove_project,
+            persistence::save_json_config,
+            persistence::load_json_config,
+            persistence::config_file_exists,
+            persistence::get_config_dir,
+            persistence::archive_chat_dir,
+            persistence::ensure_chat_dir,
+            persistence::remove_chat_file,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            fetch_claude_usage,
         ])
         .on_window_event(|_window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -244,115 +356,12 @@ pub fn run() {
         });
 }
 
+/// Tests for Tauri-specific functionality.
+/// Core library tests are in overseer-core.
 #[cfg(test)]
 mod tests {
-    use crate::agents::AgentExit;
     use crate::check_command_exists;
-    use crate::git::{
-        delete_branch, parse_diff_name_status, rename_branch, ChangedFile, MergeResult, PrStatus,
-        WorkspaceInfo, ANIMALS,
-    };
-    use std::process::Command;
-
-    #[test]
-    fn parse_diff_name_status_basic() {
-        let input = "M\tsrc/main.rs\nA\tsrc/new.rs\nD\told.txt\n";
-        let files = parse_diff_name_status(input);
-
-        assert_eq!(files.len(), 3);
-        assert_eq!(files[0].status, "M");
-        assert_eq!(files[0].path, "src/main.rs");
-        assert_eq!(files[1].status, "A");
-        assert_eq!(files[1].path, "src/new.rs");
-        assert_eq!(files[2].status, "D");
-        assert_eq!(files[2].path, "old.txt");
-    }
-
-    #[test]
-    fn parse_diff_name_status_empty_input() {
-        let files = parse_diff_name_status("");
-        assert!(files.is_empty());
-    }
-
-    #[test]
-    fn parse_diff_name_status_ignores_malformed_lines() {
-        let input = "M\tgood.rs\nbadline\nA\talso_good.rs\n";
-        let files = parse_diff_name_status(input);
-
-        assert_eq!(files.len(), 2);
-        assert_eq!(files[0].path, "good.rs");
-        assert_eq!(files[1].path, "also_good.rs");
-    }
-
-    #[test]
-    fn parse_diff_name_status_renamed_file() {
-        let input = "R\told_name.rs\tnew_name.rs\n";
-        let files = parse_diff_name_status(input);
-
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].status, "R");
-        assert_eq!(files[0].path, "old_name.rs\tnew_name.rs");
-    }
-
-    #[test]
-    fn parse_diff_name_status_path_with_spaces() {
-        let input = "M\tpath with spaces/file.txt\n";
-        let files = parse_diff_name_status(input);
-
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, "path with spaces/file.txt");
-    }
-
-    #[test]
-    fn animals_list_is_not_empty() {
-        assert!(!ANIMALS.is_empty());
-        for animal in ANIMALS {
-            assert!(!animal.is_empty());
-        }
-    }
-
-    #[test]
-    fn animals_list_has_no_duplicates() {
-        let mut seen = std::collections::HashSet::new();
-        for animal in ANIMALS {
-            assert!(seen.insert(*animal), "Duplicate animal name: {}", animal);
-        }
-    }
-
-    #[test]
-    fn workspace_info_serializes() {
-        let info = WorkspaceInfo {
-            path: "/tmp/test".to_string(),
-            branch: "main".to_string(),
-        };
-        let json = serde_json::to_string(&info).unwrap();
-        assert!(json.contains("\"path\":\"/tmp/test\""));
-        assert!(json.contains("\"branch\":\"main\""));
-    }
-
-    #[test]
-    fn changed_file_serializes() {
-        let file = ChangedFile {
-            status: "M".to_string(),
-            path: "src/lib.rs".to_string(),
-        };
-        let json = serde_json::to_string(&file).unwrap();
-        assert!(json.contains("\"status\":\"M\""));
-        assert!(json.contains("\"path\":\"src/lib.rs\""));
-    }
-
-    #[test]
-    fn merge_result_serializes() {
-        let result = MergeResult {
-            success: true,
-            conflicts: vec!["file.rs".to_string()],
-            message: "Done".to_string(),
-        };
-        let json = serde_json::to_string(&result).unwrap();
-        assert!(json.contains("\"success\":true"));
-        assert!(json.contains("\"conflicts\":[\"file.rs\"]"));
-        assert!(json.contains("\"message\":\"Done\""));
-    }
+    use crate::git::PrStatus;
 
     #[test]
     fn pr_status_serializes() {
@@ -366,182 +375,6 @@ mod tests {
         assert!(json.contains("\"number\":42"));
         assert!(json.contains("\"state\":\"OPEN\""));
         assert!(json.contains("\"is_draft\":false"));
-    }
-
-    #[test]
-    fn agent_exit_serializes() {
-        let exit = AgentExit {
-            code: 1,
-            signal: Some(9),
-        };
-        let json = serde_json::to_string(&exit).unwrap();
-        assert!(json.contains("\"code\":1"));
-        assert!(json.contains("\"signal\":9"));
-    }
-
-    #[test]
-    fn agent_exit_serializes_without_signal() {
-        let exit = AgentExit {
-            code: 0,
-            signal: None,
-        };
-        let json = serde_json::to_string(&exit).unwrap();
-        assert!(json.contains("\"code\":0"));
-        assert!(json.contains("\"signal\":null"));
-    }
-
-    fn init_temp_repo(branch_name: &str) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path();
-
-        // Use GIT_CONFIG_GLOBAL to isolate from user's global config
-        // This prevents flaky tests due to parallel execution affecting git state
-        let empty_config = path.join(".gitconfig-empty");
-        std::fs::write(&empty_config, "").unwrap();
-
-        Command::new("git")
-            .args(["init", "-b", branch_name])
-            .env("GIT_CONFIG_GLOBAL", &empty_config)
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        Command::new("git")
-            .args(["config", "user.email", "test@test.com"])
-            .env("GIT_CONFIG_GLOBAL", &empty_config)
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        Command::new("git")
-            .args(["config", "user.name", "Test"])
-            .env("GIT_CONFIG_GLOBAL", &empty_config)
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        // Need at least one commit so HEAD is valid
-        Command::new("git")
-            .args(["commit", "--allow-empty", "-m", "init"])
-            .env("GIT_CONFIG_GLOBAL", &empty_config)
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        dir
-    }
-
-    #[test]
-    fn rename_branch_blocks_main() {
-        let dir = init_temp_repo("main");
-        let result = rename_branch(dir.path().to_str().unwrap(), "new-name");
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Cannot rename the main branch");
-    }
-
-    #[test]
-    fn rename_branch_blocks_master() {
-        let dir = init_temp_repo("master");
-        let result = rename_branch(dir.path().to_str().unwrap(), "new-name");
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Cannot rename the main branch");
-    }
-
-    #[test]
-    fn rename_branch_allows_feature_branch() {
-        let dir = init_temp_repo("feature-branch");
-        let result = rename_branch(dir.path().to_str().unwrap(), "renamed-branch");
-        assert!(result.is_ok());
-
-        let output = Command::new("git")
-            .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        assert_eq!(branch, "renamed-branch");
-    }
-
-    #[test]
-    fn delete_branch_removes_merged_branch() {
-        let dir = init_temp_repo("main");
-        let path = dir.path().to_str().unwrap();
-
-        // Create and checkout a feature branch
-        Command::new("git")
-            .args(["checkout", "-b", "feature-to-delete"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        // Make a commit on feature branch
-        Command::new("git")
-            .args(["commit", "--allow-empty", "-m", "feature commit"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        // Switch back to main and merge
-        Command::new("git")
-            .args(["checkout", "main"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        Command::new("git")
-            .args(["merge", "feature-to-delete"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        // Now delete the branch
-        let result = delete_branch(path, "feature-to-delete");
-        assert!(result.is_ok());
-
-        // Verify branch no longer exists
-        let output = Command::new("git")
-            .args(["branch", "--list", "feature-to-delete"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    }
-
-    #[test]
-    fn delete_branch_fails_for_unmerged_branch() {
-        let dir = init_temp_repo("main");
-        let path = dir.path().to_str().unwrap();
-
-        // Create a feature branch with unmerged changes
-        Command::new("git")
-            .args(["checkout", "-b", "unmerged-feature"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        Command::new("git")
-            .args(["commit", "--allow-empty", "-m", "unmerged commit"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        // Switch back to main (don't merge)
-        Command::new("git")
-            .args(["checkout", "main"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        // Try to delete - should fail with -d (safe delete)
-        let result = delete_branch(path, "unmerged-feature");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn delete_branch_fails_for_nonexistent_branch() {
-        let dir = init_temp_repo("main");
-        let result = delete_branch(dir.path().to_str().unwrap(), "nonexistent-branch");
-        assert!(result.is_err());
     }
 
     #[test]

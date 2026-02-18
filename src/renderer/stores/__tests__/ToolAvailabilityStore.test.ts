@@ -1,6 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { invoke } from "@tauri-apps/api/core"
 
+vi.mock("../ConfigStore", () => ({
+  configStore: {
+    loaded: true,
+    whenLoaded: () => Promise.resolve(),
+    claudePath: "claude",
+    codexPath: "codex",
+    copilotPath: "copilot",
+    geminiPath: "gemini",
+    opencodePath: "opencode",
+    editorCommand: "code",
+    terminalCommand: "open -a iTerm",
+  },
+}))
+
 describe("ToolAvailabilityStore", () => {
   beforeEach(() => {
     vi.clearAllMocks()

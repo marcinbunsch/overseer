@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { backend, type Unsubscribe } from "../backend"
 import type { ToolMeta } from "../types"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
 import { configStore } from "../stores/ConfigStore"
@@ -41,43 +40,39 @@ Current path: ${geminiPath}`
 }
 
 /**
- * Gemini CLI streaming event types (NDJSON format).
- * Note: The CLI uses lowercase event types (init, message, etc.)
+ * Rust AgentEvent from overseer-core (internally-tagged serde format).
+ * These are pre-parsed events emitted from Rust via gemini:event: channel.
  */
-interface GeminiStreamEvent {
-  type: string
-  timestamp?: string
-  session_id?: string // CLI uses snake_case
-  model?: string
-  role?: string
+interface RustAgentEvent {
+  kind: string
+  // Text event
+  text?: string
+  // Message event
   content?: string
-  delta?: boolean
-  tool_name?: string // CLI uses snake_case
-  tool_id?: string // CLI uses snake_case
-  parameters?: Record<string, unknown> // CLI uses "parameters" not "params"
-  status?: "success" | "error"
-  output?: string // CLI uses "output" for tool results
-  error?: string
-  message?: string
-  code?: string
-  success?: boolean
-  stats?: Record<string, unknown>
+  tool_meta?: {
+    tool_name: string
+    lines_added?: number
+    lines_removed?: number
+  }
+  parent_tool_use_id?: string
+  tool_use_id?: string
+  is_info?: boolean
+  // SessionId event
+  session_id?: string
+  // BashOutput event (uses 'text' field)
 }
 
 interface GeminiChat {
   sessionId: string | null
   running: boolean
-  buffer: string
   workingDir: string
-  unlistenStdout: UnlistenFn | null
-  unlistenStderr: UnlistenFn | null
-  unlistenClose: UnlistenFn | null
+  unlistenEvent: Unsubscribe | null
+  unlistenStderr: Unsubscribe | null
+  unlistenClose: Unsubscribe | null
   /** Count of rate limit retries - used to detect death spirals */
   rateLimitCount: number
   /** True if the last emitted message was an info message (rate limit, etc.) */
   lastWasInfo: boolean
-  /** Last tool used (for filtering output) */
-  lastToolName: string | null
 }
 
 /** Max rate limit retries before circuit breaker trips */
@@ -104,14 +99,12 @@ class GeminiAgentService implements AgentService {
       chat = {
         sessionId: null,
         running: false,
-        buffer: "",
         workingDir: "",
-        unlistenStdout: null,
+        unlistenEvent: null,
         unlistenStderr: null,
         unlistenClose: null,
         rateLimitCount: 0,
         lastWasInfo: false,
-        lastToolName: null,
       }
       this.chats.set(chatId, chat)
     }
@@ -121,19 +114,21 @@ class GeminiAgentService implements AgentService {
   private async attachListeners(chatId: string): Promise<void> {
     const chat = this.getOrCreateChat(chatId)
 
-    if (!chat.unlistenStdout) {
-      chat.unlistenStdout = await listen<string>(`gemini:stdout:${chatId}`, (event) => {
-        const line = event.payload ?? ""
-        this.handleOutput(chatId, `${line}\n`)
-      })
+    if (!chat.unlistenEvent) {
+      chat.unlistenEvent = await backend.listen<RustAgentEvent>(
+        `gemini:event:${chatId}`,
+        (payload) => {
+          if (payload) {
+            this.handleRustEvent(chatId, payload)
+          }
+        }
+      )
     }
 
     if (!chat.unlistenStderr) {
-      chat.unlistenStderr = await listen<string>(`gemini:stderr:${chatId}`, (event) => {
-        if (event.payload) {
-          console.warn(`Gemini stderr [${chatId}]:`, event.payload)
-          // Detect quota limit / retry messages and show them as info messages
-          const payload = event.payload
+      chat.unlistenStderr = await backend.listen<string>(`gemini:stderr:${chatId}`, (payload) => {
+        if (payload) {
+          console.warn(`Gemini stderr [${chatId}]:`, payload)
           if (payload.includes("exhausted your capacity") || payload.includes("Retrying after")) {
             chat.rateLimitCount++
 
@@ -164,16 +159,73 @@ class GeminiAgentService implements AgentService {
     }
 
     if (!chat.unlistenClose) {
-      chat.unlistenClose = await listen<{ code: number }>(`gemini:close:${chatId}`, () => {
-        // Process any remaining buffered content
-        if (chat.buffer.trim()) {
-          this.parseLine(chatId, chat.buffer.trim())
-          chat.buffer = ""
-        }
+      chat.unlistenClose = await backend.listen<{ code: number }>(`gemini:close:${chatId}`, () => {
         chat.running = false
         this.emitEvent(chatId, { kind: "turnComplete" })
         this.doneCallbacks.get(chatId)?.()
       })
+    }
+  }
+
+  /**
+   * Handle pre-parsed AgentEvent from Rust.
+   */
+  private handleRustEvent(chatId: string, rustEvent: RustAgentEvent): void {
+    const chat = this.chats.get(chatId)
+
+    // Reset rate limit counter on any successful event
+    if (chat) {
+      chat.rateLimitCount = 0
+    }
+
+    switch (rustEvent.kind) {
+      case "text":
+        // If the last message was an info message (e.g., rate limit), start a new message
+        if (chat?.lastWasInfo) {
+          chat.lastWasInfo = false
+          this.emitEvent(chatId, { kind: "message", content: rustEvent.text ?? "" })
+        } else {
+          this.emitEvent(chatId, { kind: "text", text: rustEvent.text ?? "" })
+        }
+        break
+
+      case "message": {
+        let toolMeta: ToolMeta | undefined
+        if (rustEvent.tool_meta) {
+          toolMeta = {
+            toolName: rustEvent.tool_meta.tool_name,
+            linesAdded: rustEvent.tool_meta.lines_added,
+            linesRemoved: rustEvent.tool_meta.lines_removed,
+          }
+        }
+        this.emitEvent(chatId, {
+          kind: "message",
+          content: rustEvent.content ?? "",
+          toolMeta,
+          parentToolUseId: rustEvent.parent_tool_use_id,
+          toolUseId: rustEvent.tool_use_id,
+          isInfo: rustEvent.is_info,
+        })
+        break
+      }
+
+      case "bashOutput":
+        this.emitEvent(chatId, { kind: "bashOutput", text: rustEvent.text ?? "" })
+        break
+
+      case "sessionId":
+        if (rustEvent.session_id && chat) {
+          chat.sessionId = rustEvent.session_id
+          this.emitEvent(chatId, { kind: "sessionId", sessionId: rustEvent.session_id })
+        }
+        break
+
+      case "turnComplete":
+        this.emitEvent(chatId, { kind: "turnComplete" })
+        break
+
+      default:
+        console.warn(`Unknown Gemini event kind: ${rustEvent.kind}`)
     }
   }
 
@@ -195,7 +247,6 @@ class GeminiAgentService implements AgentService {
     // Stop any existing process first
     await this.stopChat(chatId)
     await this.attachListeners(chatId)
-    chat.buffer = ""
     chat.rateLimitCount = 0 // Reset circuit breaker for new turn
 
     // Prepend initPrompt to the first message of a new session
@@ -214,7 +265,7 @@ class GeminiAgentService implements AgentService {
     )
 
     try {
-      await invoke("start_gemini_server", {
+      await backend.invoke("start_gemini_server", {
         serverId: chatId,
         geminiPath: configStore.geminiPath,
         prompt: messageText,
@@ -256,7 +307,7 @@ class GeminiAgentService implements AgentService {
     if (chat) {
       chat.running = false
     }
-    await invoke("stop_gemini_server", { serverId: chatId })
+    await backend.invoke("stop_gemini_server", { serverId: chatId })
   }
 
   isRunning(chatId: string): boolean {
@@ -275,7 +326,7 @@ class GeminiAgentService implements AgentService {
   removeChat(chatId: string): void {
     const chat = this.chats.get(chatId)
     if (chat) {
-      chat.unlistenStdout?.()
+      chat.unlistenEvent?.()
       chat.unlistenStderr?.()
       chat.unlistenClose?.()
     }
@@ -290,181 +341,6 @@ class GeminiAgentService implements AgentService {
 
   onDone(chatId: string, callback: AgentDoneCallback): void {
     this.doneCallbacks.set(chatId, callback)
-  }
-
-  // --- Private: Output parsing ---
-
-  private handleOutput(chatId: string, data: string): void {
-    const chat = this.chats.get(chatId)
-    if (!chat) return
-
-    chat.buffer += data
-    const lines = chat.buffer.split("\n")
-    chat.buffer = lines.pop() || ""
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed) {
-        this.parseLine(chatId, trimmed)
-      }
-    }
-  }
-
-  private parseLine(chatId: string, line: string): void {
-    let event: GeminiStreamEvent
-    try {
-      event = JSON.parse(line) as GeminiStreamEvent
-    } catch {
-      // Not valid JSON, ignore
-      return
-    }
-    this.translateEvent(chatId, event)
-  }
-
-  /**
-   * Translate Gemini NDJSON events into generic AgentEvents.
-   * Note: Gemini CLI uses lowercase event types and snake_case field names.
-   */
-  private translateEvent(chatId: string, event: GeminiStreamEvent): void {
-    const chat = this.chats.get(chatId)
-
-    // Reset rate limit counter on any successful event (breaks the death spiral detection window)
-    if (chat) {
-      chat.rateLimitCount = 0
-    }
-
-    switch (event.type) {
-      case "init":
-        // Extract session ID from init event
-        if (event.session_id && chat) {
-          chat.sessionId = event.session_id
-          this.emitEvent(chatId, { kind: "sessionId", sessionId: event.session_id })
-        }
-        break
-
-      case "message":
-        if (event.role === "assistant" && event.content) {
-          if (event.delta) {
-            // If the last message was an info message (e.g., rate limit), start a new message
-            // instead of appending to it via text events
-            if (chat?.lastWasInfo) {
-              chat.lastWasInfo = false
-              this.emitEvent(chatId, { kind: "message", content: event.content })
-            } else {
-              // Streaming delta — emit as text chunk
-              this.emitEvent(chatId, { kind: "text", text: event.content })
-            }
-          } else {
-            // Complete message — emit as message
-            this.emitEvent(chatId, { kind: "message", content: event.content })
-          }
-        }
-        break
-
-      case "tool_use":
-        if (event.tool_name) {
-          const toolName = this.normalizeToolName(event.tool_name)
-          const params = event.parameters ?? {}
-          const input = JSON.stringify(params, null, 2)
-          let toolMeta: ToolMeta | undefined
-
-          // Track last tool name for filtering output
-          if (chat) {
-            chat.lastToolName = toolName
-          }
-
-          // Calculate line changes for Edit-like tools
-          if (toolName === "Edit" || toolName === "Write") {
-            const oldStr = typeof params.old_string === "string" ? params.old_string : ""
-            const newStr =
-              typeof params.new_string === "string"
-                ? params.new_string
-                : typeof params.content === "string"
-                  ? params.content
-                  : ""
-            toolMeta = {
-              toolName,
-              linesAdded: newStr ? newStr.split("\n").length : 0,
-              linesRemoved: oldStr ? oldStr.split("\n").length : 0,
-            }
-          } else {
-            toolMeta = { toolName }
-          }
-
-          this.emitEvent(chatId, {
-            kind: "message",
-            content: input ? `[${toolName}]\n${input}` : `[${toolName}]`,
-            toolMeta,
-          })
-        }
-        break
-
-      case "tool_result":
-        // Skip emitting file contents for Read tools
-        if (chat?.lastToolName === "Read") {
-          // Don't emit file contents
-        } else if (event.status === "success" && event.output) {
-          this.emitEvent(chatId, { kind: "bashOutput", text: event.output })
-        } else if (event.status === "error" && event.error) {
-          this.emitEvent(chatId, {
-            kind: "message",
-            content: `Error: ${event.error}`,
-          })
-        }
-        // Reset last tool name after result
-        if (chat) {
-          chat.lastToolName = null
-        }
-        break
-
-      case "error":
-        if (event.message) {
-          console.error(`Gemini error [${chatId}]:`, event.message)
-          this.emitEvent(chatId, {
-            kind: "message",
-            content: `Error: ${event.message}`,
-          })
-        }
-        break
-
-      case "result":
-        // Final event with session outcome — turn is complete
-        // The close listener will emit turnComplete
-        break
-
-      default:
-        // Unknown event type — log for debugging
-        console.debug(`Gemini event [${chatId}]:`, event.type, event)
-        break
-    }
-  }
-
-  /**
-   * Normalize Gemini tool names to match our standard tool names.
-   */
-  private normalizeToolName(geminiToolName: string): string {
-    switch (geminiToolName.toLowerCase()) {
-      case "shell":
-      case "run_shell_command":
-        return "Bash"
-      case "write_file":
-        return "Write"
-      case "edit_file":
-        return "Edit"
-      case "read_file":
-        return "Read"
-      case "search":
-      case "grep":
-        return "Grep"
-      case "fetch":
-      case "web_fetch":
-        return "WebFetch"
-      case "list_directory":
-        return "ListDir"
-      default:
-        // Capitalize first letter
-        return geminiToolName.charAt(0).toUpperCase() + geminiToolName.slice(1)
-    }
   }
 
   private emitEvent(chatId: string, event: AgentEvent): void {

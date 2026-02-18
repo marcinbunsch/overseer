@@ -1,7 +1,5 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { backend, type Unsubscribe } from "../backend"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
-import { getCommandPrefixes } from "../types"
 import { configStore } from "../stores/ConfigStore"
 import { toolAvailabilityStore } from "../stores/ToolAvailabilityStore"
 
@@ -43,38 +41,52 @@ Current path: ${codexPath}`
 }
 
 /**
- * Lightweight JSON-RPC message types for the Codex app-server protocol.
- * We only define the shapes we actually need to parse/send.
+ * JSON-RPC response type for handling client request responses.
+ * This is the only message type we parse in TypeScript - notifications
+ * and server requests are parsed in Rust.
  */
-interface JsonRpcNotification {
-  method: string
-  params?: Record<string, unknown>
-}
-
 interface JsonRpcResponse {
   id: number | string
   result?: unknown
   error?: { code: number; message: string }
 }
 
-interface JsonRpcServerRequest {
-  method: string
-  id: number | string
-  params?: Record<string, unknown>
+/**
+ * AgentEvent from Rust (matches overseer-core AgentEvent enum).
+ *
+ * Rust uses `#[serde(tag = "kind", rename_all = "camelCase")]` which produces
+ * internally tagged enums: `{"kind": "text", "text": "Hello"}`
+ */
+interface RustAgentEvent {
+  kind: string
+  // Text variant
+  text?: string
+  // Message variant
+  content?: string
+  tool_meta?: { tool_name: string; lines_added?: number; lines_removed?: number }
+  parent_tool_use_id?: string
+  tool_use_id?: string
+  is_info?: boolean
+  // ToolApproval variant
+  request_id?: string
+  name?: string
+  input?: Record<string, unknown>
+  display_input?: string
+  prefixes?: string[]
+  auto_approved?: boolean
+  is_processed?: boolean
+  // SessionId variant
+  session_id?: string
 }
-
-type JsonRpcMessage = JsonRpcNotification | JsonRpcResponse | JsonRpcServerRequest
 
 interface CodexChat {
   serverId: string
   threadId: string | null
   running: boolean
-  buffer: string
   workingDir: string
-  unlistenStdout: UnlistenFn | null
-  unlistenClose: UnlistenFn | null
-  /** Track whether we're currently streaming command output */
-  inCommandExecution: boolean
+  unlistenStdout: Unsubscribe | null
+  unlistenEvent: Unsubscribe | null
+  unlistenClose: Unsubscribe | null
 }
 
 /**
@@ -84,8 +96,8 @@ interface CodexChat {
  * - One `codex app-server` process per serverId (workspace).
  * - Multiple chats (threads) can share a server, but currently we use one server per chat
  *   keyed by chatId for simplicity (since each chat can target a different cwd).
- * - The service handles the initialize handshake, thread creation, and translates
- *   Codex JSON-RPC notifications into AgentEvents.
+ * - Rust handles protocol parsing and emits typed AgentEvents.
+ * - TypeScript only handles JSON-RPC responses for client-initiated requests (initialize, thread/start, turn/start).
  */
 class CodexAgentService implements AgentService {
   private chats: Map<string, CodexChat> = new Map()
@@ -105,11 +117,10 @@ class CodexAgentService implements AgentService {
         serverId: chatId,
         threadId: null,
         running: false,
-        buffer: "",
         workingDir: "",
         unlistenStdout: null,
+        unlistenEvent: null,
         unlistenClose: null,
-        inCommandExecution: false,
       }
       this.chats.set(chatId, chat)
     }
@@ -120,15 +131,26 @@ class CodexAgentService implements AgentService {
     const chat = this.getOrCreateChat(chatId)
     const serverId = chat.serverId
 
+    // Listen for raw stdout to handle JSON-RPC responses to our requests
     if (!chat.unlistenStdout) {
-      chat.unlistenStdout = await listen<string>(`codex:stdout:${serverId}`, (event) => {
-        const line = event.payload ?? ""
-        this.handleOutput(chatId, `${line}\n`)
+      chat.unlistenStdout = await backend.listen<string>(`codex:stdout:${serverId}`, (payload) => {
+        const line = payload ?? ""
+        this.handleResponseLine(chatId, line)
       })
     }
 
+    // Listen for pre-parsed events from Rust
+    if (!chat.unlistenEvent) {
+      chat.unlistenEvent = await backend.listen<RustAgentEvent>(
+        `codex:event:${serverId}`,
+        (payload) => {
+          this.handleRustEvent(chatId, payload)
+        }
+      )
+    }
+
     if (!chat.unlistenClose) {
-      chat.unlistenClose = await listen<{ code: number }>(`codex:close:${serverId}`, () => {
+      chat.unlistenClose = await backend.listen<{ code: number }>(`codex:close:${serverId}`, () => {
         chat.running = false
         this.doneCallbacks.get(chatId)?.()
       })
@@ -142,7 +164,8 @@ class CodexAgentService implements AgentService {
     logDir?: string,
     modelVersion?: string | null,
     permissionMode?: string | null,
-    initPrompt?: string
+    initPrompt?: string,
+    projectName?: string
   ): Promise<void> {
     const chat = this.getOrCreateChat(chatId)
     chat.workingDir = workingDir
@@ -153,14 +176,14 @@ class CodexAgentService implements AgentService {
     // Start server if not running
     if (!chat.running) {
       await this.attachListeners(chatId)
-      chat.buffer = ""
       // Clear stale thread ID from a previous server session
       chat.threadId = null
 
       console.log(`Starting Codex app-server [${chatId}]`)
       try {
-        await invoke("start_codex_server", {
+        await backend.invoke("start_codex_server", {
           serverId: chat.serverId,
+          projectName: projectName ?? "default",
           codexPath: configStore.codexPath,
           modelVersion: modelVersion ?? null,
           logDir: logDir ?? null,
@@ -237,7 +260,7 @@ class CodexAgentService implements AgentService {
     if (!chat) return
 
     console.log(`Sending approval response [${chatId}]:`, response)
-    await invoke("codex_stdin", {
+    await backend.invoke("codex_stdin", {
       serverId: chat.serverId,
       data: response,
     })
@@ -259,7 +282,7 @@ class CodexAgentService implements AgentService {
     await this.interruptTurn(chatId)
 
     chat.running = false
-    await invoke("stop_codex_server", { serverId: chat.serverId })
+    await backend.invoke("stop_codex_server", { serverId: chat.serverId })
   }
 
   isRunning(chatId: string): boolean {
@@ -279,6 +302,7 @@ class CodexAgentService implements AgentService {
     const chat = this.chats.get(chatId)
     if (chat) {
       chat.unlistenStdout?.()
+      chat.unlistenEvent?.()
       chat.unlistenClose?.()
     }
     this.chats.delete(chatId)
@@ -309,7 +333,7 @@ class CodexAgentService implements AgentService {
 
     return new Promise((resolve, reject) => {
       this.pendingResponses.set(id, { chatId, resolve, reject })
-      invoke("codex_stdin", { serverId: chat.serverId, data: msg }).catch(reject)
+      backend.invoke("codex_stdin", { serverId: chat.serverId, data: msg }).catch(reject)
     })
   }
 
@@ -318,43 +342,30 @@ class CodexAgentService implements AgentService {
     if (!chat) return
 
     const msg = JSON.stringify({ method, params })
-    invoke("codex_stdin", { serverId: chat.serverId, data: msg }).catch((err) => {
+    backend.invoke("codex_stdin", { serverId: chat.serverId, data: msg }).catch((err) => {
       console.warn(`Failed to send codex notification [${chatId}]:`, err)
     })
   }
 
-  // --- Private: Output parsing ---
+  // --- Private: Event handling ---
 
-  private handleOutput(chatId: string, data: string): void {
-    const chat = this.chats.get(chatId)
-    if (!chat) return
+  /**
+   * Handle raw stdout lines - only for JSON-RPC responses to our requests.
+   * All other parsing is done in Rust.
+   */
+  private handleResponseLine(_chatId: string, line: string): void {
+    const trimmed = line.trim()
+    if (!trimmed) return
 
-    chat.buffer += data
-    const lines = chat.buffer.split("\n")
-    chat.buffer = lines.pop() || ""
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed) {
-        this.parseLine(chatId, trimmed)
-      }
-    }
-  }
-
-  private parseLine(chatId: string, line: string): void {
-    let msg: JsonRpcMessage
+    let msg: unknown
     try {
-      msg = JSON.parse(line) as JsonRpcMessage
+      msg = JSON.parse(trimmed)
     } catch {
-      // Not valid JSON, ignore
-      return
+      return // Not valid JSON, ignore
     }
-    this.handleMessage(chatId, msg)
-  }
 
-  private handleMessage(chatId: string, msg: JsonRpcMessage): void {
-    // Response to a client request (has id + result/error, no method)
-    if ("id" in msg && !("method" in msg)) {
+    // Only handle responses (has id, no method)
+    if (typeof msg === "object" && msg !== null && "id" in msg && !("method" in msg)) {
       const resp = msg as JsonRpcResponse
       const id = typeof resp.id === "number" ? resp.id : parseInt(String(resp.id), 10)
       const pending = this.pendingResponses.get(id)
@@ -366,182 +377,75 @@ class CodexAgentService implements AgentService {
           pending.resolve(resp.result)
         }
       }
-      return
-    }
-
-    // Server-initiated request (has id + method) — approval requests
-    if ("id" in msg && "method" in msg) {
-      this.handleServerRequest(chatId, msg as JsonRpcServerRequest)
-      return
-    }
-
-    // Notification (method, no id)
-    if ("method" in msg) {
-      this.handleNotification(chatId, msg as JsonRpcNotification)
-      return
     }
   }
 
-  private handleServerRequest(chatId: string, req: JsonRpcServerRequest): void {
-    const params = req.params ?? {}
-
-    if (req.method === "item/commandExecution/requestApproval") {
-      const command = (params.command as string) ?? ""
-      this.emitEvent(chatId, {
-        kind: "toolApproval",
-        id: String(req.id),
-        name: "Bash",
-        input: params,
-        displayInput: command,
-        commandPrefixes: getCommandPrefixes({ command }),
-      })
-      return
-    }
-
-    if (req.method === "item/fileChange/requestApproval") {
-      this.emitEvent(chatId, {
-        kind: "toolApproval",
-        id: String(req.id),
-        name: "Edit",
-        input: params,
-        displayInput: JSON.stringify(params, null, 2),
-      })
-      return
-    }
-
-    if (req.method === "item/tool/requestUserInput") {
-      // Map to a question event if possible, otherwise treat as tool approval
-      this.emitEvent(chatId, {
-        kind: "toolApproval",
-        id: String(req.id),
-        name: "UserInput",
-        input: params,
-        displayInput: JSON.stringify(params, null, 2),
-      })
-      return
-    }
-
-    // Unknown server request — auto-accept to avoid blocking
-    console.warn(`Unknown codex server request: ${req.method}`, req)
-    const response = JSON.stringify({ id: req.id, result: { decision: "accept" } })
-    const chat = this.chats.get(chatId)
-    if (chat) {
-      invoke("codex_stdin", { serverId: chat.serverId, data: response }).catch(() => {})
-    }
-  }
-
-  private handleNotification(chatId: string, notif: JsonRpcNotification): void {
-    const params = notif.params ?? {}
-
-    switch (notif.method) {
-      case "item/agentMessage/delta": {
-        const delta = params.delta as string | undefined
-        if (delta) {
-          this.emitEvent(chatId, { kind: "text", text: delta })
+  /**
+   * Handle pre-parsed events from Rust.
+   * Translates Rust AgentEvent enum to TypeScript AgentEvent.
+   *
+   * Rust uses internally tagged enums: {"kind": "text", "text": "Hello"}
+   */
+  private handleRustEvent(chatId: string, event: RustAgentEvent): void {
+    switch (event.kind) {
+      case "text":
+        if (event.text !== undefined) {
+          this.emitEvent(chatId, { kind: "text", text: event.text })
         }
         break
-      }
 
-      case "item/started": {
-        const chat = this.chats.get(chatId)
-        const item = params.item as Record<string, unknown> | undefined
-        if (!item) break
-        const type = item.type as string
-
-        if (type === "commandExecution") {
-          if (chat) chat.inCommandExecution = true
-          const command = (item.command as string) ?? ""
-          const input = JSON.stringify({ command }, null, 2)
+      case "message":
+        if (event.content !== undefined) {
           this.emitEvent(chatId, {
             kind: "message",
-            content: `[Bash]\n${input}`,
-            toolMeta: { toolName: "Bash" },
-          })
-        } else if (type === "fileChange") {
-          const diff = (item.diff as string) ?? ""
-          const filePath = (item.filePath as string) ?? ""
-          const input = JSON.stringify(
-            { file_path: filePath, old_string: "", new_string: diff },
-            null,
-            2
-          )
-          this.emitEvent(chatId, {
-            kind: "message",
-            content: `[Edit]\n${input}`,
-            toolMeta: { toolName: "Edit" },
-          })
-        } else if (type === "mcpToolCall") {
-          const toolName = (item.toolName as string) ?? "Tool"
-          const args = item.arguments ? JSON.stringify(item.arguments, null, 2) : ""
-          this.emitEvent(chatId, {
-            kind: "message",
-            content: args ? `[${toolName}]\n${args}` : `[${toolName}]`,
+            content: event.content,
+            toolMeta: event.tool_meta
+              ? {
+                  toolName: event.tool_meta.tool_name,
+                  linesAdded: event.tool_meta.lines_added,
+                  linesRemoved: event.tool_meta.lines_removed,
+                }
+              : undefined,
+            parentToolUseId: event.parent_tool_use_id,
+            toolUseId: event.tool_use_id,
+            isInfo: event.is_info,
           })
         }
         break
-      }
 
-      case "item/completed": {
-        const chat = this.chats.get(chatId)
-        const item = params.item as Record<string, unknown> | undefined
-        if (!item) break
-        const type = item.type as string
-
-        if (type === "commandExecution") {
-          if (chat) chat.inCommandExecution = false
-        } else if (type === "agentMessage") {
-          const text = (item.text as string) ?? ""
-          if (text) {
-            this.emitEvent(chatId, { kind: "message", content: text })
-          }
+      case "bashOutput":
+        if (event.text !== undefined) {
+          this.emitEvent(chatId, { kind: "bashOutput", text: event.text })
         }
         break
-      }
 
-      case "turn/completed":
+      case "toolApproval":
+        // Skip auto-approved tools (Rust already handled them)
+        if (event.auto_approved) {
+          return
+        }
+        this.emitEvent(chatId, {
+          kind: "toolApproval",
+          id: event.request_id ?? "",
+          name: event.name ?? "",
+          input: event.input ?? {},
+          displayInput: event.display_input ?? "",
+          isProcessed: event.is_processed ?? false,
+        })
+        break
+
+      case "turnComplete":
         this.emitEvent(chatId, { kind: "turnComplete" })
         break
 
-      case "item/commandExecution/outputDelta": {
-        // Command output streaming — emit as bashOutput for collapsible rendering
-        const delta = params.delta as string | undefined
-        if (delta) {
-          this.emitEvent(chatId, { kind: "bashOutput", text: delta })
+      case "sessionId":
+        if (event.session_id !== undefined) {
+          this.emitEvent(chatId, { kind: "sessionId", sessionId: event.session_id })
         }
         break
-      }
-
-      case "item/reasoning/summaryTextDelta": {
-        const delta = params.delta as string | undefined
-        if (delta) {
-          this.emitEvent(chatId, { kind: "text", text: delta })
-        }
-        break
-      }
-
-      case "thread/name/updated":
-      case "thread/tokenUsage/updated":
-      case "thread/compacted":
-      case "account/updated":
-      case "account/rateLimits/updated":
-      case "deprecationNotice":
-        // Informational — ignore
-        break
-
-      case "error": {
-        const message = (params.message as string) ?? "Unknown error"
-        console.error(`Codex error [${chatId}]:`, message)
-        this.emitEvent(chatId, {
-          kind: "message",
-          content: `Error: ${message}`,
-        })
-        break
-      }
 
       default:
-        // Unknown notification — log for debugging
-        console.debug(`Codex notification [${chatId}]:`, notif.method, params)
-        break
+        console.warn(`Unknown Codex event kind: ${event.kind}`)
     }
   }
 

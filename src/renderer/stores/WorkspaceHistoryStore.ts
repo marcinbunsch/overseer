@@ -1,7 +1,5 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
-import { homeDir } from "@tauri-apps/api/path"
-import { readTextFile, writeTextFile, exists, mkdir } from "@tauri-apps/plugin-fs"
-import { getConfigPath } from "../utils/paths"
+import { backend } from "../backend"
 
 /**
  * Tracks workspace navigation history for back/forward navigation.
@@ -23,7 +21,6 @@ class WorkspaceHistoryStore {
   @observable
   private historyIndex = -1
 
-  private home: string = ""
   private loaded = false
   private saveTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -138,12 +135,14 @@ class WorkspaceHistoryStore {
   private async save(): Promise<void> {
     if (!this.loaded) return
     try {
-      const configPath = `${getConfigPath(this.home)}/history.json`
       const data = {
         history: this.history,
         historyIndex: this.historyIndex,
       }
-      await writeTextFile(configPath, JSON.stringify(data, null, 2) + "\n")
+      await backend.invoke("save_json_config", {
+        filename: "history.json",
+        content: data,
+      })
     } catch (err) {
       console.error("Failed to save history:", err)
     }
@@ -151,26 +150,14 @@ class WorkspaceHistoryStore {
 
   private async load(): Promise<void> {
     try {
-      this.home = await homeDir()
-      if (this.home.endsWith("/")) {
-        this.home = this.home.slice(0, -1)
-      }
-
-      const configDir = getConfigPath(this.home)
-      const historyPath = `${configDir}/history.json`
-
-      const dirExists = await exists(configDir)
-      if (!dirExists) {
-        await mkdir(configDir, { recursive: true })
-      }
-
-      const fileExists = await exists(historyPath)
-      if (fileExists) {
-        const raw = await readTextFile(historyPath)
-        const data = JSON.parse(raw) as { history: string[]; historyIndex: number }
+      const result = await backend.invoke<{ history: string[]; historyIndex: number } | null>(
+        "load_json_config",
+        { filename: "history.json" }
+      )
+      if (result) {
         runInAction(() => {
-          this.history = data.history ?? []
-          this.historyIndex = data.historyIndex ?? this.history.length - 1
+          this.history = result.history ?? []
+          this.historyIndex = result.historyIndex ?? this.history.length - 1
         })
       }
       this.loaded = true

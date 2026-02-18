@@ -1,16 +1,16 @@
-import { invoke } from "@tauri-apps/api/core"
+import { backend } from "../backend"
 import { configStore } from "../stores/ConfigStore"
 
 class ExternalService {
   async openInEditor(path: string): Promise<void> {
-    return invoke<void>("open_external", {
+    return backend.invoke<void>("open_external", {
       command: configStore.editorCommand,
       path,
     })
   }
 
   async openInTerminal(path: string): Promise<void> {
-    return invoke<void>("open_external", {
+    return backend.invoke<void>("open_external", {
       command: configStore.terminalCommand,
       path,
     })

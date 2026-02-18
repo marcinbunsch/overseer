@@ -1,5 +1,5 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
-import { invoke } from "@tauri-apps/api/core"
+import { backend } from "../backend"
 import { configStore } from "./ConfigStore"
 
 export interface ToolStatus {
@@ -242,7 +242,7 @@ class ToolAvailabilityStore {
 
   private async checkCommand(command: string): Promise<ToolStatus> {
     try {
-      const result = await invoke<{ available: boolean; version?: string; error?: string }>(
+      const result = await backend.invoke<{ available: boolean; version?: string; error?: string }>(
         "check_command_exists",
         { command }
       )

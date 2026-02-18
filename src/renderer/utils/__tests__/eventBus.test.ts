@@ -186,6 +186,15 @@ describe("EventBus", () => {
 
       expect(callback).toHaveBeenCalledWith({ into: "main" })
     })
+
+    it("works with agent:turnComplete event type", () => {
+      const callback = vi.fn()
+      eventBus.on("agent:turnComplete", callback)
+
+      eventBus.emit("agent:turnComplete", { agentType: "claude", chatId: "chat-123" })
+
+      expect(callback).toHaveBeenCalledWith({ agentType: "claude", chatId: "chat-123" })
+    })
   })
 
   describe("multiple subscriptions and unsubscriptions", () => {

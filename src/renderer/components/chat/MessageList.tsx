@@ -14,7 +14,6 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(TURNS_PER_PAGE)
-  const [isUserAtBottom, setIsUserAtBottom] = useState(true)
 
   const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null
   const lastResultMessageId = lastTurn?.resultMessage?.id
@@ -41,23 +40,17 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
     return atBottom
   }, [])
 
-  // Handle scroll events to detect manual scrolling
-  const handleScroll = useCallback(() => {
-    const atBottom = checkIfAtBottom()
-    console.log("[MessageList] handleScroll: setting isUserAtBottom =", atBottom)
-    setIsUserAtBottom(atBottom)
-  }, [checkIfAtBottom])
-
   // Auto-scroll to bottom if user is at bottom
   const scrollToBottom = useCallback(() => {
-    console.log("[MessageList] scrollToBottom: isUserAtBottom =", isUserAtBottom)
-    if (isUserAtBottom) {
+    const atBottom = checkIfAtBottom()
+    console.log("[MessageList] scrollToBottom: atBottom =", atBottom)
+    if (atBottom) {
       console.log("[MessageList] scrollToBottom: scrolling to bottom")
       bottomRef.current?.scrollIntoView({ behavior: "instant" })
     } else {
       console.log("[MessageList] scrollToBottom: skipping (user not at bottom)")
     }
-  }, [isUserAtBottom])
+  }, [checkIfAtBottom])
 
   // Auto-scroll when a turn completes (existing behavior)
   useEffect(() => {
@@ -68,7 +61,6 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
     if (lastResultMessageId) {
       console.log("[MessageList] turn completed: forcing scroll to bottom")
       bottomRef.current?.scrollIntoView({ behavior: "instant" })
-      setIsUserAtBottom(true) // Reset to true when turn completes
     }
   }, [turns.length, lastResultMessageId])
 
@@ -83,7 +75,6 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
     const observer = new ResizeObserver((entries) => {
       console.log("[MessageList] ResizeObserver triggered:", {
         entryCount: entries.length,
-        isUserAtBottom,
       })
       scrollToBottom()
     })
@@ -95,7 +86,7 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
       console.log("[MessageList] ResizeObserver: disconnecting")
       observer.disconnect()
     }
-  }, [scrollToBottom, isUserAtBottom])
+  }, [scrollToBottom])
 
   if (turns.length === 0) {
     return (
@@ -109,7 +100,7 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   const visibleTurns = hiddenCount > 0 ? turns.slice(hiddenCount) : turns
 
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4">
+    <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
       {hiddenCount > 0 && (
         <button
           onClick={() => setVisibleCount((c) => c + TURNS_PER_PAGE)}

@@ -1,5 +1,27 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+/**
+ * OpenCode Agent Service
+ *
+ * # Why Parsing is in TypeScript (not Rust)
+ *
+ * Unlike Claude, Codex, Copilot, and Gemini which stream output via stdout,
+ * OpenCode uses an HTTP REST API:
+ *
+ * 1. Rust spawns `opencode serve` on a port
+ * 2. TypeScript uses `@opencode-ai/sdk` to make HTTP calls
+ * 3. `session/prompt` returns complete response with `parts` array
+ * 4. TypeScript parses the `parts` array into AgentEvents
+ *
+ * The actual chat content never flows through stdout - it comes via HTTP
+ * responses directly to TypeScript. The Rust side only manages the HTTP
+ * server process lifecycle.
+ *
+ * # No Tool Approvals
+ *
+ * OpenCode uses permissive permissions (`"*": "allow"`) so no interactive
+ * tool approval prompts are shown.
+ */
+
+import { backend, type Unsubscribe } from "../backend"
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
 import { configStore } from "../stores/ConfigStore"
@@ -100,7 +122,7 @@ interface OpenCodeChat {
   running: boolean
   workingDir: string
   client: OpencodeClient | null
-  unlistenClose: UnlistenFn | null
+  unlistenClose: Unsubscribe | null
 }
 
 /**
@@ -139,10 +161,13 @@ class OpenCodeAgentService implements AgentService {
     const serverId = chat.serverId
 
     if (!chat.unlistenClose) {
-      chat.unlistenClose = await listen<{ code: number }>(`opencode:close:${serverId}`, () => {
-        chat.running = false
-        this.doneCallbacks.get(chatId)?.()
-      })
+      chat.unlistenClose = await backend.listen<{ code: number }>(
+        `opencode:close:${serverId}`,
+        () => {
+          chat.running = false
+          this.doneCallbacks.get(chatId)?.()
+        }
+      )
     }
   }
 
@@ -167,7 +192,7 @@ class OpenCodeAgentService implements AgentService {
 
       console.log(`Starting OpenCode server [${chatId}]`)
       try {
-        const result = await invoke<string>("start_opencode_server", {
+        const result = await backend.invoke<string>("start_opencode_server", {
           serverId: chat.serverId,
           opencodePath: configStore.opencodePath,
           port: 14096,
@@ -330,7 +355,7 @@ class OpenCodeAgentService implements AgentService {
 
     // Stop the server
     chat.running = false
-    await invoke("stop_opencode_server", { serverId: chat.serverId })
+    await backend.invoke("stop_opencode_server", { serverId: chat.serverId })
   }
 
   isRunning(chatId: string): boolean {
@@ -365,7 +390,94 @@ class OpenCodeAgentService implements AgentService {
   }
 
   private emitEvent(chatId: string, event: AgentEvent): void {
+    this.persistEvent(chatId, event)
     this.eventCallbacks.get(chatId)?.(event)
+  }
+
+  private persistEvent(chatId: string, event: AgentEvent): void {
+    const rustEvent = this.toRustEvent(event)
+    if (!rustEvent) return
+    void backend
+      .invoke("append_chat_event", {
+        chatId,
+        event: rustEvent,
+      })
+      .catch((err) => {
+        console.error("Failed to persist OpenCode event:", err)
+      })
+  }
+
+  private toRustEvent(event: AgentEvent): Record<string, unknown> | null {
+    switch (event.kind) {
+      case "text":
+        return { kind: "text", text: event.text }
+      case "bashOutput":
+        return { kind: "bashOutput", text: event.text }
+      case "message": {
+        const toolMeta = event.toolMeta
+          ? {
+              tool_name: event.toolMeta.toolName,
+              lines_added: event.toolMeta.linesAdded,
+              lines_removed: event.toolMeta.linesRemoved,
+            }
+          : undefined
+        return {
+          kind: "message",
+          content: event.content,
+          tool_meta: toolMeta,
+          parent_tool_use_id: event.parentToolUseId ?? undefined,
+          tool_use_id: event.toolUseId ?? undefined,
+          is_info: event.isInfo ?? undefined,
+        }
+      }
+      case "toolApproval":
+        return {
+          kind: "toolApproval",
+          request_id: event.id,
+          name: event.name,
+          input: event.input,
+          display_input: event.displayInput,
+          prefixes: event.commandPrefixes,
+          auto_approved: event.autoApproved ?? false,
+          is_processed: event.isProcessed ?? false,
+        }
+      case "question":
+        return {
+          kind: "question",
+          request_id: event.id,
+          questions: event.questions.map((q) => ({
+            question: q.question,
+            header: q.header,
+            options: q.options,
+            multi_select: q.multiSelect,
+          })),
+          raw_input: event.rawInput,
+          is_processed: event.isProcessed ?? false,
+        }
+      case "planApproval":
+        return {
+          kind: "planApproval",
+          request_id: event.id,
+          content: event.planContent,
+          is_processed: event.isProcessed ?? false,
+        }
+      case "sessionId":
+        return { kind: "sessionId", session_id: event.sessionId }
+      case "turnComplete":
+        return { kind: "turnComplete" }
+      case "done":
+        return { kind: "done" }
+      case "userMessage":
+        return {
+          kind: "userMessage",
+          id: event.id,
+          content: event.content,
+          timestamp: event.timestamp.toISOString(),
+          meta: event.meta ?? null,
+        }
+      default:
+        return null
+    }
   }
 
   /**
@@ -379,7 +491,7 @@ class OpenCodeAgentService implements AgentService {
     }
 
     try {
-      const models = await invoke<OpenCodeModel[]>("opencode_get_models", {
+      const models = await backend.invoke<OpenCodeModel[]>("opencode_get_models", {
         serverId: chat.serverId,
       })
 
@@ -405,7 +517,7 @@ export async function listOpencodeModels(
   agentShell: string | null
 ): Promise<AgentModel[]> {
   try {
-    const models = await invoke<OpenCodeModel[]>("opencode_list_models", {
+    const models = await backend.invoke<OpenCodeModel[]>("opencode_list_models", {
       opencodePath,
       agentShell,
     })
