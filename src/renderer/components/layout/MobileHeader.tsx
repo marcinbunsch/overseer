@@ -17,7 +17,12 @@ export const MobileHeader = observer(function MobileHeader() {
         <PanelLeft size={20} />
       </button>
 
-      <span className="text-sm font-medium text-ovr-text-muted">Overseer</span>
+      <button
+        onClick={() => window.location.reload()}
+        className="text-sm font-medium text-ovr-text-muted hover:text-ovr-text"
+      >
+        Overseer
+      </button>
 
       <button
         onClick={() => uiStore.toggleRightSidebar()}

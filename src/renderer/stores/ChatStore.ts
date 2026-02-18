@@ -85,9 +85,9 @@ export class ChatStore {
   @observable pendingFollowUps: string[] = []
   @observable draft: string = ""
   @observable loaded: boolean = false
+  @observable loading: boolean = false
 
   private context: ChatStoreContext
-  private loading: boolean = false
   private sessionRegistered: boolean = false
 
   constructor(chat: Chat, context: ChatStoreContext) {

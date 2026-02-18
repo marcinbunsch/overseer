@@ -1,7 +1,7 @@
 import { observer } from "mobx-react-lite"
 import { useEffect, useState, useRef, useCallback } from "react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
-import { CodeXml, TerminalSquare, Bug, Copy, Hash, FileText } from "lucide-react"
+import { CodeXml, TerminalSquare, Bug, Copy, Hash, FileText, Loader2 } from "lucide-react"
 import type { Workspace } from "../../types"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { terminalStore } from "../../stores/TerminalStore"
@@ -156,7 +156,7 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
             {workspace.branch}
           </span>
         )}
-        <span className="ml-2 text-xs text-ovr-text-muted">{workspace.path}</span>
+        <span className="ml-2 hidden text-xs text-ovr-text-muted md:inline">{workspace.path}</span>
         <div className="ml-auto flex gap-1">
           {debugStore.showDevUI && debugStore.isDebugMode && workspaceStore.activeChatId && (
             <DropdownMenu.Root>
@@ -238,6 +238,11 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
           {/* Show NewChatScreen if active chat has no agent selected yet */}
           {!workspaceStore.activeChat?.agentType ? (
             <NewChatScreen isPendingChat />
+          ) : workspaceStore.activeChatLoading ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-ovr-text-muted">
+              <Loader2 className="h-8 w-8 animate-spin" />
+              <span className="text-sm">Loading chat...</span>
+            </div>
           ) : (
             <>
               <MessageList key={workspaceStore.activeChatId} turns={workspaceStore.currentTurns} />

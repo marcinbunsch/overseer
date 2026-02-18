@@ -163,6 +163,14 @@ export class WorkspaceStore {
     return this.activeChat?.isSending ?? false
   }
 
+  /** Whether the active chat is currently loading its messages from disk */
+  @computed
+  get activeChatLoading(): boolean {
+    const chat = this.activeChat
+    if (!chat) return false
+    return chat.loading && !chat.loaded
+  }
+
   @computed
   get pendingToolUses(): PendingToolUse[] {
     return this.activeChat?.pendingToolUses ?? []
