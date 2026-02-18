@@ -491,6 +491,11 @@ export class ChatStore {
    */
   registerCallbacks(): void {
     if (!this.service) return
+
+    // Attach listeners so we receive events from other clients (e.g., when
+    // a different window sends a message and we need to see the userMessage event)
+    void this.service.attachListeners(this.chat.id)
+
     this.service.onEvent(this.chat.id, (event: AgentEvent) => {
       this.handleAgentEvent(event)
     })
@@ -685,6 +690,21 @@ export class ChatStore {
   }
 
   private pushUserMsgFromEvent(event: Extract<AgentEvent, { kind: "userMessage" }>): void {
+    // Skip if we already have this message by ID
+    if (this.chat.messages.some((m) => m.id === event.id)) {
+      return
+    }
+
+    // Also skip if we have a recent user message with the same content
+    // (handles the case where frontend adds message locally before backend event arrives)
+    const recentMessages = this.chat.messages.slice(-3)
+    const hasDuplicate = recentMessages.some(
+      (m) => m.role === "user" && m.content === event.content
+    )
+    if (hasDuplicate) {
+      return
+    }
+
     this.chat.messages.push({
       id: event.id,
       role: "user",

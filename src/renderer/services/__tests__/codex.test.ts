@@ -325,7 +325,6 @@ describe("CodexAgentService", () => {
     })
 
     // Need to attach listeners first (normally done by sendMessage on first call)
-    // @ts-expect-error - accessing private method for testing
     await service.attachListeners("chat-1")
 
     // Send a follow-up message with initPrompt - it should NOT be prepended
@@ -531,7 +530,6 @@ describe("CodexAgentService", () => {
       return vi.fn() as unknown as () => void
     })
 
-    // @ts-expect-error - accessing private method for testing
     await service.attachListeners("chat-1")
 
     expect(eventHandler).not.toBeNull()
@@ -579,7 +577,6 @@ describe("CodexAgentService", () => {
       return vi.fn() as unknown as () => void
     })
 
-    // @ts-expect-error - accessing private method for testing
     await service.attachListeners("chat-1")
 
     // Simulate Rust-parsed ToolApproval event for Edit

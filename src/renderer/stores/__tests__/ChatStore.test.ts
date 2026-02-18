@@ -16,6 +16,7 @@ const mockAgentService = {
   isRunning: vi.fn(() => false),
   setSessionId: vi.fn(),
   getSessionId: vi.fn(() => null),
+  attachListeners: vi.fn(() => Promise.resolve()),
 }
 
 vi.mock("../../services/agentRegistry", () => ({

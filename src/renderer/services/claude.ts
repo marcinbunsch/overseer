@@ -99,6 +99,13 @@ type BackendAgentEvent =
       is_processed?: boolean
     }
   | { kind: "planApproval"; request_id: string; content: string; is_processed?: boolean }
+  | {
+      kind: "userMessage"
+      id: string
+      content: string
+      timestamp: string
+      meta?: Record<string, unknown> | null
+    }
   | { kind: "sessionId"; session_id: string }
   | { kind: "turnComplete" }
   | { kind: "done" }
@@ -136,7 +143,7 @@ class ClaudeAgentService implements AgentService {
     return conv
   }
 
-  private async attachListeners(chatId: string): Promise<void> {
+  async attachListeners(chatId: string): Promise<void> {
     const conv = this.getOrCreateConversation(chatId)
 
     if (!conv.unlistenStdout) {
@@ -317,6 +324,18 @@ class ClaudeAgentService implements AgentService {
           id: event.request_id,
           planContent: event.content ?? "",
           isProcessed: event.is_processed ?? false,
+        })
+        return
+      }
+      case "userMessage": {
+        // User message from another client - mark chat as running and forward event
+        conv.running = true
+        this.emitEvent(chatId, {
+          kind: "userMessage",
+          id: event.id,
+          content: event.content,
+          timestamp: new Date(event.timestamp),
+          meta: event.meta as import("../types").MessageMeta | undefined,
         })
         return
       }

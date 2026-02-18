@@ -111,7 +111,7 @@ class GeminiAgentService implements AgentService {
     return chat
   }
 
-  private async attachListeners(chatId: string): Promise<void> {
+  async attachListeners(chatId: string): Promise<void> {
     const chat = this.getOrCreateChat(chatId)
 
     if (!chat.unlistenEvent) {

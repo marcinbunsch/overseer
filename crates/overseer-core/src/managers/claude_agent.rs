@@ -8,6 +8,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use chrono::Utc;
+use uuid::Uuid;
+
 use crate::agents::claude::{ClaudeConfig, ClaudeParser};
 use crate::agents::event::AgentEvent;
 use crate::event_bus::EventBus;
@@ -290,6 +293,9 @@ impl ClaudeAgentManager {
     ///
     /// This is the unified entry point for all message sending - the backend
     /// decides whether to start a new process or continue an existing one.
+    ///
+    /// The user message is emitted as an event so all connected clients
+    /// (both Tauri windows and web clients) can update their state.
     pub fn send_message(
         &self,
         config: ClaudeStartConfig,
@@ -297,6 +303,30 @@ impl ClaudeAgentManager {
         approval_manager: Arc<ProjectApprovalManager>,
         chat_sessions: Arc<ChatSessionManager>,
     ) -> Result<(), String> {
+        // Create and emit user message event so all clients can see it
+        let user_message = AgentEvent::UserMessage {
+            id: Uuid::new_v4().to_string(),
+            content: config.prompt.clone(),
+            timestamp: Utc::now(),
+            meta: None,
+        };
+
+        // Persist the user message
+        if let Err(err) = chat_sessions.append_event(&config.conversation_id, user_message.clone())
+        {
+            log::warn!(
+                "Failed to persist user message for {}: {}",
+                config.conversation_id,
+                err
+            );
+        }
+
+        // Emit the user message event so all clients can update their state
+        event_bus.emit(
+            &format!("agent:event:{}", config.conversation_id),
+            &user_message,
+        );
+
         // Check if we have a running process for this conversation
         if self.is_running(&config.conversation_id) {
             // Format the prompt as a user message envelope and send via stdin

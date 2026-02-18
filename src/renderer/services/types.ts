@@ -81,4 +81,6 @@ export interface AgentService {
   removeChat(chatId: string): void
   onEvent(chatId: string, callback: AgentEventCallback): void
   onDone(chatId: string, callback: AgentDoneCallback): void
+  /** Attach event listeners for a chat. Call this to receive events from other clients. */
+  attachListeners(chatId: string): Promise<void>
 }
