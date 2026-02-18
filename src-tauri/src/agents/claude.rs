@@ -6,13 +6,15 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 use super::{check_auto_approval, ApprovalCheckResult};
 use crate::approvals::ProjectApprovalManager;
 use crate::chat_session::ChatSessionManager;
 use crate::logging::{log_line, open_log_file, LogHandle};
+use crate::EventBusState;
 use overseer_core::agents::claude::{ClaudeConfig, ClaudeParser};
+use overseer_core::event_bus::EventBus;
 use overseer_core::shell::AgentExit;
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
 
@@ -60,6 +62,7 @@ pub fn start_agent(
     app: tauri::AppHandle,
     state: tauri::State<AgentProcessMap>,
     approval_state: tauri::State<ProjectApprovalManager>,
+    event_bus_state: tauri::State<EventBusState>,
     conversation_id: String,
     project_name: String,
     prompt: String,
@@ -134,6 +137,9 @@ pub fn start_agent(
     let _ = approval_state.get_or_load(&project_name);
     let project_name_clone = project_name.clone();
 
+    // Clone EventBus for the thread
+    let event_bus = Arc::clone(&event_bus_state.0);
+
     // Spawn event forwarding thread
     let conv_id = conversation_id.clone();
     let log_file = Arc::clone(&log_handle);
@@ -142,6 +148,7 @@ pub fn start_agent(
         let flush_and_emit =
             |parser_arc: &Arc<Mutex<ClaudeParser>>,
              app: &tauri::AppHandle,
+             event_bus: &Arc<EventBus>,
              conv_id: &str,
              process_arc: &Arc<Mutex<Option<AgentProcess>>>| {
                 let parsed_events = {
@@ -153,7 +160,7 @@ pub fn start_agent(
                     if let Err(err) = chat_sessions.append_event(conv_id, event.clone()) {
                         log::warn!("Failed to persist Claude event for {}: {}", conv_id, err);
                     }
-                    let _ = app.emit(&format!("agent:event:{}", conv_id), event);
+                    event_bus.emit(&format!("agent:event:{}", conv_id), &event);
                 }
                 process_arc.lock().unwrap().take();
             };
@@ -164,7 +171,7 @@ pub fn start_agent(
                 ProcessEvent::Stdout(line) => {
                     log::debug!("agent stdout [{}]: {}", conv_id, line);
                     log_line(&log_file, "STDOUT", &line);
-                    let _ = app.emit(&format!("agent:stdout:{}", conv_id), &line);
+                    event_bus.emit(&format!("agent:stdout:{}", conv_id), &line);
                     let parsed_events = {
                         let mut parser = parser_arc.lock().unwrap();
                         parser.feed(&format!("{line}\n"))
@@ -194,27 +201,27 @@ pub fn start_agent(
                                 err
                             );
                         }
-                        let _ = app.emit(&format!("agent:event:{}", conv_id), event_to_emit);
+                        event_bus.emit(&format!("agent:event:{}", conv_id), &event_to_emit);
                     }
                 }
                 ProcessEvent::Stderr(line) => {
                     log::warn!("agent stderr [{}]: {}", conv_id, line);
                     log_line(&log_file, "STDERR", &line);
-                    let _ = app.emit(&format!("agent:stderr:{}", conv_id), line);
+                    event_bus.emit(&format!("agent:stderr:{}", conv_id), &line);
                 }
                 ProcessEvent::Exit(exit) => {
-                    flush_and_emit(&parser_arc, &app, &conv_id, &process_arc);
-                    let _ = app.emit(&format!("agent:close:{}", conv_id), exit);
+                    flush_and_emit(&parser_arc, &app, &event_bus, &conv_id, &process_arc);
+                    event_bus.emit(&format!("agent:close:{}", conv_id), &exit);
                     break;
                 }
             }
         }
 
         // Channel closed without Exit event - emit close anyway
-        flush_and_emit(&parser_arc, &app, &conv_id, &process_arc);
-        let _ = app.emit(
+        flush_and_emit(&parser_arc, &app, &event_bus, &conv_id, &process_arc);
+        event_bus.emit(
             &format!("agent:close:{}", conv_id),
-            AgentExit {
+            &AgentExit {
                 code: 0,
                 signal: None,
             },

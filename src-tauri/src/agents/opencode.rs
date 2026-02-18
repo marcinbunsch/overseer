@@ -33,18 +33,18 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader},
     net::TcpListener,
+    process::Stdio,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
 };
-use tauri::Emitter;
 
 use crate::logging::{log_line, open_log_file, LogHandle};
+use crate::EventBusState;
 use overseer_core::agents::opencode::OpenCodeConfig;
 use overseer_core::shell::build_login_shell_command;
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
-use std::process::Stdio;
 
 struct OpenCodeServerEntry {
     process: Arc<Mutex<Option<AgentProcess>>>,
@@ -108,8 +108,8 @@ fn generate_password() -> String {
 /// Start an `opencode serve` process for a given server_id.
 #[tauri::command]
 pub fn start_opencode_server(
-    app: tauri::AppHandle,
     state: tauri::State<OpenCodeServerMap>,
+    event_bus_state: tauri::State<EventBusState>,
     server_id: String,
     opencode_path: String,
     port: u16,
@@ -171,6 +171,9 @@ pub fn start_opencode_server(
             .ok_or_else(|| "Failed to take event receiver".to_string())?
     };
 
+    // Clone EventBus for the thread
+    let event_bus = Arc::clone(&event_bus_state.0);
+
     // Spawn event forwarding thread
     let sid = server_id.clone();
     let log_file = Arc::clone(&log_handle);
@@ -187,7 +190,7 @@ pub fn start_opencode_server(
                     log_line(&log_file, "STDERR", &line);
                 }
                 ProcessEvent::Exit(exit) => {
-                    let _ = app.emit(&format!("opencode:close:{}", sid), exit);
+                    event_bus.emit(&format!("opencode:close:{}", sid), &exit);
                     process_arc.lock().unwrap().take();
                     break;
                 }
@@ -195,9 +198,9 @@ pub fn start_opencode_server(
         }
 
         // Channel closed without Exit event - emit close with unknown exit code
-        let _ = app.emit(
+        event_bus.emit(
             &format!("opencode:close:{}", sid),
-            overseer_core::shell::AgentExit {
+            &overseer_core::shell::AgentExit {
                 code: -1, // Unknown exit code (channel closed without explicit exit)
                 signal: None,
             },
@@ -316,8 +319,8 @@ pub fn opencode_get_models(
 /// Subscribe to SSE events from the OpenCode server.
 #[tauri::command]
 pub fn opencode_subscribe_events(
-    app: tauri::AppHandle,
     state: tauri::State<OpenCodeServerMap>,
+    event_bus_state: tauri::State<EventBusState>,
     server_id: String,
     session_id: String,
 ) -> Result<(), String> {
@@ -334,6 +337,9 @@ pub fn opencode_subscribe_events(
 
     let event_name = format!("opencode:event:{}", server_id);
     let sid = server_id.clone();
+
+    // Clone EventBus for the thread
+    let event_bus = Arc::clone(&event_bus_state.0);
 
     std::thread::spawn(move || {
         let url = format!("http://127.0.0.1:{}/global/event", port);
@@ -401,9 +407,7 @@ pub fn opencode_subscribe_events(
                         payload,
                     };
 
-                    if let Err(e) = app.emit(&event_name, event) {
-                        log::error!("Failed to emit OpenCode event: {}", e);
-                    }
+                    event_bus.emit(&event_name, &event);
 
                     // Stop on session completion
                     if event_type == "session.completed" {

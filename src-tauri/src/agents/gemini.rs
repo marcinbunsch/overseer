@@ -7,11 +7,13 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 use crate::chat_session::ChatSessionManager;
 use crate::logging::{log_line, open_log_file, LogHandle};
+use crate::EventBusState;
 use overseer_core::agents::gemini::{GeminiConfig, GeminiParser};
+use overseer_core::event_bus::EventBus;
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
 
 struct GeminiProcessEntry {
@@ -40,6 +42,7 @@ pub struct GeminiServerMap {
 pub fn start_gemini_server(
     app: tauri::AppHandle,
     state: tauri::State<GeminiServerMap>,
+    event_bus_state: tauri::State<EventBusState>,
     server_id: String,
     gemini_path: String,
     prompt: String,
@@ -98,6 +101,9 @@ pub fn start_gemini_server(
         map.insert(server_id.clone(), entry);
     }
 
+    // Clone EventBus for the thread
+    let event_bus = Arc::clone(&event_bus_state.0);
+
     // Spawn event forwarding thread
     let sid = server_id.clone();
     let log_file = Arc::clone(&log_handle);
@@ -106,6 +112,7 @@ pub fn start_gemini_server(
         let flush_and_emit =
             |parser_arc: &Arc<Mutex<GeminiParser>>,
              app: &tauri::AppHandle,
+             event_bus: &Arc<EventBus>,
              sid: &str,
              process_arc: &Arc<Mutex<Option<AgentProcess>>>| {
                 let parsed_events = {
@@ -117,7 +124,7 @@ pub fn start_gemini_server(
                     if let Err(err) = chat_sessions.append_event(sid, event.clone()) {
                         log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
                     }
-                    let _ = app.emit(&format!("gemini:event:{}", sid), event);
+                    event_bus.emit(&format!("gemini:event:{}", sid), &event);
                 }
                 process_arc.lock().unwrap().take();
             };
@@ -130,7 +137,7 @@ pub fn start_gemini_server(
                     log_line(&log_file, "STDOUT", &line);
 
                     // Also emit raw stdout for debugging
-                    let _ = app.emit(&format!("gemini:stdout:{}", sid), &line);
+                    event_bus.emit(&format!("gemini:stdout:{}", sid), &line);
 
                     // Parse through GeminiParser
                     let parsed_events = {
@@ -144,27 +151,27 @@ pub fn start_gemini_server(
                         if let Err(err) = chat_sessions.append_event(&sid, event.clone()) {
                             log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
                         }
-                        let _ = app.emit(&format!("gemini:event:{}", sid), event);
+                        event_bus.emit(&format!("gemini:event:{}", sid), &event);
                     }
                 }
                 ProcessEvent::Stderr(line) => {
                     log::warn!("gemini stderr [{}]: {}", sid, line);
                     log_line(&log_file, "STDERR", &line);
-                    let _ = app.emit(&format!("gemini:stderr:{}", sid), line);
+                    event_bus.emit(&format!("gemini:stderr:{}", sid), &line);
                 }
                 ProcessEvent::Exit(exit) => {
-                    flush_and_emit(&parser_arc, &app, &sid, &process_arc);
-                    let _ = app.emit(&format!("gemini:close:{}", sid), exit);
+                    flush_and_emit(&parser_arc, &app, &event_bus, &sid, &process_arc);
+                    event_bus.emit(&format!("gemini:close:{}", sid), &exit);
                     break;
                 }
             }
         }
 
         // Channel closed without Exit event - emit close anyway
-        flush_and_emit(&parser_arc, &app, &sid, &process_arc);
-        let _ = app.emit(
+        flush_and_emit(&parser_arc, &app, &event_bus, &sid, &process_arc);
+        event_bus.emit(
             &format!("gemini:close:{}", sid),
-            overseer_core::shell::AgentExit {
+            &overseer_core::shell::AgentExit {
                 code: 0,
                 signal: None,
             },

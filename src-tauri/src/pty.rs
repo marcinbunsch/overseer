@@ -6,7 +6,8 @@ use std::{
     sync::{Arc, Mutex},
     thread,
 };
-use tauri::Emitter;
+
+use crate::EventBusState;
 
 /// Holds the PTY master, child process, and writer handle.
 /// The master must be kept alive to prevent the PTY from closing.
@@ -30,8 +31,8 @@ struct PtyExit {
 
 #[tauri::command]
 pub fn pty_spawn(
-    app: tauri::AppHandle,
     state: tauri::State<PtyMap>,
+    event_bus_state: tauri::State<EventBusState>,
     id: String,
     cwd: String,
     shell: String,
@@ -105,9 +106,11 @@ pub fn pty_spawn(
         );
     }
 
+    // Clone EventBus for the reader thread
+    let event_bus = Arc::clone(&event_bus_state.0);
+
     // Reader thread - emits pty:data:{id} events
     let read_id = id.clone();
-    let read_app = app.clone();
     thread::spawn(move || {
         let mut reader = reader;
         let mut buf = [0u8; 4096];
@@ -116,13 +119,13 @@ pub fn pty_spawn(
                 Ok(0) => break, // EOF
                 Ok(n) => {
                     let data = buf[..n].to_vec();
-                    let _ = read_app.emit(&format!("pty:data:{}", read_id), data);
+                    event_bus.emit(&format!("pty:data:{}", read_id), &data);
                 }
                 Err(_) => break,
             }
         }
         // Emit exit event when reader closes
-        let _ = read_app.emit(&format!("pty:exit:{}", read_id), PtyExit { code: None });
+        event_bus.emit(&format!("pty:exit:{}", read_id), &PtyExit { code: None });
     });
 
     Ok(())

@@ -8,13 +8,15 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 use super::{check_auto_approval, ApprovalCheckResult};
 use crate::approvals::ProjectApprovalManager;
 use crate::chat_session::ChatSessionManager;
 use crate::logging::{log_line, open_log_file, LogHandle};
+use crate::EventBusState;
 use overseer_core::agents::copilot::{CopilotConfig, CopilotParser};
+use overseer_core::event_bus::EventBus;
 use overseer_core::spawn::{AgentProcess, ProcessEvent};
 
 struct CopilotServerEntry {
@@ -66,6 +68,7 @@ pub fn start_copilot_server(
     app: tauri::AppHandle,
     state: tauri::State<CopilotServerMap>,
     approval_state: tauri::State<ProjectApprovalManager>,
+    event_bus_state: tauri::State<EventBusState>,
     server_id: String,
     project_name: String,
     copilot_path: String,
@@ -126,6 +129,9 @@ pub fn start_copilot_server(
     let _ = approval_state.get_or_load(&project_name);
     let project_name_clone = project_name.clone();
 
+    // Clone EventBus for the thread
+    let event_bus = Arc::clone(&event_bus_state.0);
+
     // Spawn event forwarding thread
     let sid = server_id.clone();
     let log_file = Arc::clone(&log_handle);
@@ -134,6 +140,7 @@ pub fn start_copilot_server(
         let flush_and_emit =
             |parser_arc: &Arc<Mutex<CopilotParser>>,
              app: &tauri::AppHandle,
+             event_bus: &Arc<EventBus>,
              sid: &str,
              process_arc: &Arc<Mutex<Option<AgentProcess>>>| {
                 let (parsed_events, _) = {
@@ -145,7 +152,7 @@ pub fn start_copilot_server(
                     if let Err(err) = chat_sessions.append_event(sid, event.clone()) {
                         log::warn!("Failed to persist Copilot event for {}: {}", sid, err);
                     }
-                    let _ = app.emit(&format!("copilot:event:{}", sid), event);
+                    event_bus.emit(&format!("copilot:event:{}", sid), &event);
                 }
                 process_arc.lock().unwrap().take();
             };
@@ -159,7 +166,7 @@ pub fn start_copilot_server(
 
                     // Also emit raw stdout for JSON-RPC response handling in frontend
                     // (frontend needs to match responses to its pending requests)
-                    let _ = app.emit(&format!("copilot:stdout:{}", sid), &line);
+                    event_bus.emit(&format!("copilot:stdout:{}", sid), &line);
 
                     // Parse through CopilotParser
                     let (parsed_events, pending_requests) = {
@@ -186,7 +193,7 @@ pub fn start_copilot_server(
                         if let Err(err) = chat_sessions.append_event(&sid, event_to_emit.clone()) {
                             log::warn!("Failed to persist Copilot event for {}: {}", sid, err);
                         }
-                        let _ = app.emit(&format!("copilot:event:{}", sid), event_to_emit);
+                        event_bus.emit(&format!("copilot:event:{}", sid), &event_to_emit);
                     }
 
                     // Handle pending requests that weren't ToolApproval events
@@ -230,21 +237,21 @@ pub fn start_copilot_server(
                 ProcessEvent::Stderr(line) => {
                     log::warn!("copilot stderr [{}]: {}", sid, line);
                     log_line(&log_file, "STDERR", &line);
-                    let _ = app.emit(&format!("copilot:stderr:{}", sid), line);
+                    event_bus.emit(&format!("copilot:stderr:{}", sid), &line);
                 }
                 ProcessEvent::Exit(exit) => {
-                    flush_and_emit(&parser_arc, &app, &sid, &process_arc);
-                    let _ = app.emit(&format!("copilot:close:{}", sid), exit);
+                    flush_and_emit(&parser_arc, &app, &event_bus, &sid, &process_arc);
+                    event_bus.emit(&format!("copilot:close:{}", sid), &exit);
                     break;
                 }
             }
         }
 
         // Channel closed without Exit event - emit close anyway
-        flush_and_emit(&parser_arc, &app, &sid, &process_arc);
-        let _ = app.emit(
+        flush_and_emit(&parser_arc, &app, &event_bus, &sid, &process_arc);
+        event_bus.emit(
             &format!("copilot:close:{}", sid),
-            overseer_core::shell::AgentExit {
+            &overseer_core::shell::AgentExit {
                 code: 0,
                 signal: None,
             },

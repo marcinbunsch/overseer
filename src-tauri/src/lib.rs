@@ -2,15 +2,40 @@ mod agents;
 mod approvals;
 mod chat_session;
 mod git;
+mod http_server;
 mod logging;
 mod persistence;
 mod pty;
 
-use overseer_core::shell::build_login_shell_command;
+use overseer_core::event_bus::EventBus;
 use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
 use overseer_core::paths;
+use overseer_core::shell::build_login_shell_command;
+use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager, WindowEvent};
+
+/// Wrapper for EventBus to use with Tauri's managed state.
+pub struct EventBusState(pub Arc<EventBus>);
+
+impl Default for EventBusState {
+    fn default() -> Self {
+        Self(Arc::new(EventBus::new()))
+    }
+}
+
+/// State for the HTTP server.
+pub struct HttpServerState {
+    handle: std::sync::Mutex<http_server::HttpServerHandle>,
+}
+
+impl Default for HttpServerState {
+    fn default() -> Self {
+        Self {
+            handle: std::sync::Mutex::new(http_server::HttpServerHandle::default()),
+        }
+    }
+}
 
 #[tauri::command]
 async fn show_main_window(window: tauri::Window) {
@@ -134,9 +159,54 @@ async fn fetch_claude_usage() -> Result<overseer_core::usage::ClaudeUsageRespons
         .map_err(|e| e.to_string())
 }
 
+/// Start the HTTP server.
+#[tauri::command]
+fn start_http_server(
+    event_bus_state: tauri::State<EventBusState>,
+    http_server_state: tauri::State<HttpServerState>,
+    host: String,
+    port: u16,
+    static_dir: Option<String>,
+) -> Result<(), String> {
+    let mut handle = http_server_state.handle.lock().unwrap();
+
+    // Stop existing server if running
+    if handle.is_running() {
+        handle.stop();
+    }
+
+    // Create shared state for HTTP server
+    let shared_state = Arc::new(http_server::SharedState::new(Arc::clone(&event_bus_state.0)));
+
+    // Start the server
+    *handle = http_server::start(shared_state, host, port, static_dir)?;
+
+    Ok(())
+}
+
+/// Stop the HTTP server.
+#[tauri::command]
+fn stop_http_server(http_server_state: tauri::State<HttpServerState>) -> Result<(), String> {
+    let mut handle = http_server_state.handle.lock().unwrap();
+    handle.stop();
+    Ok(())
+}
+
+/// Check if the HTTP server is running.
+#[tauri::command]
+fn get_http_server_status(http_server_state: tauri::State<HttpServerState>) -> bool {
+    let handle = http_server_state.handle.lock().unwrap();
+    handle.is_running()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Create EventBus and wrap in state
+    let event_bus_state = EventBusState::default();
+
     tauri::Builder::default()
+        .manage(event_bus_state)
+        .manage(HttpServerState::default())
         .manage(agents::AgentProcessMap::default())
         .manage(agents::CodexServerMap::default())
         .manage(agents::CopilotServerMap::default())
@@ -253,6 +323,30 @@ pub fn run() {
             let persistence_config = app.state::<persistence::PersistenceConfig>();
             persistence_config.set_config_dir(config_dir);
 
+            // Set up EventBus -> Tauri event forwarding
+            // This allows all events emitted to the EventBus to be forwarded to Tauri's IPC
+            let event_bus_state = app.state::<EventBusState>();
+            let mut event_rx = event_bus_state.0.subscribe();
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                // Use a simple blocking loop since broadcast::Receiver has blocking_recv
+                loop {
+                    match event_rx.blocking_recv() {
+                        Ok(event) => {
+                            let _ = app_handle.emit(&event.event_type, event.payload);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                            log::warn!("EventBus forwarder lagged by {} events", count);
+                            // Continue receiving
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            log::info!("EventBus closed, stopping Tauri forwarder");
+                            break;
+                        }
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -335,6 +429,9 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
             fetch_claude_usage,
+            start_http_server,
+            stop_http_server,
+            get_http_server_status,
         ])
         .on_window_event(|_window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
