@@ -39,6 +39,11 @@ impl PersistenceConfig {
         *self.config_dir.lock().unwrap() = Some(path);
     }
 
+    /// Get the config directory path (public version for HTTP server).
+    pub fn get_config_dir_public(&self) -> Option<PathBuf> {
+        self.config_dir.lock().unwrap().clone()
+    }
+
     /// Get the config directory path.
     fn get_config_dir(&self) -> Result<PathBuf, String> {
         self.config_dir

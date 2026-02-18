@@ -164,6 +164,7 @@ async fn fetch_claude_usage() -> Result<overseer_core::usage::ClaudeUsageRespons
 fn start_http_server(
     event_bus_state: tauri::State<EventBusState>,
     http_server_state: tauri::State<HttpServerState>,
+    persistence_config: tauri::State<persistence::PersistenceConfig>,
     host: String,
     port: u16,
     static_dir: Option<String>,
@@ -175,8 +176,17 @@ fn start_http_server(
         handle.stop();
     }
 
+    // Get config_dir from persistence config
+    let config_dir = persistence_config.get_config_dir_public();
+
     // Create shared state for HTTP server
-    let shared_state = Arc::new(http_server::SharedState::new(Arc::clone(&event_bus_state.0)));
+    let shared_state = match config_dir {
+        Some(dir) => Arc::new(http_server::SharedState::with_config_dir(
+            Arc::clone(&event_bus_state.0),
+            dir,
+        )),
+        None => Arc::new(http_server::SharedState::new(Arc::clone(&event_bus_state.0))),
+    };
 
     // Start the server
     *handle = http_server::start(shared_state, host, port, static_dir)?;
