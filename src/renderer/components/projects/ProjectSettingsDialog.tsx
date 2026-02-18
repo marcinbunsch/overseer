@@ -6,6 +6,9 @@ import { projectRegistry } from "../../stores/ProjectRegistry"
 import { toastStore } from "../../stores/ToastStore"
 import type { ProjectStore } from "../../stores/ProjectStore"
 import { ConfirmDialog } from "../shared/ConfirmDialog"
+import { Input } from "../shared/Input"
+import { Textarea } from "../shared/Textarea"
+import { Checkbox } from "../shared/Checkbox"
 
 interface ProjectSettingsDialogProps {
   open: boolean
@@ -86,16 +89,12 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
                   <label className="mb-1 block text-xs font-medium text-ovr-text-muted">
                     Init Prompt
                   </label>
-                  <textarea
+                  <Textarea
                     value={initPrompt}
                     onChange={(e) => setInitPrompt(e.target.value)}
                     placeholder="Prompt sent at the start of every new chat session..."
-                    rows={1}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    className="min-h-20 w-full resize-none overflow-y-auto rounded-lg border border-ovr-border-subtle bg-ovr-bg-panel px-3 py-2 text-sm text-ovr-text-primary outline-none placeholder:text-ovr-text-muted focus:border-ovr-azure-500 focus:shadow-[var(--shadow-ovr-glow-soft)]"
+                    rows={4}
+                    className="min-h-24 resize-y text-sm placeholder:text-ovr-text-muted"
                   />
                   <p className="mt-1 text-[11px] text-ovr-text-dim">
                     Added to the system prompt at the start of every new chat session.
@@ -109,16 +108,12 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
                       <label className="mb-1 block text-xs font-medium text-ovr-text-muted">
                         PR Prompt
                       </label>
-                      <textarea
+                      <Textarea
                         value={prPrompt}
                         onChange={(e) => setPrPrompt(e.target.value)}
                         placeholder="Custom prompt used when creating pull requests..."
-                        rows={1}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        className="min-h-20 w-full resize-none overflow-y-auto rounded-lg border border-ovr-border-subtle bg-ovr-bg-panel px-3 py-2 text-sm text-ovr-text-primary outline-none placeholder:text-ovr-text-muted focus:border-ovr-azure-500 focus:shadow-[var(--shadow-ovr-glow-soft)]"
+                        rows={4}
+                        className="min-h-24 resize-y text-sm placeholder:text-ovr-text-muted"
                       />
                     </div>
 
@@ -126,12 +121,12 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
                       <label className="mb-1 block text-xs font-medium text-ovr-text-muted">
                         Post-create command
                       </label>
-                      <input
+                      <Input
                         type="text"
                         value={postCreate}
                         onChange={(e) => setPostCreate(e.target.value)}
                         placeholder="e.g. pnpm install"
-                        className="ovr-input w-full text-xs"
+                        className="w-full text-xs"
                       />
                       <p className="mt-1 text-[11px] text-ovr-text-dim">
                         Runs in the workspace after a new workspace is created.
@@ -142,12 +137,12 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
                       <label className="mb-1 block text-xs font-medium text-ovr-text-muted">
                         Workspace filter
                       </label>
-                      <input
+                      <Input
                         type="text"
                         value={workspaceFilter}
                         onChange={(e) => setWorkspaceFilter(e.target.value)}
                         placeholder="e.g. conductor|legacy"
-                        className="ovr-input w-full font-mono text-xs"
+                        className="w-full font-mono text-xs"
                       />
                       <p className="mt-1 text-[11px] text-ovr-text-dim">
                         Regex pattern to hide workspaces. Matches against the full path.
@@ -156,22 +151,18 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
 
                     <div className="space-y-2">
                       <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={useGithub}
                           onChange={(e) => setUseGithub(e.target.checked)}
-                          className="size-4 rounded border-ovr-border-subtle bg-ovr-bg-app accent-ovr-azure-500"
                         />
                         <span className="text-xs text-ovr-text-primary">Use GitHub</span>
                         <span className="text-xs text-ovr-text-dim">- show PR buttons</span>
                       </label>
 
                       <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={allowMergeToMain}
                           onChange={(e) => setAllowMergeToMain(e.target.checked)}
-                          className="size-4 rounded border-ovr-border-subtle bg-ovr-bg-app accent-ovr-azure-500"
                         />
                         <span className="text-xs text-ovr-text-primary">Allow merge to main</span>
                         <span className="text-xs text-ovr-text-dim">- show Merge button</span>

@@ -2,6 +2,7 @@ import { useState } from "react"
 import { observer } from "mobx-react-lite"
 import type { PendingPlanApproval } from "../../types"
 import { MarkdownContent } from "./MarkdownContent"
+import { Textarea } from "../shared/Textarea"
 
 interface PlanApprovalPanelProps {
   pending: PendingPlanApproval | null
@@ -44,7 +45,7 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
 
         {showFeedback ? (
           <div>
-            <textarea
+            <Textarea
               autoFocus
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
@@ -57,7 +58,7 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
               }}
               placeholder="Describe the changes you'd like..."
               rows={3}
-              className="mb-2 w-full resize-none rounded border border-ovr-border-subtle bg-ovr-bg-panel px-2 py-1.5 text-xs text-ovr-text-primary outline-none focus:border-ovr-azure-500"
+              className="mb-2 resize-none rounded px-2 py-1.5 text-xs"
             />
             <div className="flex gap-2">
               <button

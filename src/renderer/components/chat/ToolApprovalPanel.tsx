@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { observer } from "mobx-react-lite"
 import type { PendingToolUse } from "../../stores/WorkspaceStore"
+import { Textarea } from "../shared/Textarea"
 
 interface ToolApprovalPanelProps {
   pendingTools: PendingToolUse[]
@@ -51,7 +52,7 @@ export const ToolApprovalPanel = observer(function ToolApprovalPanel({
             )}
             {showingFeedback ? (
               <div>
-                <textarea
+                <Textarea
                   autoFocus
                   value={feedback}
                   onChange={(e) => setFeedback(e.target.value)}
@@ -64,7 +65,7 @@ export const ToolApprovalPanel = observer(function ToolApprovalPanel({
                   }}
                   placeholder="Describe what you'd like the agent to do instead..."
                   rows={3}
-                  className="mb-2 w-full resize-none rounded border border-ovr-border-subtle bg-ovr-bg-panel px-2 py-1.5 text-xs text-ovr-text-primary outline-none focus:border-ovr-azure-500"
+                  className="mb-2 resize-none rounded px-2 py-1.5 text-xs"
                 />
                 <div className="flex gap-2">
                   <button

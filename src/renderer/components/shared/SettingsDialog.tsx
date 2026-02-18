@@ -14,6 +14,7 @@ import {
   Bot,
   Wrench,
   RefreshCw,
+  Palette,
 } from "lucide-react"
 import classNames from "classnames"
 import { configStore } from "../../stores/ConfigStore"
@@ -24,8 +25,11 @@ import type { AgentType } from "../../types"
 import { AgentIcon } from "../chat/AgentIcon"
 import { ModelSelector } from "../chat/ModelSelector"
 import { ClaudePermissionModeSelect } from "./ClaudePermissionModeSelect"
+import { Input } from "./Input"
+import { Textarea } from "./Textarea"
+import { Checkbox } from "./Checkbox"
 
-type SettingsTab = "general" | "agents" | "advanced" | "updates"
+type SettingsTab = "general" | "agents" | "advanced" | "updates" | "design-system"
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <Settings2 className="size-4" /> },
@@ -381,12 +385,12 @@ const AdvancedTab = observer(function AdvancedTab() {
     <div className="space-y-6">
       <div>
         <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Shell Prefix</label>
-        <input
+        <Input
           type="text"
           value={configStore.agentShell}
           onChange={(e) => configStore.setAgentShell(e.target.value)}
           placeholder="$SHELL -l -c"
-          className="ovr-input w-full max-w-md px-3 py-2 text-xs"
+          className="max-w-md px-3 py-2 text-xs"
           data-testid="agent-shell-input"
         />
         <p className="mt-2 text-[11px] text-ovr-text-dim">
@@ -476,6 +480,33 @@ const UpdatesTab = observer(function UpdatesTab() {
   )
 })
 
+function DesignSystemTab() {
+  return (
+    <div className="space-y-6">
+      <h2 className="text-sm font-semibold text-ovr-text-strong">Form Elements</h2>
+
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-xs text-ovr-text-dim">Input</label>
+          <Input placeholder="Example input" className="max-w-md text-xs" />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs text-ovr-text-dim">Textarea (resizable)</label>
+          <Textarea placeholder="Example textarea" rows={3} className="max-w-md resize-y text-sm" />
+        </div>
+
+        <div>
+          <label className="flex items-center gap-2">
+            <Checkbox defaultChecked />
+            <span className="text-xs text-ovr-text-primary">Example checkbox</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ============================================================================
 // Main Dialog Component
 // ============================================================================
@@ -490,6 +521,18 @@ export const SettingsDialog = observer(function SettingsDialog({
   onOpenChange,
 }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general")
+
+  // Conditionally include Design System tab in dev mode
+  const visibleTabs = debugStore.showDevUI
+    ? [
+        ...TABS,
+        {
+          id: "design-system" as const,
+          label: "Design System",
+          icon: <Palette className="size-4" />,
+        },
+      ]
+    : TABS
 
   // Reset to General tab and refresh OpenCode models when dialog opens
   useEffect(() => {
@@ -532,7 +575,7 @@ export const SettingsDialog = observer(function SettingsDialog({
               role="tablist"
               aria-label="Settings sections"
             >
-              {TABS.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
                   key={tab.id}
                   role="tab"
@@ -591,6 +634,16 @@ export const SettingsDialog = observer(function SettingsDialog({
               >
                 <UpdatesTab />
               </div>
+              {debugStore.showDevUI && (
+                <div
+                  id="tabpanel-design-system"
+                  role="tabpanel"
+                  aria-labelledby="tab-design-system"
+                  className={activeTab === "design-system" ? "" : "hidden"}
+                >
+                  <DesignSystemTab />
+                </div>
+              )}
             </div>
           </div>
 

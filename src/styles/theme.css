@@ -170,6 +170,27 @@
   box-shadow: var(--shadow-ovr-glow-soft);
 }
 
+@utility ovr-textarea {
+  @apply w-full overflow-y-auto rounded-lg border px-3 py-2 outline-none transition;
+  background-color: var(--color-ovr-bg-app);
+  border-color: var(--color-ovr-border-subtle);
+  color: var(--color-ovr-text-primary);
+}
+.ovr-textarea::placeholder {
+  color: var(--color-ovr-text-dim);
+}
+.ovr-textarea:focus {
+  border-color: var(--color-ovr-azure-500);
+  box-shadow: var(--shadow-ovr-glow-soft);
+}
+
+@utility ovr-checkbox {
+  @apply size-4 cursor-pointer rounded;
+  background-color: var(--color-ovr-bg-app);
+  border-color: var(--color-ovr-border-subtle);
+  accent-color: var(--color-ovr-azure-500);
+}
+
 /* =================================
    BADGES / STATUS PILLS
 ================================= */

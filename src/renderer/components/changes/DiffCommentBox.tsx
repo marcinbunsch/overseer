@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 import { observer } from "mobx-react-lite"
 import type { DiffNotesStore } from "../../stores/DiffNotesStore"
 import { ConfirmDialog } from "../shared/ConfirmDialog"
+import { Textarea } from "../shared/Textarea"
 
 interface DiffCommentBoxProps {
   filePath: string
@@ -90,7 +91,7 @@ export const DiffCommentBox = observer(function DiffCommentBox({
             <span className="font-medium text-ovr-text-secondary">{fileName}</span>
             <span>{lineRef}</span>
           </div>
-          <textarea
+          <Textarea
             ref={textareaRef}
             value={commentText}
             onChange={(e) => notesStore.updateComment(e.target.value)}
@@ -107,11 +108,7 @@ export const DiffCommentBox = observer(function DiffCommentBox({
             }}
             placeholder="Add a comment about the selected lines..."
             rows={3}
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            className="resize-none overflow-y-auto rounded-lg border border-ovr-border-subtle bg-ovr-bg-panel px-3 py-2 text-sm text-ovr-text-primary outline-none placeholder:text-ovr-text-muted focus:border-ovr-azure-500 focus:shadow-[var(--shadow-ovr-glow-soft)]"
+            className="resize-none text-sm placeholder:text-ovr-text-muted"
           />
           <div className="flex items-center justify-end gap-2">
             <button

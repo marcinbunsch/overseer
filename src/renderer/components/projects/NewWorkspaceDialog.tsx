@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react"
 import * as AlertDialog from "@radix-ui/react-alert-dialog"
 import { X } from "lucide-react"
 import { faker } from "@faker-js/faker"
+import { Input } from "../shared/Input"
 
 interface NewWorkspaceDialogProps {
   open: boolean
@@ -66,7 +67,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, onCreate }: NewWorkspac
             <label className="mb-1 block text-xs font-medium text-ovr-text-muted">
               Branch name
             </label>
-            <input
+            <Input
               ref={inputRef}
               type="text"
               value={branchName}
@@ -74,7 +75,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, onCreate }: NewWorkspac
               onKeyDown={handleKeyDown}
               placeholder="feature/my-branch"
               autoFocus
-              className="ovr-input w-full text-xs"
+              className="w-full text-xs"
             />
           </div>
 
