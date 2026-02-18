@@ -127,6 +127,13 @@ async fn check_command_exists(command: String) -> CommandCheckResult {
     }
 }
 
+#[tauri::command]
+async fn fetch_claude_usage() -> Result<overseer_core::usage::ClaudeUsageResponse, String> {
+    overseer_core::usage::fetch_claude_usage()
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -327,6 +334,7 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            fetch_claude_usage,
         ])
         .on_window_event(|_window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

@@ -137,3 +137,25 @@ To preview all design system elements, enable dev mode and go to Settings → De
 **Cause**: The event forwarding thread used `process.recv()` (blocking) while holding a mutex lock on the process. When TypeScript tried to send stdin via `codex_stdin`, it couldn't acquire the lock because the event thread was blocked waiting for data while holding it.
 **Fix**: Use `process.try_recv()` (non-blocking) instead, with a small sleep (10ms) when no data is available. This pattern releases the mutex between checks, allowing stdin writes to proceed. See `src-tauri/src/agents/claude.rs` for the correct pattern.
 
+### 2026-02-17: Claude Usage Indicators - Security & Lifecycle
+
+**Issue**: Adding usage limit indicators for Claude API.
+**Mistakes**:
+1. Initially tried to extract OAuth token into Overseer memory and use reqwest
+2. Overthought the shell command, tried to replace jq with Python
+3. Used `jq` in final solution - not available on fresh macOS installations
+4. Forgot `makeObservable(this)` in MobX store constructor
+5. Didn't store event bus unsubscribe function
+6. Didn't add `dispose()` method for cleanup
+
+**Correct approach**:
+- Run entire curl pipeline in shell subprocess with token extraction
+- Token never enters Overseer memory - stays in shell pipes
+- Use standard Unix tools only (`grep`, `sed`) - available on every Mac
+- Parse token: `security ... | grep -o '"accessToken":"[^"]*"' | sed 's/"accessToken":"//;s/"$//'`
+- Always add `makeObservable(this)` when using MobX decorators
+- Store unsubscribe functions from event subscriptions
+- Add `dispose()` method to clean up resources (events + timeouts)
+- Write comprehensive tests before claiming feature is complete
+
+**Key insight**: Security architecture trumps convenience. When dealing with credentials, use shell subprocesses even if it seems less "clean" than using a library. Only use tools guaranteed to exist on target platform.
