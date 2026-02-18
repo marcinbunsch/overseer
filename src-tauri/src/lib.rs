@@ -155,15 +155,40 @@ async fn fetch_claude_usage() -> Result<overseer_core::usage::ClaudeUsageRespons
         .map_err(|e| e.to_string())
 }
 
+/// Response from starting the HTTP server.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpServerStartResult {
+    /// The authentication token (if auth is enabled).
+    auth_token: Option<String>,
+}
+
+/// Generate a random authentication token.
+fn generate_auth_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Generate a simple random token using current time and random bytes
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+
+    // Mix timestamp with some randomness from memory addresses
+    let random_part: u64 = std::ptr::null::<()>() as u64 ^ (timestamp as u64);
+
+    format!("{:016x}{:016x}", timestamp as u64, random_part)
+}
+
 /// Start the HTTP server.
 #[tauri::command]
 fn start_http_server(
+    app_handle: tauri::AppHandle,
     http_server_state: tauri::State<HttpServerState>,
     context_state: tauri::State<OverseerContextState>,
     host: String,
     port: u16,
-    static_dir: Option<String>,
-) -> Result<(), String> {
+    enable_auth: Option<bool>,
+) -> Result<HttpServerStartResult, String> {
     let mut handle = http_server_state.handle.lock().unwrap();
 
     // Stop existing server if running
@@ -171,13 +196,37 @@ fn start_http_server(
         handle.stop();
     }
 
-    // Create shared state for HTTP server from the context
-    let shared_state = Arc::new(http_server::SharedState::from_context(&context_state.0));
+    // Resolve the frontend static directory from bundled resources
+    // In production, resources are at Contents/Resources/frontend/
+    let static_dir = app_handle
+        .path()
+        .resolve("frontend", tauri::path::BaseDirectory::Resource)
+        .ok()
+        .map(|p| p.to_string_lossy().to_string());
+
+    if let Some(ref dir) = static_dir {
+        log::info!("HTTP server will serve frontend from: {}", dir);
+    } else {
+        log::warn!("HTTP server: could not resolve frontend resource directory");
+    }
+
+    // Generate auth token if authentication is enabled
+    let auth_token = if enable_auth.unwrap_or(false) {
+        Some(generate_auth_token())
+    } else {
+        None
+    };
+
+    // Create shared state for HTTP server from the context with auth token
+    let shared_state = Arc::new(http_server::SharedState::from_context_with_auth(
+        &context_state.0,
+        auth_token.clone(),
+    ));
 
     // Start the server
     *handle = http_server::start(shared_state, host, port, static_dir)?;
 
-    Ok(())
+    Ok(HttpServerStartResult { auth_token })
 }
 
 /// Stop the HTTP server.

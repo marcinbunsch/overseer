@@ -41,6 +41,7 @@ class HttpBackend implements Backend {
   private subscriptions = new Map<string, Set<EventCallback<unknown>>>()
   private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
   private wsConnecting = false
+  private authToken: string | null = null
 
   constructor(baseUrl?: string) {
     // Default to current origin, but handle Vite dev server specially
@@ -56,20 +57,103 @@ class HttpBackend implements Backend {
     }
     this.baseUrl = url || ""
     this.wsUrl = this.baseUrl.replace(/^http/, "ws") + "/ws/events"
+
+    // Check for auth token in URL query params or localStorage
+    this.loadAuthToken()
+  }
+
+  /**
+   * Load auth token from URL query params or localStorage.
+   * URL param takes precedence and is stored to localStorage for subsequent visits.
+   */
+  private loadAuthToken(): void {
+    if (typeof window === "undefined") return
+
+    // Check URL query param first
+    const urlParams = new URLSearchParams(window.location.search)
+    const tokenFromUrl = urlParams.get("token")
+
+    if (tokenFromUrl) {
+      this.authToken = tokenFromUrl
+      // Store in localStorage for future visits
+      try {
+        localStorage.setItem("overseer_auth_token", tokenFromUrl)
+      } catch {
+        // localStorage might not be available
+      }
+      // Clean up URL (remove token param for security)
+      urlParams.delete("token")
+      const newUrl = urlParams.toString()
+        ? `${window.location.pathname}?${urlParams.toString()}`
+        : window.location.pathname
+      window.history.replaceState({}, "", newUrl)
+      return
+    }
+
+    // Fall back to localStorage
+    try {
+      const storedToken = localStorage.getItem("overseer_auth_token")
+      if (storedToken) {
+        this.authToken = storedToken
+      }
+    } catch {
+      // localStorage might not be available
+    }
+  }
+
+  /**
+   * Set the authentication token.
+   */
+  setAuthToken(token: string | null): void {
+    this.authToken = token
+    try {
+      if (token) {
+        localStorage.setItem("overseer_auth_token", token)
+      } else {
+        localStorage.removeItem("overseer_auth_token")
+      }
+    } catch {
+      // localStorage might not be available
+    }
+
+    // Reconnect WebSocket with new token if needed
+    if (this.ws) {
+      this.ws.close()
+      this.ws = null
+      if (this.subscriptions.size > 0) {
+        this.ensureWsConnected().catch(console.error)
+      }
+    }
+  }
+
+  /**
+   * Get the current authentication token.
+   */
+  getAuthToken(): string | null {
+    return this.authToken
   }
 
   async invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
     const url = `${this.baseUrl}/api/invoke/${command}`
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    }
+
+    if (this.authToken) {
+      headers["Authorization"] = `Bearer ${this.authToken}`
+    }
+
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({ args: args ?? {} }),
     })
 
     if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Authentication required. Please provide a valid token.")
+      }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
 
@@ -159,7 +243,9 @@ class HttpBackend implements Backend {
 
     return new Promise((resolve, reject) => {
       try {
-        this.ws = new WebSocket(this.wsUrl)
+        // Include auth token as query param for WebSocket (can't use headers)
+        const wsUrl = this.authToken ? `${this.wsUrl}?token=${this.authToken}` : this.wsUrl
+        this.ws = new WebSocket(wsUrl)
 
         this.ws.onopen = () => {
           this.wsConnecting = false

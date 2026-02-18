@@ -2,11 +2,12 @@
 //!
 //! Exposes all Tauri commands via REST and events via WebSocket.
 
+mod auth;
 mod routes;
 mod state;
 mod websocket;
 
-use axum::{routing::get, Router};
+use axum::{middleware, routing::get, Router};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -51,12 +52,19 @@ impl Default for HttpServerHandle {
 ///
 /// The server runs in a separate thread with its own tokio runtime.
 /// Returns a handle that can be used to stop the server.
+///
+/// If `auth_token` is provided, all API and WebSocket requests must include
+/// it as a Bearer token in the Authorization header (or as a query param for WebSocket).
 pub fn start(
     state: Arc<SharedState>,
     host: String,
     port: u16,
     static_dir: Option<String>,
 ) -> Result<HttpServerHandle, String> {
+    let auth_enabled = state.auth_token.is_some();
+    if auth_enabled {
+        log::info!("HTTP server authentication enabled");
+    }
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     let addr: SocketAddr = format!("{}:{}", host, port)
@@ -71,10 +79,16 @@ pub fn start(
             .expect("Failed to create tokio runtime");
 
         rt.block_on(async move {
-            // Build the router
-            let mut app = Router::new()
+            // Build the router with auth middleware on protected routes
+            let protected_routes = Router::new()
                 .route("/api/invoke/{command}", axum::routing::post(routes::invoke_handler))
                 .route("/ws/events", get(websocket::ws_handler))
+                .layer(middleware::from_fn_with_state(
+                    Arc::clone(&state),
+                    auth::auth_middleware,
+                ));
+
+            let mut app = protected_routes
                 .layer(
                     CorsLayer::new()
                         .allow_origin(Any)

@@ -14,20 +14,27 @@ use std::sync::Arc;
 pub struct SharedState {
     /// The core context containing all shared state.
     pub context: Arc<OverseerContext>,
+    /// Optional authentication token for bearer auth.
+    /// If set, all API and WebSocket requests must include this token.
+    pub auth_token: Option<String>,
 }
 
 impl SharedState {
-    /// Create a shared state from an OverseerContext.
-    pub fn from_context(context: &Arc<OverseerContext>) -> Self {
+    /// Create a shared state from an OverseerContext with an optional auth token.
+    pub fn from_context_with_auth(context: &Arc<OverseerContext>, auth_token: Option<String>) -> Self {
         Self {
             context: Arc::clone(context),
+            auth_token,
         }
     }
 
     /// Create a new shared state with the given context.
     #[allow(dead_code)]
     pub fn new(context: Arc<OverseerContext>) -> Self {
-        Self { context }
+        Self {
+            context,
+            auth_token: None,
+        }
     }
 
     /// Create a new shared state with config directory.
@@ -46,7 +53,19 @@ impl SharedState {
         context.approval_manager.set_config_dir(config_dir.clone());
         context.chat_sessions.set_config_dir(config_dir);
 
-        Self { context }
+        Self {
+            context,
+            auth_token: None,
+        }
+    }
+
+    /// Check if a given token is valid.
+    /// Returns true if no auth is configured or if the token matches.
+    pub fn validate_token(&self, token: Option<&str>) -> bool {
+        match &self.auth_token {
+            None => true, // No auth configured, allow all
+            Some(expected) => token == Some(expected.as_str()),
+        }
     }
 
     /// Get the config directory.

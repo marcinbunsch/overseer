@@ -14,10 +14,12 @@ import {
   Bot,
   Wrench,
   RefreshCw,
+  Copy,
 } from "lucide-react"
 import classNames from "classnames"
 import { configStore } from "../../stores/ConfigStore"
 import { debugStore } from "../../stores/DebugStore"
+import { toastStore } from "../../stores/ToastStore"
 import { toolAvailabilityStore, type ToolStatus } from "../../stores/ToolAvailabilityStore"
 import { updateStore } from "../../stores/UpdateStore"
 import type { AgentType } from "../../types"
@@ -381,6 +383,8 @@ const AdvancedTab = observer(function AdvancedTab() {
   const [httpServerLoading, setHttpServerLoading] = useState(false)
   const [httpHost, setHttpHost] = useState("127.0.0.1")
   const [httpPort, setHttpPort] = useState("6767")
+  const [enableAuth, setEnableAuth] = useState(true)
+  const [authToken, setAuthToken] = useState<string | null>(null)
 
   // Check server status on mount
   useEffect(() => {
@@ -403,53 +407,29 @@ const AdvancedTab = observer(function AdvancedTab() {
       if (httpServerRunning) {
         await backend.invoke("stop_http_server")
         setHttpServerRunning(false)
+        setAuthToken(null)
       } else {
-        // Get the static directory for serving frontend files
-        // In production, this is the resource directory where frontend is bundled
-        // In dev mode, we use the dist/ directory if it exists
-        let staticDir: string | null = null
-        try {
-          const { resolveResource } = await import("@tauri-apps/api/path")
-          const resourceDir = await resolveResource("")
-
-          // Check if index.html exists in the resource directory
-          // If not, we're likely in dev mode and should use dist/
-          const { exists } = await import("@tauri-apps/plugin-fs")
-          const hasIndex = await exists(`${resourceDir}/index.html`)
-
-          if (hasIndex) {
-            staticDir = resourceDir
-          } else {
-            // Dev mode: try to use the dist directory relative to the project root
-            // The resource path in dev mode is like .../src-tauri/target/debug/
-            // We need to go up to the project root and then into dist/
-            const parts = resourceDir.split("/")
-            const srcTauriIndex = parts.findIndex((p) => p === "src-tauri")
-            if (srcTauriIndex > 0) {
-              const projectRoot = parts.slice(0, srcTauriIndex).join("/")
-              const distDir = `${projectRoot}/dist`
-              const distHasIndex = await exists(`${distDir}/index.html`)
-              if (distHasIndex) {
-                staticDir = distDir
-                console.log("Dev mode: serving from dist/", distDir)
-              }
-            }
-          }
-        } catch (e) {
-          console.log("Could not resolve static directory:", e)
-        }
-
-        await backend.invoke("start_http_server", {
+        // Start the HTTP server - the backend will resolve the frontend
+        // static directory from bundled resources automatically
+        const result = await backend.invoke<{ authToken: string | null }>("start_http_server", {
           host: httpHost,
           port: parseInt(httpPort, 10),
-          staticDir,
+          enableAuth,
         })
         setHttpServerRunning(true)
+        setAuthToken(result.authToken)
       }
     } catch (err) {
       console.error("Failed to toggle HTTP server:", err)
     } finally {
       setHttpServerLoading(false)
+    }
+  }
+
+  const handleCopyToken = async () => {
+    if (authToken) {
+      await navigator.clipboard.writeText(authToken)
+      toastStore.show("Token copied to clipboard")
     }
   }
 
@@ -486,6 +466,40 @@ const AdvancedTab = observer(function AdvancedTab() {
               />
             </div>
           </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ovr-text-muted">Require authentication</span>
+            </div>
+            <Switch.Root
+              checked={enableAuth}
+              onCheckedChange={(checked: boolean) => setEnableAuth(checked)}
+              disabled={httpServerRunning}
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500 disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="http-auth-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+          </div>
+          {authToken && (
+            <div className="rounded-lg border border-ovr-azure-500/30 bg-ovr-azure-500/10 p-3">
+              <div className="mb-1 text-[11px] text-ovr-text-muted">Authentication Token</div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 overflow-x-auto rounded bg-ovr-bg-panel px-2 py-1 font-mono text-xs text-ovr-text-primary">
+                  {authToken}
+                </code>
+                <button
+                  onClick={handleCopyToken}
+                  className="rounded p-1.5 text-ovr-text-muted hover:bg-ovr-bg-panel hover:text-ovr-text-primary"
+                  title="Copy token"
+                >
+                  <Copy className="size-4" />
+                </button>
+              </div>
+              <p className="mt-2 text-[10px] text-ovr-text-dim">
+                Use this token in the Authorization header: Bearer {"{token}"}
+              </p>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span
