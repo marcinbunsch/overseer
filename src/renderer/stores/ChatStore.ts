@@ -705,6 +705,12 @@ export class ChatStore {
       return
     }
 
+    // Mark chat as running if this is a live event (not during initial load)
+    // This happens when another client sends a message
+    if (this.loaded && !this.loading) {
+      this.isSending = true
+    }
+
     this.chat.messages.push({
       id: event.id,
       role: "user",
