@@ -31,7 +31,7 @@ struct PtyExit {
 
 #[tauri::command]
 pub fn pty_spawn(
-    state: tauri::State<PtyMap>,
+    state: tauri::State<'_, Arc<PtyMap>>,
     event_bus_state: tauri::State<EventBusState>,
     id: String,
     cwd: String,
@@ -132,7 +132,7 @@ pub fn pty_spawn(
 }
 
 #[tauri::command]
-pub fn pty_write(state: tauri::State<PtyMap>, id: String, data: Vec<u8>) -> Result<(), String> {
+pub fn pty_write(state: tauri::State<'_, Arc<PtyMap>>, id: String, data: Vec<u8>) -> Result<(), String> {
     let map = state.ptys.lock().unwrap();
     let entry = map
         .get(&id)
@@ -149,7 +149,7 @@ pub fn pty_write(state: tauri::State<PtyMap>, id: String, data: Vec<u8>) -> Resu
 
 #[tauri::command]
 pub fn pty_resize(
-    state: tauri::State<PtyMap>,
+    state: tauri::State<'_, Arc<PtyMap>>,
     id: String,
     cols: u16,
     rows: u16,
@@ -173,7 +173,7 @@ pub fn pty_resize(
 }
 
 #[tauri::command]
-pub fn pty_kill(state: tauri::State<PtyMap>, id: String) -> Result<(), String> {
+pub fn pty_kill(state: tauri::State<'_, Arc<PtyMap>>, id: String) -> Result<(), String> {
     let mut map = state.ptys.lock().unwrap();
     if let Some(mut entry) = map.remove(&id) {
         let _ = entry.child.kill();

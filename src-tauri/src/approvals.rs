@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use overseer_core::approval::ApprovalContext;
 use overseer_core::persistence::approvals::{load_approvals, save_approvals};
@@ -236,7 +236,7 @@ impl ProjectApprovalManager {
 /// Load approvals for a project (for settings display).
 #[tauri::command]
 pub fn load_project_approvals(
-    state: tauri::State<ProjectApprovalManager>,
+    state: tauri::State<'_, Arc<ProjectApprovalManager>>,
     project_name: String,
 ) -> ApprovalsData {
     state.load_approvals(&project_name)
@@ -245,7 +245,7 @@ pub fn load_project_approvals(
 /// Add a tool or prefix approval.
 #[tauri::command]
 pub fn add_approval(
-    state: tauri::State<ProjectApprovalManager>,
+    state: tauri::State<'_, Arc<ProjectApprovalManager>>,
     project_name: String,
     tool_or_prefix: String,
     is_prefix: bool,
@@ -264,7 +264,7 @@ pub fn add_approval(
 /// Remove a tool or prefix approval.
 #[tauri::command]
 pub fn remove_approval(
-    state: tauri::State<ProjectApprovalManager>,
+    state: tauri::State<'_, Arc<ProjectApprovalManager>>,
     project_name: String,
     tool_or_prefix: String,
     is_prefix: bool,
@@ -275,7 +275,7 @@ pub fn remove_approval(
 /// Clear all approvals for a project.
 #[tauri::command]
 pub fn clear_project_approvals(
-    state: tauri::State<ProjectApprovalManager>,
+    state: tauri::State<'_, Arc<ProjectApprovalManager>>,
     project_name: String,
 ) -> Result<(), String> {
     state.clear_approvals(&project_name)

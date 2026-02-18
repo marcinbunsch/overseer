@@ -66,8 +66,8 @@ pub struct CopilotServerMap {
 #[tauri::command]
 pub fn start_copilot_server(
     app: tauri::AppHandle,
-    state: tauri::State<CopilotServerMap>,
-    approval_state: tauri::State<ProjectApprovalManager>,
+    state: tauri::State<'_, Arc<CopilotServerMap>>,
+    approval_state: tauri::State<'_, Arc<ProjectApprovalManager>>,
     event_bus_state: tauri::State<EventBusState>,
     server_id: String,
     project_name: String,
@@ -148,7 +148,7 @@ pub fn start_copilot_server(
                     parser.flush()
                 };
                 for event in parsed_events {
-                    let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                    let chat_sessions: tauri::State<Arc<ChatSessionManager>> = app.state();
                     if let Err(err) = chat_sessions.append_event(sid, event.clone()) {
                         log::warn!("Failed to persist Copilot event for {}: {}", sid, err);
                     }
@@ -189,7 +189,7 @@ pub fn start_copilot_server(
                             | ApprovalCheckResult::NotApproved(e) => e,
                         };
 
-                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        let chat_sessions: tauri::State<Arc<ChatSessionManager>> = app.state();
                         if let Err(err) = chat_sessions.append_event(&sid, event_to_emit.clone()) {
                             log::warn!("Failed to persist Copilot event for {}: {}", sid, err);
                         }
@@ -264,7 +264,7 @@ pub fn start_copilot_server(
 /// Write a line to the copilot stdin.
 #[tauri::command]
 pub fn copilot_stdin(
-    state: tauri::State<CopilotServerMap>,
+    state: tauri::State<'_, Arc<CopilotServerMap>>,
     server_id: String,
     data: String,
 ) -> Result<(), String> {
@@ -285,7 +285,7 @@ pub fn copilot_stdin(
 /// Stop a running copilot server.
 #[tauri::command]
 pub fn stop_copilot_server(
-    state: tauri::State<CopilotServerMap>,
+    state: tauri::State<'_, Arc<CopilotServerMap>>,
     server_id: String,
 ) -> Result<(), String> {
     let map = state.servers.lock().unwrap();

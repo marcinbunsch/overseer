@@ -1,5 +1,4 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
-import { homeDir } from "@tauri-apps/api/path"
 import type { AgentModel, AgentType } from "../types"
 import { listOpencodeModels } from "../services/opencode"
 import { backend } from "../backend"
@@ -173,7 +172,7 @@ class ConfigStore {
 
   private async load(): Promise<void> {
     try {
-      this.home = await homeDir()
+      this.home = await backend.invoke<string>("get_home_dir")
       if (this.home.endsWith("/")) {
         this.home = this.home.slice(0, -1)
       }

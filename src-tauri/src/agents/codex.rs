@@ -67,8 +67,8 @@ pub struct CodexServerMap {
 #[tauri::command]
 pub fn start_codex_server(
     app: tauri::AppHandle,
-    state: tauri::State<CodexServerMap>,
-    approval_state: tauri::State<ProjectApprovalManager>,
+    state: tauri::State<'_, Arc<CodexServerMap>>,
+    approval_state: tauri::State<'_, Arc<ProjectApprovalManager>>,
     event_bus_state: tauri::State<EventBusState>,
     server_id: String,
     project_name: String,
@@ -149,7 +149,7 @@ pub fn start_codex_server(
                     parser.flush()
                 };
                 for event in parsed_events {
-                    let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                    let chat_sessions: tauri::State<Arc<ChatSessionManager>> = app.state();
                     if let Err(err) = chat_sessions.append_event(sid, event.clone()) {
                         log::warn!("Failed to persist Codex event for {}: {}", sid, err);
                     }
@@ -190,7 +190,7 @@ pub fn start_codex_server(
                             | ApprovalCheckResult::NotApproved(e) => e,
                         };
 
-                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        let chat_sessions: tauri::State<Arc<ChatSessionManager>> = app.state();
                         if let Err(err) = chat_sessions.append_event(&sid, event_to_emit.clone()) {
                             log::warn!("Failed to persist Codex event for {}: {}", sid, err);
                         }
@@ -253,7 +253,7 @@ pub fn start_codex_server(
 /// Write a line to the codex app-server stdin.
 #[tauri::command]
 pub fn codex_stdin(
-    state: tauri::State<CodexServerMap>,
+    state: tauri::State<'_, Arc<CodexServerMap>>,
     server_id: String,
     data: String,
 ) -> Result<(), String> {
@@ -274,7 +274,7 @@ pub fn codex_stdin(
 /// Stop a running codex app-server.
 #[tauri::command]
 pub fn stop_codex_server(
-    state: tauri::State<CodexServerMap>,
+    state: tauri::State<'_, Arc<CodexServerMap>>,
     server_id: String,
 ) -> Result<(), String> {
     let map = state.servers.lock().unwrap();

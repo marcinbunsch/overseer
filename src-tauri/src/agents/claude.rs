@@ -1,6 +1,10 @@
 //! Claude CLI process management.
 //!
-//! Thin wrapper around overseer-core spawn for Tauri event forwarding.
+//! Core agent functions live here and are called by both Tauri commands and HTTP routes.
+//! The pattern is:
+//! - Core functions take `&AgentProcessMap` directly (no Arc, no State)
+//! - Tauri commands extract Arc from State and call core functions
+//! - HTTP routes use SharedState to get Arc and call core functions
 
 use std::{
     collections::HashMap,
@@ -39,6 +43,46 @@ pub struct AgentProcessMap {
     processes: Mutex<HashMap<String, AgentProcessEntry>>,
 }
 
+impl AgentProcessMap {
+    /// Write data to stdin of a running process.
+    pub fn write_stdin(&self, conversation_id: &str, data: &str) -> Result<(), String> {
+        let map = self.processes.lock().unwrap();
+        let entry = map
+            .get(conversation_id)
+            .ok_or_else(|| format!("No process for conversation {}", conversation_id))?;
+        log_line(&entry.log_file, "STDIN", data);
+
+        let guard = entry.process.lock().unwrap();
+        if let Some(ref process) = *guard {
+            process.write_stdin(data)
+        } else {
+            Err(format!(
+                "No active process for conversation {}",
+                conversation_id
+            ))
+        }
+    }
+
+    /// Stop a running process.
+    pub fn stop(&self, conversation_id: &str) {
+        let map = self.processes.lock().unwrap();
+        if let Some(entry) = map.get(conversation_id) {
+            if let Some(process) = entry.process.lock().unwrap().take() {
+                process.stop();
+            }
+        }
+    }
+
+    /// List all running conversation IDs.
+    pub fn list_running(&self) -> Vec<String> {
+        let map = self.processes.lock().unwrap();
+        map.iter()
+            .filter(|(_, entry)| entry.process.lock().unwrap().is_some())
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+}
+
 /// Build a control_response JSON to send approval to the agent.
 fn build_approval_response(request_id: &str, input: &serde_json::Value) -> String {
     let response = serde_json::json!({
@@ -60,8 +104,8 @@ fn build_approval_response(request_id: &str, input: &serde_json::Value) -> Strin
 #[tauri::command]
 pub fn start_agent(
     app: tauri::AppHandle,
-    state: tauri::State<AgentProcessMap>,
-    approval_state: tauri::State<ProjectApprovalManager>,
+    state: tauri::State<'_, Arc<AgentProcessMap>>,
+    approval_state: tauri::State<'_, Arc<ProjectApprovalManager>>,
     event_bus_state: tauri::State<EventBusState>,
     conversation_id: String,
     project_name: String,
@@ -156,7 +200,7 @@ pub fn start_agent(
                     parser.flush()
                 };
                 for event in parsed_events {
-                    let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                    let chat_sessions: tauri::State<Arc<ChatSessionManager>> = app.state();
                     if let Err(err) = chat_sessions.append_event(conv_id, event.clone()) {
                         log::warn!("Failed to persist Claude event for {}: {}", conv_id, err);
                     }
@@ -191,7 +235,7 @@ pub fn start_agent(
                             | ApprovalCheckResult::NotApproved(e) => e,
                         };
 
-                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        let chat_sessions: tauri::State<Arc<ChatSessionManager>> = app.state();
                         if let Err(err) =
                             chat_sessions.append_event(&conv_id, event_to_emit.clone())
                         {
@@ -234,48 +278,26 @@ pub fn start_agent(
 /// Write data to a Claude CLI process stdin.
 #[tauri::command]
 pub fn agent_stdin(
-    state: tauri::State<AgentProcessMap>,
+    state: tauri::State<'_, Arc<AgentProcessMap>>,
     conversation_id: String,
     data: String,
 ) -> Result<(), String> {
-    let map = state.processes.lock().unwrap();
-    let entry = map
-        .get(&conversation_id)
-        .ok_or_else(|| format!("No process for conversation {}", conversation_id))?;
-    log_line(&entry.log_file, "STDIN", &data);
-
-    let guard = entry.process.lock().unwrap();
-    if let Some(ref process) = *guard {
-        process.write_stdin(&data)
-    } else {
-        Err(format!(
-            "No active process for conversation {}",
-            conversation_id
-        ))
-    }
+    state.write_stdin(&conversation_id, &data)
 }
 
 /// Stop a running Claude CLI process.
 #[tauri::command]
 pub fn stop_agent(
-    state: tauri::State<AgentProcessMap>,
+    state: tauri::State<'_, Arc<AgentProcessMap>>,
     conversation_id: String,
 ) -> Result<(), String> {
-    let map = state.processes.lock().unwrap();
-    if let Some(entry) = map.get(&conversation_id) {
-        if let Some(process) = entry.process.lock().unwrap().take() {
-            process.stop();
-        }
-    }
+    state.stop(&conversation_id);
     Ok(())
 }
 
 /// List all running Claude CLI conversations.
 #[tauri::command]
-pub fn list_running(state: tauri::State<AgentProcessMap>) -> Vec<String> {
-    let map = state.processes.lock().unwrap();
-    map.iter()
-        .filter(|(_, entry)| entry.process.lock().unwrap().is_some())
-        .map(|(id, _)| id.clone())
-        .collect()
+pub fn list_running(state: tauri::State<'_, Arc<AgentProcessMap>>) -> Vec<String> {
+    state.list_running()
 }
+

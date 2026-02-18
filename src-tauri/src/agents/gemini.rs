@@ -41,7 +41,7 @@ pub struct GeminiServerMap {
 #[tauri::command]
 pub fn start_gemini_server(
     app: tauri::AppHandle,
-    state: tauri::State<GeminiServerMap>,
+    state: tauri::State<'_, Arc<GeminiServerMap>>,
     event_bus_state: tauri::State<EventBusState>,
     server_id: String,
     gemini_path: String,
@@ -120,7 +120,7 @@ pub fn start_gemini_server(
                     parser.flush()
                 };
                 for event in parsed_events {
-                    let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                    let chat_sessions: tauri::State<Arc<ChatSessionManager>> = app.state();
                     if let Err(err) = chat_sessions.append_event(sid, event.clone()) {
                         log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
                     }
@@ -147,7 +147,7 @@ pub fn start_gemini_server(
 
                     // Emit parsed events
                     for event in parsed_events {
-                        let chat_sessions: tauri::State<ChatSessionManager> = app.state();
+                        let chat_sessions: tauri::State<Arc<ChatSessionManager>> = app.state();
                         if let Err(err) = chat_sessions.append_event(&sid, event.clone()) {
                             log::warn!("Failed to persist Gemini event for {}: {}", sid, err);
                         }
@@ -184,7 +184,7 @@ pub fn start_gemini_server(
 /// Placeholder for stdin - Gemini headless mode doesn't use stdin.
 #[tauri::command]
 pub fn gemini_stdin(
-    _state: tauri::State<GeminiServerMap>,
+    _state: tauri::State<'_, Arc<GeminiServerMap>>,
     _server_id: String,
     _data: String,
 ) -> Result<(), String> {
@@ -195,7 +195,7 @@ pub fn gemini_stdin(
 /// Stop a running gemini process.
 #[tauri::command]
 pub fn stop_gemini_server(
-    state: tauri::State<GeminiServerMap>,
+    state: tauri::State<'_, Arc<GeminiServerMap>>,
     server_id: String,
 ) -> Result<(), String> {
     let map = state.processes.lock().unwrap();

@@ -404,10 +404,45 @@ const AdvancedTab = observer(function AdvancedTab() {
         await backend.invoke("stop_http_server")
         setHttpServerRunning(false)
       } else {
+        // Get the static directory for serving frontend files
+        // In production, this is the resource directory where frontend is bundled
+        // In dev mode, we use the dist/ directory if it exists
+        let staticDir: string | null = null
+        try {
+          const { resolveResource } = await import("@tauri-apps/api/path")
+          const resourceDir = await resolveResource("")
+
+          // Check if index.html exists in the resource directory
+          // If not, we're likely in dev mode and should use dist/
+          const { exists } = await import("@tauri-apps/plugin-fs")
+          const hasIndex = await exists(`${resourceDir}/index.html`)
+
+          if (hasIndex) {
+            staticDir = resourceDir
+          } else {
+            // Dev mode: try to use the dist directory relative to the project root
+            // The resource path in dev mode is like .../src-tauri/target/debug/
+            // We need to go up to the project root and then into dist/
+            const parts = resourceDir.split("/")
+            const srcTauriIndex = parts.findIndex((p) => p === "src-tauri")
+            if (srcTauriIndex > 0) {
+              const projectRoot = parts.slice(0, srcTauriIndex).join("/")
+              const distDir = `${projectRoot}/dist`
+              const distHasIndex = await exists(`${distDir}/index.html`)
+              if (distHasIndex) {
+                staticDir = distDir
+                console.log("Dev mode: serving from dist/", distDir)
+              }
+            }
+          }
+        } catch (e) {
+          console.log("Could not resolve static directory:", e)
+        }
+
         await backend.invoke("start_http_server", {
           host: httpHost,
           port: parseInt(httpPort, 10),
-          staticDir: null,
+          staticDir,
         })
         setHttpServerRunning(true)
       }

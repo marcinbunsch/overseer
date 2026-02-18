@@ -84,8 +84,17 @@ pub fn start(
                 .with_state(state);
 
             // Serve static files if directory provided
-            if let Some(dir) = static_dir {
-                app = app.fallback_service(ServeDir::new(dir));
+            if let Some(ref dir) = static_dir {
+                log::info!("HTTP server serving static files from: {}", dir);
+                // Use ServeDir with fallback to index.html for SPA routing
+                let serve_dir = ServeDir::new(dir)
+                    .not_found_service(tower_http::services::ServeFile::new(format!(
+                        "{}/index.html",
+                        dir
+                    )));
+                app = app.fallback_service(serve_dir);
+            } else {
+                log::info!("HTTP server: no static directory configured");
             }
 
             // Bind the server

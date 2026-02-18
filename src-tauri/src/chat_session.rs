@@ -231,7 +231,7 @@ impl ChatSession {
 /// Register a chat session for persistence.
 #[tauri::command]
 pub async fn register_chat_session(
-    state: State<'_, ChatSessionManager>,
+    state: State<'_, Arc<ChatSessionManager>>,
     chat_id: String,
     project_name: String,
     workspace_name: String,
@@ -243,7 +243,7 @@ pub async fn register_chat_session(
 /// Unregister and flush a chat session.
 #[tauri::command]
 pub async fn unregister_chat_session(
-    state: State<'_, ChatSessionManager>,
+    state: State<'_, Arc<ChatSessionManager>>,
     chat_id: String,
 ) -> Result<(), String> {
     state.unregister_session(&chat_id)
@@ -252,7 +252,7 @@ pub async fn unregister_chat_session(
 /// Append an event to a chat session.
 #[tauri::command]
 pub async fn append_chat_event(
-    state: State<'_, ChatSessionManager>,
+    state: State<'_, Arc<ChatSessionManager>>,
     chat_id: String,
     event: AgentEvent,
 ) -> Result<(), String> {
@@ -262,7 +262,7 @@ pub async fn append_chat_event(
 /// Load all events from a chat session.
 #[tauri::command]
 pub async fn load_chat_events(
-    state: State<'_, ChatSessionManager>,
+    state: State<'_, Arc<ChatSessionManager>>,
     project_name: String,
     workspace_name: String,
     chat_id: String,
@@ -273,7 +273,7 @@ pub async fn load_chat_events(
 /// Load chat metadata for a session.
 #[tauri::command]
 pub async fn load_chat_metadata(
-    state: State<'_, ChatSessionManager>,
+    state: State<'_, Arc<ChatSessionManager>>,
     project_name: String,
     workspace_name: String,
     chat_id: String,
@@ -284,7 +284,7 @@ pub async fn load_chat_metadata(
 /// Save chat metadata for a session.
 #[tauri::command]
 pub async fn save_chat_metadata(
-    state: State<'_, ChatSessionManager>,
+    state: State<'_, Arc<ChatSessionManager>>,
     project_name: String,
     workspace_name: String,
     metadata: ChatMetadata,
@@ -295,7 +295,7 @@ pub async fn save_chat_metadata(
 /// Persist a user-authored message for a chat session.
 #[tauri::command]
 pub async fn add_user_message(
-    state: State<'_, ChatSessionManager>,
+    state: State<'_, Arc<ChatSessionManager>>,
     chat_id: String,
     content: String,
     meta: Option<serde_json::Value>,

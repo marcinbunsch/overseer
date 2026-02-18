@@ -24,6 +24,34 @@ impl Default for EventBusState {
     }
 }
 
+/// Wrapper for shared state that can be passed to the HTTP server.
+/// This holds Arc references to all state, allowing sharing between Tauri and HTTP.
+pub struct SharedStateHolder {
+    pub agent_processes: Arc<agents::AgentProcessMap>,
+    pub codex_servers: Arc<agents::CodexServerMap>,
+    pub copilot_servers: Arc<agents::CopilotServerMap>,
+    pub gemini_servers: Arc<agents::GeminiServerMap>,
+    pub opencode_servers: Arc<agents::OpenCodeServerMap>,
+    pub approval_manager: Arc<approvals::ProjectApprovalManager>,
+    pub chat_sessions: Arc<chat_session::ChatSessionManager>,
+    pub pty_map: Arc<pty::PtyMap>,
+}
+
+impl Default for SharedStateHolder {
+    fn default() -> Self {
+        Self {
+            agent_processes: Arc::new(agents::AgentProcessMap::default()),
+            codex_servers: Arc::new(agents::CodexServerMap::default()),
+            copilot_servers: Arc::new(agents::CopilotServerMap::default()),
+            gemini_servers: Arc::new(agents::GeminiServerMap::default()),
+            opencode_servers: Arc::new(agents::OpenCodeServerMap::default()),
+            approval_manager: Arc::new(approvals::ProjectApprovalManager::default()),
+            chat_sessions: Arc::new(chat_session::ChatSessionManager::default()),
+            pty_map: Arc::new(pty::PtyMap::default()),
+        }
+    }
+}
+
 /// State for the HTTP server.
 pub struct HttpServerState {
     handle: std::sync::Mutex<http_server::HttpServerHandle>,
@@ -165,6 +193,7 @@ fn start_http_server(
     event_bus_state: tauri::State<EventBusState>,
     http_server_state: tauri::State<HttpServerState>,
     persistence_config: tauri::State<persistence::PersistenceConfig>,
+    shared_state_holder: tauri::State<SharedStateHolder>,
     host: String,
     port: u16,
     static_dir: Option<String>,
@@ -179,14 +208,19 @@ fn start_http_server(
     // Get config_dir from persistence config
     let config_dir = persistence_config.get_config_dir_public();
 
-    // Create shared state for HTTP server
-    let shared_state = match config_dir {
-        Some(dir) => Arc::new(http_server::SharedState::with_config_dir(
-            Arc::clone(&event_bus_state.0),
-            dir,
-        )),
-        None => Arc::new(http_server::SharedState::new(Arc::clone(&event_bus_state.0))),
-    };
+    // Create shared state for HTTP server with all hoisted state
+    let shared_state = Arc::new(http_server::SharedState::with_all_state(
+        Arc::clone(&event_bus_state.0),
+        config_dir,
+        Arc::clone(&shared_state_holder.agent_processes),
+        Arc::clone(&shared_state_holder.codex_servers),
+        Arc::clone(&shared_state_holder.copilot_servers),
+        Arc::clone(&shared_state_holder.gemini_servers),
+        Arc::clone(&shared_state_holder.opencode_servers),
+        Arc::clone(&shared_state_holder.approval_manager),
+        Arc::clone(&shared_state_holder.chat_sessions),
+        Arc::clone(&shared_state_holder.pty_map),
+    ));
 
     // Start the server
     *handle = http_server::start(shared_state, host, port, static_dir)?;
@@ -214,18 +248,22 @@ pub fn run() {
     // Create EventBus and wrap in state
     let event_bus_state = EventBusState::default();
 
+    // Create shared state holder with Arc-wrapped instances
+    let shared_state_holder = SharedStateHolder::default();
+
     tauri::Builder::default()
         .manage(event_bus_state)
         .manage(HttpServerState::default())
-        .manage(agents::AgentProcessMap::default())
-        .manage(agents::CodexServerMap::default())
-        .manage(agents::CopilotServerMap::default())
-        .manage(agents::GeminiServerMap::default())
-        .manage(agents::OpenCodeServerMap::default())
-        .manage(approvals::ProjectApprovalManager::default())
-        .manage(chat_session::ChatSessionManager::default())
+        .manage(Arc::clone(&shared_state_holder.agent_processes))
+        .manage(Arc::clone(&shared_state_holder.codex_servers))
+        .manage(Arc::clone(&shared_state_holder.copilot_servers))
+        .manage(Arc::clone(&shared_state_holder.gemini_servers))
+        .manage(Arc::clone(&shared_state_holder.opencode_servers))
+        .manage(Arc::clone(&shared_state_holder.approval_manager))
+        .manage(Arc::clone(&shared_state_holder.chat_sessions))
         .manage(persistence::PersistenceConfig::default())
-        .manage(pty::PtyMap::default())
+        .manage(Arc::clone(&shared_state_holder.pty_map))
+        .manage(shared_state_holder)
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
@@ -322,11 +360,11 @@ pub fn run() {
             )?;
 
             // Set up the config directory for approvals persistence
-            let approval_manager = app.state::<approvals::ProjectApprovalManager>();
+            let approval_manager = app.state::<Arc<approvals::ProjectApprovalManager>>();
             approval_manager.set_config_dir(config_dir.clone());
 
             // Set up the config directory for chat session persistence
-            let chat_session_manager = app.state::<chat_session::ChatSessionManager>();
+            let chat_session_manager = app.state::<Arc<chat_session::ChatSessionManager>>();
             chat_session_manager.set_config_dir(config_dir.clone());
 
             // Set up the config directory for general persistence

@@ -108,7 +108,7 @@ fn generate_password() -> String {
 /// Start an `opencode serve` process for a given server_id.
 #[tauri::command]
 pub fn start_opencode_server(
-    state: tauri::State<OpenCodeServerMap>,
+    state: tauri::State<'_, Arc<OpenCodeServerMap>>,
     event_bus_state: tauri::State<EventBusState>,
     server_id: String,
     opencode_path: String,
@@ -218,7 +218,7 @@ pub fn start_opencode_server(
 /// Get the port for a running opencode server.
 #[tauri::command]
 pub fn get_opencode_port(
-    state: tauri::State<OpenCodeServerMap>,
+    state: tauri::State<'_, Arc<OpenCodeServerMap>>,
     server_id: String,
 ) -> Result<u16, String> {
     let map = state.servers.lock().unwrap();
@@ -231,7 +231,7 @@ pub fn get_opencode_port(
 /// Get the password for a running opencode server.
 #[tauri::command]
 pub fn get_opencode_password(
-    state: tauri::State<OpenCodeServerMap>,
+    state: tauri::State<'_, Arc<OpenCodeServerMap>>,
     server_id: String,
 ) -> Result<String, String> {
     let map = state.servers.lock().unwrap();
@@ -244,7 +244,7 @@ pub fn get_opencode_password(
 /// Stop a running opencode serve process.
 #[tauri::command]
 pub fn stop_opencode_server(
-    state: tauri::State<OpenCodeServerMap>,
+    state: tauri::State<'_, Arc<OpenCodeServerMap>>,
     server_id: String,
 ) -> Result<(), String> {
     let map = state.servers.lock().unwrap();
@@ -261,7 +261,7 @@ pub fn stop_opencode_server(
 /// Fetch available models from the OpenCode server.
 #[tauri::command(async)]
 pub fn opencode_get_models(
-    state: tauri::State<OpenCodeServerMap>,
+    state: tauri::State<'_, Arc<OpenCodeServerMap>>,
     server_id: String,
 ) -> Result<Vec<OpenCodeModel>, String> {
     let port = {
@@ -319,7 +319,7 @@ pub fn opencode_get_models(
 /// Subscribe to SSE events from the OpenCode server.
 #[tauri::command]
 pub fn opencode_subscribe_events(
-    state: tauri::State<OpenCodeServerMap>,
+    state: tauri::State<'_, Arc<OpenCodeServerMap>>,
     event_bus_state: tauri::State<EventBusState>,
     server_id: String,
     session_id: String,
@@ -427,7 +427,7 @@ pub fn opencode_subscribe_events(
 /// Stop SSE subscription for an OpenCode server.
 #[tauri::command]
 pub fn opencode_unsubscribe_events(
-    state: tauri::State<OpenCodeServerMap>,
+    state: tauri::State<'_, Arc<OpenCodeServerMap>>,
     server_id: String,
 ) -> Result<(), String> {
     let map = state.servers.lock().unwrap();

@@ -72,7 +72,7 @@ where
             let prefixes_vec: Vec<String> = prefixes.as_ref().cloned().unwrap_or_default();
 
             // Query the approval manager fresh each time to pick up new approvals
-            let approval_manager: tauri::State<ProjectApprovalManager> = app.state();
+            let approval_manager: tauri::State<Arc<ProjectApprovalManager>> = app.state();
             let should_approve =
                 approval_manager.should_auto_approve(project_name, name, &prefixes_vec);
 

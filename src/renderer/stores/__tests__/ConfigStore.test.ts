@@ -1,15 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { invoke } from "@tauri-apps/api/core"
-import { homeDir } from "@tauri-apps/api/path"
+
+// Helper to create invoke mocks that always include get_home_dir
+function mockInvoke(handler: (cmd: string, args?: unknown) => Promise<unknown>): void {
+  vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+    // Always handle get_home_dir first
+    if (cmd === "get_home_dir") return Promise.resolve("/home/testuser")
+    return handler(cmd, args)
+  })
+}
 
 // We need to test ConfigStore's class logic without triggering the singleton's
 // constructor side effects. Import the module fresh each test.
 describe("ConfigStore", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(homeDir).mockResolvedValue("/home/testuser/")
     // Default mock for invoke - can be overridden in individual tests
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") return Promise.resolve(null)
       if (cmd === "save_json_config") return Promise.resolve(undefined)
@@ -18,7 +25,7 @@ describe("ConfigStore", () => {
   })
 
   it("loads config from disk and expands $HOME", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({
@@ -51,7 +58,7 @@ describe("ConfigStore", () => {
   })
 
   it("creates default config when file does not exist", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(false)
       if (cmd === "save_json_config") return Promise.resolve(undefined)
       if (cmd === "load_json_config") return Promise.resolve(null)
@@ -73,7 +80,10 @@ describe("ConfigStore", () => {
   })
 
   it("falls back to bare 'claude' on load error", async () => {
-    vi.mocked(homeDir).mockRejectedValue(new Error("no home"))
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "get_home_dir") return Promise.reject(new Error("no home"))
+      return Promise.resolve(undefined)
+    })
 
     vi.resetModules()
     const { configStore } = await import("../ConfigStore")
@@ -86,7 +96,7 @@ describe("ConfigStore", () => {
   })
 
   it("uses defaults for missing config fields", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({ claudePath: "$HOME/bin/claude" })
@@ -109,7 +119,7 @@ describe("ConfigStore", () => {
   })
 
   it("saves config when pane width is changed", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({ claudePath: "claude" })
@@ -135,8 +145,8 @@ describe("ConfigStore", () => {
   })
 
   it("strips trailing slash from home directory", async () => {
-    vi.mocked(homeDir).mockResolvedValue("/home/testuser/")
     vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "get_home_dir") return Promise.resolve("/home/testuser/")
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({ claudePath: "$HOME/claude" })
@@ -156,7 +166,7 @@ describe("ConfigStore", () => {
   })
 
   it("expands unknown env vars to empty string", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({ claudePath: "$UNKNOWN_VAR/claude" })
@@ -175,7 +185,7 @@ describe("ConfigStore", () => {
   })
 
   it("uses default Claude models when not in config", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({ claudePath: "claude" })
@@ -200,7 +210,7 @@ describe("ConfigStore", () => {
   })
 
   it("uses default Codex models when not in config", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({ claudePath: "claude" })
@@ -224,7 +234,7 @@ describe("ConfigStore", () => {
   })
 
   it("loads custom model arrays from config", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({
@@ -253,7 +263,7 @@ describe("ConfigStore", () => {
   })
 
   it("loads default models for agents from config", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({
@@ -279,7 +289,7 @@ describe("ConfigStore", () => {
   })
 
   it("defaults to null when default models are not in config", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({ claudePath: "claude" })
@@ -301,7 +311,7 @@ describe("ConfigStore", () => {
 
   it("saves config when default Claude model is changed", async () => {
     let savedConfig: Record<string, unknown> | null = null
-    vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+    mockInvoke((cmd: string, args?: unknown) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({ claudePath: "claude" })
@@ -332,7 +342,7 @@ describe("ConfigStore", () => {
 
   it("saves config when default Codex model is changed", async () => {
     let savedConfig: Record<string, unknown> | null = null
-    vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+    mockInvoke((cmd: string, args?: unknown) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({ claudePath: "claude" })
@@ -363,7 +373,7 @@ describe("ConfigStore", () => {
 
   it("saves config when default Copilot model is changed", async () => {
     let savedConfig: Record<string, unknown> | null = null
-    vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+    mockInvoke((cmd: string, args?: unknown) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({ claudePath: "claude" })
@@ -393,7 +403,7 @@ describe("ConfigStore", () => {
   })
 
   it("getDefaultModelForAgent returns correct model for each agent type", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke((cmd: string) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({
@@ -420,7 +430,7 @@ describe("ConfigStore", () => {
 
   it("allows setting default model to null", async () => {
     let savedConfig: Record<string, unknown> | null = null
-    vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+    mockInvoke((cmd: string, args?: unknown) => {
       if (cmd === "config_file_exists") return Promise.resolve(true)
       if (cmd === "load_json_config") {
         return Promise.resolve({
@@ -456,7 +466,7 @@ describe("ConfigStore", () => {
 
   describe("enabledAgents", () => {
     it("defaults to all agents enabled", async () => {
-      vi.mocked(invoke).mockImplementation((cmd: string) => {
+      mockInvoke((cmd: string) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
         if (cmd === "load_json_config") {
           return Promise.resolve({ claudePath: "claude" })
@@ -483,7 +493,7 @@ describe("ConfigStore", () => {
     })
 
     it("loads enabledAgents from config", async () => {
-      vi.mocked(invoke).mockImplementation((cmd: string) => {
+      mockInvoke((cmd: string) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
         if (cmd === "load_json_config") {
           return Promise.resolve({
@@ -508,7 +518,7 @@ describe("ConfigStore", () => {
     })
 
     it("enables an agent", async () => {
-      vi.mocked(invoke).mockImplementation((cmd: string) => {
+      mockInvoke((cmd: string) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
         if (cmd === "load_json_config") {
           return Promise.resolve({
@@ -540,7 +550,7 @@ describe("ConfigStore", () => {
     })
 
     it("disables an agent", async () => {
-      vi.mocked(invoke).mockImplementation((cmd: string) => {
+      mockInvoke((cmd: string) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
         if (cmd === "load_json_config") {
           return Promise.resolve({ claudePath: "claude" })
@@ -569,7 +579,7 @@ describe("ConfigStore", () => {
     })
 
     it("clears defaultAgent when disabled agent was the default", async () => {
-      vi.mocked(invoke).mockImplementation((cmd: string) => {
+      mockInvoke((cmd: string) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
         if (cmd === "load_json_config") {
           return Promise.resolve({
@@ -595,7 +605,7 @@ describe("ConfigStore", () => {
     })
 
     it("does not duplicate agent when enabling already enabled agent", async () => {
-      vi.mocked(invoke).mockImplementation((cmd: string) => {
+      mockInvoke((cmd: string) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
         if (cmd === "load_json_config") {
           return Promise.resolve({ claudePath: "claude" })
@@ -619,7 +629,7 @@ describe("ConfigStore", () => {
 
   describe("defaultAgent", () => {
     it("defaults to claude", async () => {
-      vi.mocked(invoke).mockImplementation((cmd: string) => {
+      mockInvoke((cmd: string) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
         if (cmd === "load_json_config") {
           return Promise.resolve({ claudePath: "claude" })
@@ -638,7 +648,7 @@ describe("ConfigStore", () => {
     })
 
     it("loads null defaultAgent from config", async () => {
-      vi.mocked(invoke).mockImplementation((cmd: string) => {
+      mockInvoke((cmd: string) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
         if (cmd === "load_json_config") {
           return Promise.resolve({
@@ -661,7 +671,7 @@ describe("ConfigStore", () => {
 
     it("sets defaultAgent to null", async () => {
       let savedConfig: Record<string, unknown> | null = null
-      vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+      mockInvoke((cmd: string, args?: unknown) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
         if (cmd === "load_json_config") {
           return Promise.resolve({ claudePath: "claude" })
@@ -695,7 +705,7 @@ describe("ConfigStore", () => {
 
     it("sets defaultAgent to a specific agent", async () => {
       let savedConfig: Record<string, unknown> | null = null
-      vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+      mockInvoke((cmd: string, args?: unknown) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
         if (cmd === "load_json_config") {
           return Promise.resolve({ claudePath: "claude" })

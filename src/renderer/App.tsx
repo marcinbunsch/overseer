@@ -11,8 +11,6 @@ import { UpdateNotification } from "./components/shared/UpdateNotification"
 import { configStore } from "./stores/ConfigStore"
 import { updateStore } from "./stores/UpdateStore"
 import { backend } from "./backend"
-import { getCurrentWindow } from "@tauri-apps/api/window"
-import { listen } from "@tauri-apps/api/event"
 import { handleWindowCloseRequest, createDefaultDeps } from "./utils/windowClose"
 
 function DragHandle({
@@ -102,25 +100,35 @@ export default observer(function App() {
       configStore.setSettingsOpen(true)
     })
 
-    // Handle window close: warn if chats are running, then flush to disk
-    // Using onCloseRequested which properly intercepts macOS traffic light close button
-    const windowCloseDeps = createDefaultDeps()
-    const unlistenClose = getCurrentWindow().onCloseRequested((event) =>
-      handleWindowCloseRequest(event, windowCloseDeps)
-    )
+    // Window close handling is only available in Tauri
+    const cleanupFns: Array<Promise<() => void>> = [unlistenSettings]
 
-    // Handle Cmd+Q / menu quit - same flow as close button
-    const unlistenQuit = listen("menu:quit", () => {
-      // Create a synthetic event with preventDefault (which does nothing here,
-      // since the Rust side doesn't actually initiate a close)
-      const syntheticEvent = { preventDefault: () => {} }
-      handleWindowCloseRequest(syntheticEvent, windowCloseDeps)
-    })
+    if (backend.type === "tauri") {
+      // Handle window close: warn if chats are running, then flush to disk
+      // Using onCloseRequested which properly intercepts macOS traffic light close button
+      import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+        const windowCloseDeps = createDefaultDeps()
+        const unlistenClose = getCurrentWindow().onCloseRequested((event) =>
+          handleWindowCloseRequest(event, windowCloseDeps)
+        )
+        cleanupFns.push(unlistenClose)
+      })
+
+      // Handle Cmd+Q / menu quit - same flow as close button
+      import("@tauri-apps/api/event").then(({ listen }) => {
+        const windowCloseDeps = createDefaultDeps()
+        const unlistenQuit = listen("menu:quit", () => {
+          // Create a synthetic event with preventDefault (which does nothing here,
+          // since the Rust side doesn't actually initiate a close)
+          const syntheticEvent = { preventDefault: () => {} }
+          handleWindowCloseRequest(syntheticEvent, windowCloseDeps)
+        })
+        cleanupFns.push(unlistenQuit)
+      })
+    }
 
     return () => {
-      unlistenSettings.then((fn) => fn())
-      unlistenClose.then((fn) => fn())
-      unlistenQuit.then((fn) => fn())
+      cleanupFns.forEach((p) => p.then((fn) => fn()))
     }
   }, [])
 
