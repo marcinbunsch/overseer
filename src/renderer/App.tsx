@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react"
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts"
+import { useEdgeSwipe } from "./hooks/useEdgeSwipe"
 import { observer } from "mobx-react-lite"
 import { LeftPane } from "./components/layout/LeftPane"
 import { MiddlePane } from "./components/layout/MiddlePane"
@@ -68,6 +69,12 @@ export default observer(function App() {
   const leftWidth = useRef(configStore.leftPaneWidth)
   const rightWidth = useRef(configStore.rightPaneWidth)
 
+  // Edge swipe gestures for mobile sidebars
+  const { onTouchStart, onTouchEnd } = useEdgeSwipe({
+    onSwipeRight: () => uiStore.setLeftSidebarOpen(true),
+    onSwipeLeft: () => uiStore.setRightSidebarOpen(true),
+  })
+
   const handleLeftDrag = useCallback((delta: number, isStart: boolean) => {
     if (isStart) leftWidth.current = configStore.leftPaneWidth
     const newWidth = Math.max(150, leftWidth.current + delta)
@@ -97,6 +104,28 @@ export default observer(function App() {
 
     // Check for updates on startup (non-blocking)
     updateStore.checkForUpdates()
+
+    // Auto-start HTTP server if configured (only in Tauri mode)
+    if (backend.type === "tauri") {
+      configStore.whenLoaded().then(() => {
+        if (configStore.httpServerAutoStart) {
+          backend
+            .invoke("start_http_server", {
+              host: configStore.httpServerHost,
+              port: configStore.httpServerPort,
+              enableAuth: configStore.httpServerEnableAuth,
+            })
+            .then(() => {
+              console.log(
+                `[App] HTTP server auto-started on ${configStore.httpServerHost}:${configStore.httpServerPort}`
+              )
+            })
+            .catch((err) => {
+              console.error("[App] Failed to auto-start HTTP server:", err)
+            })
+        }
+      })
+    }
 
     const unlistenSettings = backend.listen("menu:settings", () => {
       configStore.setSettingsOpen(true)
@@ -141,7 +170,11 @@ export default observer(function App() {
         <MobileHeader />
 
         {/* Main content area */}
-        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div
+          className="relative flex min-h-0 flex-1 overflow-hidden"
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+        >
           {/* Left sidebar - hidden on mobile, shown via overlay when toggled */}
           <div
             className={`
