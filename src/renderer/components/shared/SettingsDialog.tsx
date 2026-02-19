@@ -381,10 +381,22 @@ const AgentsTab = observer(function AgentsTab() {
 const AdvancedTab = observer(function AdvancedTab() {
   const [httpServerRunning, setHttpServerRunning] = useState(false)
   const [httpServerLoading, setHttpServerLoading] = useState(false)
-  const [httpHost, setHttpHost] = useState("127.0.0.1")
-  const [httpPort, setHttpPort] = useState("6767")
-  const [enableAuth, setEnableAuth] = useState(true)
   const [authToken, setAuthToken] = useState<string | null>(null)
+
+  // Use config store values for the form (with local state for editing)
+  const [httpHost, setHttpHost] = useState(configStore.httpServerHost)
+  const [httpPort, setHttpPort] = useState(String(configStore.httpServerPort))
+  const [enableAuth, setEnableAuth] = useState(configStore.httpServerEnableAuth)
+
+  // Sync local state when config loads (only on mount)
+  useEffect(() => {
+    if (configStore.loaded) {
+      setHttpHost(configStore.httpServerHost)
+      setHttpPort(String(configStore.httpServerPort))
+      setEnableAuth(configStore.httpServerEnableAuth)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- configStore is a MobX singleton, we only sync on mount
+  }, [configStore.loaded])
 
   // Check server status on mount
   useEffect(() => {
@@ -409,11 +421,19 @@ const AdvancedTab = observer(function AdvancedTab() {
         setHttpServerRunning(false)
         setAuthToken(null)
       } else {
+        // Save settings before starting
+        const port = parseInt(httpPort, 10)
+        configStore.setHttpServerConfig({
+          host: httpHost,
+          port,
+          enableAuth,
+        })
+
         // Start the HTTP server - the backend will resolve the frontend
         // static directory from bundled resources automatically
         const result = await backend.invoke<{ authToken: string | null }>("start_http_server", {
           host: httpHost,
-          port: parseInt(httpPort, 10),
+          port,
           enableAuth,
         })
         setHttpServerRunning(true)
@@ -476,6 +496,19 @@ const AdvancedTab = observer(function AdvancedTab() {
               disabled={httpServerRunning}
               className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500 disabled:cursor-not-allowed disabled:opacity-50"
               data-testid="http-auth-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ovr-text-muted">Start on launch</span>
+            </div>
+            <Switch.Root
+              checked={configStore.httpServerAutoStart}
+              onCheckedChange={(checked: boolean) => configStore.setHttpServerAutoStart(checked)}
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500"
+              data-testid="http-auto-start-toggle"
             >
               <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
             </Switch.Root>
