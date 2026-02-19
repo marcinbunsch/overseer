@@ -6,6 +6,7 @@ import { LeftPane } from "./components/layout/LeftPane"
 import { MiddlePane } from "./components/layout/MiddlePane"
 import { RightPane } from "./components/layout/RightPane"
 import { MobileHeader } from "./components/layout/MobileHeader"
+import { MobileConsole } from "./components/layout/MobileConsole"
 import { Toasts } from "./components/shared/Toasts"
 import { GlobalConfirmDialog } from "./components/shared/GlobalConfirmDialog"
 import { SettingsDialog } from "./components/shared/SettingsDialog"
@@ -15,6 +16,7 @@ import { configStore } from "./stores/ConfigStore"
 import { updateStore } from "./stores/UpdateStore"
 import { uiStore } from "./stores/UIStore"
 import { webAuthStore } from "./stores/WebAuthStore"
+import { consoleStore } from "./stores/ConsoleStore"
 import { backend } from "./backend"
 import { httpBackend } from "./backend/http"
 import { handleWindowCloseRequest, createDefaultDeps } from "./utils/windowClose"
@@ -101,6 +103,9 @@ export default observer(function App() {
   }, [])
 
   useEffect(() => {
+    // Initialize console interception for mobile debug console
+    consoleStore.init()
+
     // Show the window after React has mounted to avoid white flash
     // (window starts hidden via `visible: false` in tauri.conf.json)
     backend.invoke("show_main_window")
@@ -221,8 +226,11 @@ export default observer(function App() {
             <RightPane width={configStore.rightPaneWidth} />
           </div>
 
-          {/* Backdrop for mobile sidebars */}
-          {(uiStore.leftSidebarOpen || uiStore.rightSidebarOpen) && (
+          {/* Mobile debug console - slides down from top */}
+          <MobileConsole />
+
+          {/* Backdrop for mobile sidebars and console */}
+          {(uiStore.leftSidebarOpen || uiStore.rightSidebarOpen || uiStore.mobileConsoleOpen) && (
             <div
               className="absolute inset-0 z-20 bg-black/50 md:hidden"
               onClick={() => uiStore.closeAllSidebars()}
