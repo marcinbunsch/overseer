@@ -1484,6 +1484,68 @@ Final text.`,
     })
   })
 
+  describe("event counting and reconnection", () => {
+    it("eventCount starts at 0", () => {
+      const store = createChatStore()
+      const eventCount = (store as unknown as { eventCount: number }).eventCount
+      expect(eventCount).toBe(0)
+    })
+
+    it("eventCount increments with each handleAgentEvent", () => {
+      const store = createChatStore()
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      // Send a few events
+      eventCallback({ kind: "message", content: "Hello" })
+      eventCallback({ kind: "text", text: " world" })
+      eventCallback({ kind: "turnComplete" })
+
+      const eventCount = (store as unknown as { eventCount: number }).eventCount
+      expect(eventCount).toBe(3)
+    })
+
+    it("eventCount is set correctly after loadFromDisk", async () => {
+      // Mock load_chat_events to return some events
+      vi.mocked(invoke).mockImplementation(async (command) => {
+        switch (command) {
+          case "load_chat_events":
+            return [
+              { kind: "userMessage", id: "u1", content: "hi", timestamp: new Date().toISOString() },
+              { kind: "message", content: "hello" },
+              { kind: "turnComplete" },
+            ]
+          case "load_chat_metadata":
+            return null
+          default:
+            return undefined
+        }
+      })
+
+      const store = createChatStore()
+      await store.ensureLoaded()
+
+      const eventCount = (store as unknown as { eventCount: number }).eventCount
+      expect(eventCount).toBe(3)
+    })
+
+    it("dispose calls unsubscribeReconnect", () => {
+      const store = createChatStore()
+
+      // Manually set unsubscribeReconnect to a mock
+      const unsubscribeMock = vi.fn()
+      ;(store as unknown as { unsubscribeReconnect: () => void }).unsubscribeReconnect =
+        unsubscribeMock
+
+      store.dispose()
+
+      expect(unsubscribeMock).toHaveBeenCalled()
+    })
+  })
+
   describe("permissionMode", () => {
     it("permissionMode computed getter returns correct value", () => {
       const store = createChatStore({ permissionMode: "acceptEdits" })

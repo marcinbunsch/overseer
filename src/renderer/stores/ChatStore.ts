@@ -89,6 +89,10 @@ export class ChatStore {
 
   private context: ChatStoreContext
   private sessionRegistered: boolean = false
+  /** Number of events processed for this chat - used for reconnection catch-up */
+  private eventCount: number = 0
+  /** Unsubscribe function for reconnection handler */
+  private unsubscribeReconnect?: () => void
 
   constructor(chat: Chat, context: ChatStoreContext) {
     this.chat = chat
@@ -96,6 +100,7 @@ export class ChatStore {
     makeObservable(this)
     this.registerCallbacks()
     this.loadDraft()
+    this.setupReconnectHandler()
   }
 
   // --- Computed ---
@@ -479,7 +484,65 @@ export class ChatStore {
 
   dispose(): void {
     this.sessionRegistered = false
+    this.unsubscribeReconnect?.()
     void backend.invoke("unregister_chat_session", { chatId: this.chat.id })
+  }
+
+  // --- Reconnection handling ---
+
+  /**
+   * Set up reconnection handler for web backend.
+   * When WebSocket reconnects, we catch up on any events missed during disconnection.
+   */
+  private setupReconnectHandler(): void {
+    if (backend.type !== "web") return
+
+    // HttpBackend has onReconnect method - use type assertion since Backend interface
+    // doesn't include it (it's specific to HttpBackend)
+    const httpBackend = backend as { onReconnect?: (cb: () => void) => () => void }
+    if (httpBackend.onReconnect) {
+      this.unsubscribeReconnect = httpBackend.onReconnect(() => {
+        void this.catchUpMissedEvents()
+      })
+    }
+  }
+
+  /**
+   * Fetch and replay events that were missed during WebSocket disconnection.
+   * Called automatically on reconnection.
+   */
+  private async catchUpMissedEvents(): Promise<void> {
+    if (!this.loaded) return // Not initialized yet, nothing to catch up
+
+    const projectName = this.context.getProjectName()
+    const workspaceName = this.context.getWorkspaceName()
+    if (!projectName || !workspaceName) return
+
+    try {
+      // Only fetch events after what we've already seen
+      const newEvents = await backend.invoke<BackendAgentEvent[]>("load_chat_events_since", {
+        projectName,
+        workspaceName,
+        chatId: this.chat.id,
+        offset: this.eventCount,
+      })
+
+      if (newEvents.length > 0) {
+        console.log(
+          `[ChatStore] Catching up ${newEvents.length} missed events for chat ${this.chat.id}`
+        )
+        runInAction(() => {
+          for (const event of newEvents) {
+            const mapped = this.mapRustEvent(event)
+            if (mapped) {
+              this.handleAgentEvent(mapped)
+            }
+          }
+        })
+      }
+    } catch (err) {
+      console.error("[ChatStore] Failed to catch up missed events:", err)
+    }
   }
 
   // --- Agent event handling ---
@@ -518,6 +581,9 @@ export class ChatStore {
 
   private handleAgentEvent(event: AgentEvent): void {
     runInAction(() => {
+      // Track event count for reconnection catch-up
+      this.eventCount++
+
       const messages = this.chat.messages
 
       switch (event.kind) {
@@ -913,6 +979,9 @@ export class ChatStore {
           }
         }
 
+        // Reset event count before replaying events from disk
+        // (handleAgentEvent will increment it for each event)
+        this.eventCount = 0
         for (const event of events) {
           const mapped = this.mapRustEvent(event)
           if (mapped) {
