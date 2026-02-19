@@ -8,10 +8,22 @@
   "theme_color": "#1b1f24",
   "icons": [
     {
-      "src": "/overseer_icon_rounded_1024.png",
-      "sizes": "1024x1024",
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
