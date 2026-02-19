@@ -229,7 +229,7 @@ export const DiffDialog = observer(function DiffDialog({
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
         <AlertDialog.Content
-          className="fixed inset-10 z-50 flex flex-col overflow-hidden rounded-xl border border-ovr-border-subtle bg-ovr-bg-panel shadow-ovr-panel"
+          className="fixed inset-0 z-50 flex flex-col overflow-hidden border-ovr-border-subtle bg-ovr-bg-panel shadow-ovr-panel md:inset-10 md:rounded-xl md:border"
           onOpenAutoFocus={onOpenAutoFocus}
           onEscapeKeyDown={handleEscapeKeyDown}
         >
@@ -354,7 +354,7 @@ export const DiffDialog = observer(function DiffDialog({
             )}
 
             {/* Diff content */}
-            <div className="flex min-h-0 flex-1 flex-col bg-ovr-bg-app">
+            <div className="flex min-h-0 flex-1 flex-col overflow-x-auto bg-ovr-bg-app">
               {diffStore.status === "loading" && (
                 <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
                   Loading diff...
