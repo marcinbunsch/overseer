@@ -66,8 +66,9 @@ pub use approvals::{
 };
 pub use chat::{chat_exists, delete_chat, list_chat_ids, load_chat, save_chat};
 pub use chat_jsonl::{
-    append_chat_event, load_chat_events, load_chat_metadata, migrate_chat_if_needed,
-    save_chat_metadata, serialize_event_for_storage, ChatJsonlError,
+    append_chat_event, count_events, load_chat_events, load_chat_events_since_seq,
+    load_chat_events_with_seq, load_chat_metadata, migrate_chat_if_needed, save_chat_metadata,
+    serialize_event_for_storage, ChatJsonlError, SeqEvent,
 };
 pub use index::{
     find_chat_entry, get_active_chats, get_archived_chats, load_chat_index, load_workspace_state,

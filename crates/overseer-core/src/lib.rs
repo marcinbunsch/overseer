@@ -34,4 +34,5 @@ pub use approval::ApprovalContext;
 pub use context::{OverseerContext, OverseerContextBuilder};
 pub use event_bus::{BroadcastEvent, EventBus};
 pub use managers::{ChatSessionManager, ProjectApprovalManager};
+pub use persistence::SeqEvent;
 pub use session::{Session, SessionId, SessionManager};

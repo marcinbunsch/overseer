@@ -74,6 +74,15 @@ type BackendChatMetadata = {
   updatedAt: string
 }
 
+/**
+ * Event with sequence number from backend.
+ * Both WebSocket events and HTTP responses use this same flattened format
+ * (seq alongside the event fields, not nested).
+ */
+type BackendSeqEvent = {
+  seq: number
+} & BackendAgentEvent
+
 export class ChatStore {
   @observable chat: Chat
   @observable isSending: boolean = false
@@ -89,10 +98,14 @@ export class ChatStore {
 
   private context: ChatStoreContext
   private sessionRegistered: boolean = false
-  /** Number of events processed for this chat - used for reconnection catch-up */
-  private eventCount: number = 0
+  /** Set of sequence numbers we've already processed - for deduplication */
+  private seenSeqs = new Set<number>()
+  /** Highest sequence number seen - for catch-up queries */
+  private lastSeenSeq: number = 0
   /** Unsubscribe function for reconnection handler */
   private unsubscribeReconnect?: () => void
+  /** Bound visibility change handler for cleanup */
+  private boundVisibilityHandler?: () => void
 
   constructor(chat: Chat, context: ChatStoreContext) {
     this.chat = chat
@@ -101,6 +114,7 @@ export class ChatStore {
     this.registerCallbacks()
     this.loadDraft()
     this.setupReconnectHandler()
+    this.setupVisibilityHandler()
   }
 
   // --- Computed ---
@@ -485,10 +499,14 @@ export class ChatStore {
   dispose(): void {
     this.sessionRegistered = false
     this.unsubscribeReconnect?.()
+    if (this.boundVisibilityHandler) {
+      document.removeEventListener("visibilitychange", this.boundVisibilityHandler)
+    }
+    this.seenSeqs.clear()
     void backend.invoke("unregister_chat_session", { chatId: this.chat.id })
   }
 
-  // --- Reconnection handling ---
+  // --- Reconnection and visibility handling ---
 
   /**
    * Set up reconnection handler for web backend.
@@ -508,8 +526,32 @@ export class ChatStore {
   }
 
   /**
-   * Fetch and replay events that were missed during WebSocket disconnection.
-   * Called automatically on reconnection.
+   * Set up visibility change handler for mobile web.
+   * On iOS/mobile, when the app is backgrounded, WebSocket messages may be missed
+   * even though the connection stays "open". When the app returns to foreground,
+   * we catch up on any missed events.
+   */
+  private setupVisibilityHandler(): void {
+    if (backend.type !== "web") return
+
+    this.boundVisibilityHandler = () => {
+      if (document.visibilityState === "visible") {
+        // App came back to foreground - catch up on any missed events
+        void this.catchUpMissedEvents()
+      }
+    }
+
+    document.addEventListener("visibilitychange", this.boundVisibilityHandler)
+  }
+
+  /**
+   * Fetch and replay events that were missed during WebSocket disconnection
+   * or while the app was backgrounded.
+   *
+   * Uses sequence numbers for reliable deduplication:
+   * - Each event has a seq (line number in JSONL)
+   * - We track seenSeqs to avoid reprocessing events
+   * - We track lastSeenSeq to know what to request
    */
   private async catchUpMissedEvents(): Promise<void> {
     if (!this.loaded) return // Not initialized yet, nothing to catch up
@@ -519,23 +561,48 @@ export class ChatStore {
     if (!projectName || !workspaceName) return
 
     try {
-      // Only fetch events after what we've already seen
-      const newEvents = await backend.invoke<BackendAgentEvent[]>("load_chat_events_since", {
+      // Fetch events with seq > lastSeenSeq
+      const newEvents = await backend.invoke<BackendSeqEvent[]>("load_chat_events_since_seq", {
         projectName,
         workspaceName,
         chatId: this.chat.id,
-        offset: this.eventCount,
+        sinceSeq: this.lastSeenSeq,
       })
 
       if (newEvents.length > 0) {
         console.log(
-          `[ChatStore] Catching up ${newEvents.length} missed events for chat ${this.chat.id}`
+          `[ChatStore] Catching up ${newEvents.length} events (since seq ${this.lastSeenSeq}) for chat ${this.chat.id}`
         )
         runInAction(() => {
-          for (const event of newEvents) {
-            const mapped = this.mapRustEvent(event)
+          let processedCount = 0
+          for (const seqEvent of newEvents) {
+            // Skip if we've already processed this seq (deduplication)
+            if (this.seenSeqs.has(seqEvent.seq)) {
+              continue
+            }
+
+            this.seenSeqs.add(seqEvent.seq)
+            if (seqEvent.seq > this.lastSeenSeq) {
+              this.lastSeenSeq = seqEvent.seq
+            }
+
+            const mapped = this.mapRustEvent(seqEvent)
             if (mapped) {
               this.handleAgentEvent(mapped)
+              processedCount++
+            }
+          }
+
+          if (processedCount > 0) {
+            console.log(`[ChatStore] Processed ${processedCount} new events after deduplication`)
+          }
+
+          // If the last event was turnComplete or done, ensure isSending is reset
+          const lastEvent = newEvents[newEvents.length - 1]
+          if (lastEvent && (lastEvent.kind === "turnComplete" || lastEvent.kind === "done")) {
+            if (this.isSending) {
+              this.isSending = false
+              this.chat.status = "idle"
             }
           }
         })
@@ -559,8 +626,30 @@ export class ChatStore {
     // a different window sends a message and we need to see the userMessage event)
     void this.service.attachListeners(this.chat.id)
 
-    this.service.onEvent(this.chat.id, (event: AgentEvent) => {
-      this.handleAgentEvent(event)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.service.onEvent(this.chat.id, (eventOrSeqEvent: any) => {
+      runInAction(() => {
+        // Check if this is a seq event (from HTTP backend - has seq field alongside event fields)
+        if (typeof eventOrSeqEvent === "object" && "seq" in eventOrSeqEvent) {
+          const seqEvent = eventOrSeqEvent as BackendSeqEvent
+          // Deduplicate using seq
+          if (this.seenSeqs.has(seqEvent.seq)) {
+            return // Already processed
+          }
+          this.seenSeqs.add(seqEvent.seq)
+          if (seqEvent.seq > this.lastSeenSeq) {
+            this.lastSeenSeq = seqEvent.seq
+          }
+          // Map the event (seq is flattened alongside event fields)
+          const mapped = this.mapRustEvent(seqEvent)
+          if (mapped) {
+            this.handleAgentEvent(mapped)
+          }
+        } else {
+          // Direct AgentEvent (from Tauri backend - no seq wrapping)
+          this.handleAgentEvent(eventOrSeqEvent as AgentEvent)
+        }
+      })
     })
 
     this.service.onDone(this.chat.id, () => {
@@ -581,9 +670,6 @@ export class ChatStore {
 
   private handleAgentEvent(event: AgentEvent): void {
     runInAction(() => {
-      // Track event count for reconnection catch-up
-      this.eventCount++
-
       const messages = this.chat.messages
 
       switch (event.kind) {
@@ -959,7 +1045,8 @@ export class ChatStore {
         // Metadata doesn't exist yet
       }
 
-      const events = await backend.invoke<BackendAgentEvent[]>("load_chat_events", {
+      // Load events with sequence numbers for reliable catch-up tracking
+      const seqEvents = await backend.invoke<BackendSeqEvent[]>("load_chat_events_with_seq", {
         projectName,
         workspaceName,
         chatId: this.chat.id,
@@ -979,11 +1066,15 @@ export class ChatStore {
           }
         }
 
-        // Reset event count before replaying events from disk
-        // (handleAgentEvent will increment it for each event)
-        this.eventCount = 0
-        for (const event of events) {
-          const mapped = this.mapRustEvent(event)
+        // Clear and repopulate seenSeqs from disk
+        this.seenSeqs.clear()
+        this.lastSeenSeq = 0
+        for (const seqEvent of seqEvents) {
+          this.seenSeqs.add(seqEvent.seq)
+          if (seqEvent.seq > this.lastSeenSeq) {
+            this.lastSeenSeq = seqEvent.seq
+          }
+          const mapped = this.mapRustEvent(seqEvent)
           if (mapped) {
             this.handleAgentEvent(mapped)
           }

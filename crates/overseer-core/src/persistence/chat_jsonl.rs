@@ -9,9 +9,21 @@ use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use crate::agents::event::AgentEvent;
 
 use super::chat::load_chat;
+
+/// An event with its sequence number (line number in JSONL file).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeqEvent {
+    /// Sequence number (1-indexed line number in JSONL file)
+    pub seq: u64,
+    /// The event data
+    #[serde(flatten)]
+    pub event: AgentEvent,
+}
 use super::types::{ChatFile, ChatMetadata, MessageMeta};
 
 /// Error type for JSONL chat persistence.
@@ -141,6 +153,92 @@ pub fn load_chat_events(dir: &Path, chat_id: &str) -> Result<Vec<AgentEvent>, Ch
     }
 
     Ok(events)
+}
+
+/// Load all events from `{chat_id}.jsonl` with their sequence numbers.
+///
+/// Sequence numbers are 1-indexed line numbers in the JSONL file.
+/// Returns an empty list if the file doesn't exist.
+pub fn load_chat_events_with_seq(
+    dir: &Path,
+    chat_id: &str,
+) -> Result<Vec<SeqEvent>, ChatJsonlError> {
+    let file_path = dir.join(format!("{chat_id}.jsonl"));
+
+    if !file_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let file = fs::File::open(file_path)?;
+    let reader = BufReader::new(file);
+    let mut events = Vec::new();
+    let mut seq: u64 = 0;
+
+    for line in reader.lines() {
+        seq += 1;
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let event: AgentEvent = serde_json::from_str(&line)?;
+        events.push(SeqEvent { seq, event });
+    }
+
+    Ok(events)
+}
+
+/// Load events from `{chat_id}.jsonl` with seq > since_seq.
+///
+/// Sequence numbers are 1-indexed line numbers in the JSONL file.
+/// Returns an empty list if the file doesn't exist or no events match.
+pub fn load_chat_events_since_seq(
+    dir: &Path,
+    chat_id: &str,
+    since_seq: u64,
+) -> Result<Vec<SeqEvent>, ChatJsonlError> {
+    let file_path = dir.join(format!("{chat_id}.jsonl"));
+
+    if !file_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let file = fs::File::open(file_path)?;
+    let reader = BufReader::new(file);
+    let mut events = Vec::new();
+    let mut seq: u64 = 0;
+
+    for line in reader.lines() {
+        seq += 1;
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        // Only include events after since_seq
+        if seq <= since_seq {
+            continue;
+        }
+        let event: AgentEvent = serde_json::from_str(&line)?;
+        events.push(SeqEvent { seq, event });
+    }
+
+    Ok(events)
+}
+
+/// Count the number of events in `{chat_id}.jsonl`.
+///
+/// Returns 0 if the file doesn't exist.
+pub fn count_events(dir: &Path, chat_id: &str) -> Result<u64, ChatJsonlError> {
+    let file_path = dir.join(format!("{chat_id}.jsonl"));
+
+    if !file_path.exists() {
+        return Ok(0);
+    }
+
+    let file = fs::File::open(file_path)?;
+    let reader = BufReader::new(file);
+    let count = reader.lines().count() as u64;
+
+    Ok(count)
 }
 
 /// Migrate a legacy `{chat_id}.json` chat file to JSONL + metadata if needed.

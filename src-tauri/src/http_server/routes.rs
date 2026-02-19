@@ -104,6 +104,12 @@ pub async fn invoke_handler(
         "unregister_chat_session" => dispatch_unregister_chat_session(&state, request.args).await,
         "append_chat_event" => dispatch_append_chat_event(&state, request.args).await,
         "load_chat_events" => dispatch_load_chat_events(&state, request.args).await,
+        "load_chat_events_with_seq" => {
+            dispatch_load_chat_events_with_seq(&state, request.args).await
+        }
+        "load_chat_events_since_seq" => {
+            dispatch_load_chat_events_since_seq(&state, request.args).await
+        }
         "load_chat_metadata" => dispatch_load_chat_metadata(&state, request.args).await,
         "save_chat_metadata" => dispatch_save_chat_metadata(&state, request.args).await,
         "add_user_message" => dispatch_add_user_message(&state, request.args).await,
@@ -2882,6 +2888,160 @@ async fn dispatch_load_chat_events(
     };
 
     match state.context.chat_sessions.load_events(project_name, workspace_name, chat_id) {
+        Ok(events) => (
+            StatusCode::OK,
+            Json(InvokeResponse {
+                success: true,
+                data: Some(serde_json::to_value(events).unwrap_or_default()),
+                error: None,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(e),
+            }),
+        ),
+    }
+}
+
+async fn dispatch_load_chat_events_with_seq(
+    state: &SharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: projectName".to_string()),
+                }),
+            );
+        }
+    };
+
+    let workspace_name = match args.get("workspaceName").and_then(|v| v.as_str()) {
+        Some(w) => w,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: workspaceName".to_string()),
+                }),
+            );
+        }
+    };
+
+    let chat_id = match args.get("chatId").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: chatId".to_string()),
+                }),
+            );
+        }
+    };
+
+    match state
+        .context
+        .chat_sessions
+        .load_events_with_seq(project_name, workspace_name, chat_id)
+    {
+        Ok(events) => (
+            StatusCode::OK,
+            Json(InvokeResponse {
+                success: true,
+                data: Some(serde_json::to_value(events).unwrap_or_default()),
+                error: None,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(e),
+            }),
+        ),
+    }
+}
+
+async fn dispatch_load_chat_events_since_seq(
+    state: &SharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: projectName".to_string()),
+                }),
+            );
+        }
+    };
+
+    let workspace_name = match args.get("workspaceName").and_then(|v| v.as_str()) {
+        Some(w) => w,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: workspaceName".to_string()),
+                }),
+            );
+        }
+    };
+
+    let chat_id = match args.get("chatId").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: chatId".to_string()),
+                }),
+            );
+        }
+    };
+
+    let since_seq = match args.get("sinceSeq").and_then(|v| v.as_u64()) {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: sinceSeq".to_string()),
+                }),
+            );
+        }
+    };
+
+    match state
+        .context
+        .chat_sessions
+        .load_events_since_seq(project_name, workspace_name, chat_id, since_seq)
+    {
         Ok(events) => (
             StatusCode::OK,
             Json(InvokeResponse {

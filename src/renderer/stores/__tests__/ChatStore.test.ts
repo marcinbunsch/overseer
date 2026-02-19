@@ -1484,14 +1484,16 @@ Final text.`,
     })
   })
 
-  describe("event counting and reconnection", () => {
-    it("eventCount starts at 0", () => {
+  describe("seq tracking and reconnection", () => {
+    it("lastSeenSeq starts at 0 and seenSeqs is empty", () => {
       const store = createChatStore()
-      const eventCount = (store as unknown as { eventCount: number }).eventCount
-      expect(eventCount).toBe(0)
+      const lastSeenSeq = (store as unknown as { lastSeenSeq: number }).lastSeenSeq
+      const seenSeqs = (store as unknown as { seenSeqs: Set<number> }).seenSeqs
+      expect(lastSeenSeq).toBe(0)
+      expect(seenSeqs.size).toBe(0)
     })
 
-    it("eventCount increments with each handleAgentEvent", () => {
+    it("seenSeqs and lastSeenSeq update with wrapped events", () => {
       const store = createChatStore()
 
       const eventCall = mockAgentService.onEvent.mock.calls.find(
@@ -1499,24 +1501,35 @@ Final text.`,
       )
       const eventCallback = eventCall![1]
 
-      // Send a few events
-      eventCallback({ kind: "message", content: "Hello" })
-      eventCallback({ kind: "text", text: " world" })
-      eventCallback({ kind: "turnComplete" })
+      // Send seq events with flattened format (seq alongside event fields)
+      eventCallback({ seq: 1, kind: "message", content: "Hello" })
+      eventCallback({ seq: 2, kind: "text", text: " world" })
+      eventCallback({ seq: 3, kind: "turnComplete" })
 
-      const eventCount = (store as unknown as { eventCount: number }).eventCount
-      expect(eventCount).toBe(3)
+      const lastSeenSeq = (store as unknown as { lastSeenSeq: number }).lastSeenSeq
+      const seenSeqs = (store as unknown as { seenSeqs: Set<number> }).seenSeqs
+      expect(lastSeenSeq).toBe(3)
+      expect(seenSeqs.size).toBe(3)
+      expect(seenSeqs.has(1)).toBe(true)
+      expect(seenSeqs.has(2)).toBe(true)
+      expect(seenSeqs.has(3)).toBe(true)
     })
 
-    it("eventCount is set correctly after loadFromDisk", async () => {
-      // Mock load_chat_events to return some events
+    it("lastSeenSeq is set correctly after loadFromDisk", async () => {
+      // Mock load_chat_events_with_seq to return events with seq numbers
       vi.mocked(invoke).mockImplementation(async (command) => {
         switch (command) {
-          case "load_chat_events":
+          case "load_chat_events_with_seq":
             return [
-              { kind: "userMessage", id: "u1", content: "hi", timestamp: new Date().toISOString() },
-              { kind: "message", content: "hello" },
-              { kind: "turnComplete" },
+              {
+                seq: 1,
+                kind: "userMessage",
+                id: "u1",
+                content: "hi",
+                timestamp: new Date().toISOString(),
+              },
+              { seq: 2, kind: "message", content: "hello" },
+              { seq: 3, kind: "turnComplete" },
             ]
           case "load_chat_metadata":
             return null
@@ -1528,8 +1541,32 @@ Final text.`,
       const store = createChatStore()
       await store.ensureLoaded()
 
-      const eventCount = (store as unknown as { eventCount: number }).eventCount
-      expect(eventCount).toBe(3)
+      const lastSeenSeq = (store as unknown as { lastSeenSeq: number }).lastSeenSeq
+      const seenSeqs = (store as unknown as { seenSeqs: Set<number> }).seenSeqs
+      expect(lastSeenSeq).toBe(3)
+      expect(seenSeqs.size).toBe(3)
+    })
+
+    it("duplicate events are skipped based on seenSeqs", () => {
+      const store = createChatStore()
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      // Send event with seq 1 (flattened format)
+      eventCallback({ seq: 1, kind: "message", content: "Hello" })
+
+      // Send same seq again (duplicate) - should be skipped
+      eventCallback({ seq: 1, kind: "message", content: "Hello duplicate" })
+
+      const seenSeqs = (store as unknown as { seenSeqs: Set<number> }).seenSeqs
+      expect(seenSeqs.size).toBe(1)
+
+      // Only one message should be in the store
+      expect(store.messages.length).toBe(1)
+      expect(store.messages[0].content).toBe("Hello")
     })
 
     it("dispose calls unsubscribeReconnect", () => {

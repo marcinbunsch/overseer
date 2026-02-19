@@ -145,6 +145,26 @@ impl ClaudeAgentManager {
         let conv_id = config.conversation_id;
         let log_file = Arc::clone(&log_handle);
         std::thread::spawn(move || {
+            // Helper to persist and emit an event with seq wrapper
+            let persist_and_emit = |chat_sessions: &Arc<ChatSessionManager>,
+                                    event_bus: &Arc<EventBus>,
+                                    conv_id: &str,
+                                    event: AgentEvent| {
+                match chat_sessions.append_event_with_seq(conv_id, event.clone()) {
+                    Ok(seq) => {
+                        // Emit with seq wrapper for reliable catch-up
+                        // Use SeqEvent to ensure consistent format with HTTP endpoints
+                        let seq_event = crate::persistence::SeqEvent { seq, event };
+                        event_bus.emit(&format!("agent:event:{}", conv_id), &seq_event);
+                    }
+                    Err(err) => {
+                        log::warn!("Failed to persist Claude event for {}: {}", conv_id, err);
+                        // Still emit without seq (fallback for unregistered sessions)
+                        event_bus.emit(&format!("agent:event:{}", conv_id), &event);
+                    }
+                }
+            };
+
             // Helper to flush parser and emit remaining events
             let flush_and_emit =
                 |parser_arc: &Arc<Mutex<ClaudeParser>>,
@@ -157,10 +177,7 @@ impl ClaudeAgentManager {
                         parser.flush()
                     };
                     for event in parsed_events {
-                        if let Err(err) = chat_sessions.append_event(conv_id, event.clone()) {
-                            log::warn!("Failed to persist Claude event for {}: {}", conv_id, err);
-                        }
-                        event_bus.emit(&format!("agent:event:{}", conv_id), &event);
+                        persist_and_emit(chat_sessions, event_bus, conv_id, event);
                     }
                     process_arc.lock().unwrap().take();
                 };
@@ -187,16 +204,12 @@ impl ClaudeAgentManager {
                                 &log_file,
                             );
 
-                            if let Err(err) =
-                                chat_sessions.append_event(&conv_id, event_to_emit.clone())
-                            {
-                                log::warn!(
-                                    "Failed to persist Claude event for {}: {}",
-                                    conv_id,
-                                    err
-                                );
-                            }
-                            event_bus.emit(&format!("agent:event:{}", conv_id), &event_to_emit);
+                            persist_and_emit(
+                                &chat_sessions,
+                                &event_bus,
+                                &conv_id,
+                                event_to_emit,
+                            );
                         }
                     }
                     ProcessEvent::Stderr(line) => {
@@ -311,21 +324,27 @@ impl ClaudeAgentManager {
             meta: None,
         };
 
-        // Persist the user message
-        if let Err(err) = chat_sessions.append_event(&config.conversation_id, user_message.clone())
-        {
-            log::warn!(
-                "Failed to persist user message for {}: {}",
-                config.conversation_id,
-                err
-            );
+        // Persist the user message and emit with seq wrapper
+        match chat_sessions.append_event_with_seq(&config.conversation_id, user_message.clone()) {
+            Ok(seq) => {
+                event_bus.emit(
+                    &format!("agent:event:{}", config.conversation_id),
+                    &serde_json::json!({ "seq": seq, "event": user_message }),
+                );
+            }
+            Err(err) => {
+                log::warn!(
+                    "Failed to persist user message for {}: {}",
+                    config.conversation_id,
+                    err
+                );
+                // Fallback: emit without seq
+                event_bus.emit(
+                    &format!("agent:event:{}", config.conversation_id),
+                    &user_message,
+                );
+            }
         }
-
-        // Emit the user message event so all clients can update their state
-        event_bus.emit(
-            &format!("agent:event:{}", config.conversation_id),
-            &user_message,
-        );
 
         // Check if we have a running process for this conversation
         if self.is_running(&config.conversation_id) {

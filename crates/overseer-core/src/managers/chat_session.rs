@@ -14,8 +14,11 @@ use uuid::Uuid;
 
 use crate::agents::event::AgentEvent;
 use crate::persistence::chat_jsonl::{
-    load_chat_events as load_chat_events_jsonl, load_chat_metadata as load_chat_metadata_jsonl,
-    save_chat_metadata as save_chat_metadata_jsonl, serialize_event_for_storage,
+    count_events, load_chat_events as load_chat_events_jsonl,
+    load_chat_events_since_seq as load_events_since_seq_jsonl,
+    load_chat_events_with_seq as load_events_with_seq_jsonl,
+    load_chat_metadata as load_chat_metadata_jsonl,
+    save_chat_metadata as save_chat_metadata_jsonl, serialize_event_for_storage, SeqEvent,
 };
 use crate::persistence::types::ChatMetadata;
 
@@ -100,9 +103,16 @@ impl ChatSessionManager {
             return Ok(());
         }
 
+        // Count existing events to initialize seq counter
+        let initial_event_count = count_events(&dir, &chat_id).unwrap_or(0);
+
         sessions.insert(
             chat_id.clone(),
-            Arc::new(Mutex::new(ChatSession::new(chat_id, dir))),
+            Arc::new(Mutex::new(ChatSession::new(
+                chat_id,
+                dir,
+                initial_event_count,
+            ))),
         );
 
         Ok(())
@@ -124,7 +134,17 @@ impl ChatSessionManager {
     }
 
     /// Append an event to a chat session.
+    ///
+    /// For backwards compatibility, this doesn't return the seq.
+    /// Use `append_event_with_seq` if you need the seq number.
     pub fn append_event(&self, chat_id: &str, event: AgentEvent) -> Result<(), String> {
+        self.append_event_with_seq(chat_id, event).map(|_| ())
+    }
+
+    /// Append an event to a chat session and return its sequence number.
+    ///
+    /// The sequence number is the 1-indexed line number in the JSONL file.
+    pub fn append_event_with_seq(&self, chat_id: &str, event: AgentEvent) -> Result<u64, String> {
         // Look up session under global lock, then release before I/O
         let session = {
             let sessions = self.sessions.lock().unwrap();
@@ -147,6 +167,29 @@ impl ChatSessionManager {
     ) -> Result<Vec<AgentEvent>, String> {
         let dir = self.get_chat_dir(project_name, workspace_name)?;
         load_chat_events_jsonl(&dir, chat_id).map_err(|e| e.to_string())
+    }
+
+    /// Load all events from a chat session with their sequence numbers.
+    pub fn load_events_with_seq(
+        &self,
+        project_name: &str,
+        workspace_name: &str,
+        chat_id: &str,
+    ) -> Result<Vec<SeqEvent>, String> {
+        let dir = self.get_chat_dir(project_name, workspace_name)?;
+        load_events_with_seq_jsonl(&dir, chat_id).map_err(|e| e.to_string())
+    }
+
+    /// Load events from a chat session with seq > since_seq.
+    pub fn load_events_since_seq(
+        &self,
+        project_name: &str,
+        workspace_name: &str,
+        chat_id: &str,
+        since_seq: u64,
+    ) -> Result<Vec<SeqEvent>, String> {
+        let dir = self.get_chat_dir(project_name, workspace_name)?;
+        load_events_since_seq_jsonl(&dir, chat_id, since_seq).map_err(|e| e.to_string())
     }
 
     /// Load chat metadata for a session.
@@ -195,25 +238,31 @@ struct ChatSession {
     file_handle: Option<std::io::BufWriter<std::fs::File>>,
     last_flush: Instant,
     jsonl_path: PathBuf,
+    /// Next sequence number to assign (1-indexed, corresponds to line number)
+    next_seq: u64,
 }
 
 impl ChatSession {
-    fn new(chat_id: String, dir: PathBuf) -> Self {
+    fn new(chat_id: String, dir: PathBuf, initial_event_count: u64) -> Self {
         let jsonl_path = dir.join(format!("{chat_id}.jsonl"));
         Self {
             pending_events: Vec::new(),
             file_handle: None,
             last_flush: Instant::now(),
             jsonl_path,
+            // Start from the next line number after existing events
+            next_seq: initial_event_count + 1,
         }
     }
 
-    fn append_event(&mut self, event: AgentEvent) -> Result<(), std::io::Error> {
+    fn append_event(&mut self, event: AgentEvent) -> Result<u64, std::io::Error> {
+        let seq = self.next_seq;
+        self.next_seq += 1;
         self.pending_events.push(event);
         if self.should_flush() {
             self.flush()?;
         }
-        Ok(())
+        Ok(seq)
     }
 
     fn should_flush(&self) -> bool {

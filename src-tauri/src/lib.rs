@@ -443,6 +443,8 @@ pub fn run() {
             chat_session::append_chat_event,
             chat_session::load_chat_events,
             chat_session::load_chat_events_since,
+            chat_session::load_chat_events_with_seq,
+            chat_session::load_chat_events_since_seq,
             chat_session::load_chat_metadata,
             chat_session::save_chat_metadata,
             chat_session::add_user_message,
