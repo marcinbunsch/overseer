@@ -109,6 +109,43 @@ describe("HttpBackend", () => {
       await expect(httpBackend.invoke("test_command")).rejects.toThrow("HTTP 500")
     })
 
+    it("throws and notifies auth required on 401", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+      })
+
+      const { createHttpBackend } = await import("./http")
+      const backend = createHttpBackend("http://localhost:3000")
+
+      const authCallback = vi.fn()
+      backend.onAuthRequired(authCallback)
+
+      await expect(backend.invoke("test_command")).rejects.toThrow("Authentication required")
+      expect(authCallback).toHaveBeenCalled()
+      expect(backend.authRequired).toBe(true)
+    })
+
+    it("clears auth required when token is set", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+      })
+
+      const { createHttpBackend } = await import("./http")
+      const backend = createHttpBackend("http://localhost:3000")
+
+      // Trigger auth required
+      await expect(backend.invoke("test_command")).rejects.toThrow()
+      expect(backend.authRequired).toBe(true)
+
+      // Set token should clear the flag
+      backend.setAuthToken("test-token")
+      expect(backend.authRequired).toBe(false)
+    })
+
     it("throws on command error", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

@@ -44,6 +44,8 @@ class HttpBackend implements Backend {
   private authToken: string | null = null
   private hasConnectedBefore = false
   private reconnectCallbacks = new Set<() => void>()
+  private authRequiredCallbacks = new Set<() => void>()
+  private _authRequired = false
 
   constructor(baseUrl?: string) {
     // Default to current origin, but handle Vite dev server specially
@@ -108,6 +110,10 @@ class HttpBackend implements Backend {
    */
   setAuthToken(token: string | null): void {
     this.authToken = token
+    // Clear auth required state when setting a new token
+    if (token) {
+      this._authRequired = false
+    }
     try {
       if (token) {
         localStorage.setItem("overseer_auth_token", token)
@@ -135,6 +141,47 @@ class HttpBackend implements Backend {
     return this.authToken
   }
 
+  /**
+   * Check if authentication is required but not yet provided.
+   */
+  get authRequired(): boolean {
+    return this._authRequired
+  }
+
+  /**
+   * Register a callback to be notified when authentication is required.
+   * This is triggered when a 401 response is received.
+   *
+   * @returns An unsubscribe function to remove the callback
+   */
+  onAuthRequired(callback: () => void): () => void {
+    this.authRequiredCallbacks.add(callback)
+    return () => {
+      this.authRequiredCallbacks.delete(callback)
+    }
+  }
+
+  /**
+   * Clear the auth required state (called after successful authentication).
+   */
+  clearAuthRequired(): void {
+    this._authRequired = false
+  }
+
+  /**
+   * Notify all auth required handlers.
+   */
+  private notifyAuthRequired(): void {
+    this._authRequired = true
+    for (const callback of this.authRequiredCallbacks) {
+      try {
+        callback()
+      } catch (e) {
+        console.error("[HttpBackend] Auth required callback error:", e)
+      }
+    }
+  }
+
   async invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
     const url = `${this.baseUrl}/api/invoke/${command}`
 
@@ -154,6 +201,7 @@ class HttpBackend implements Backend {
 
     if (!response.ok) {
       if (response.status === 401) {
+        this.notifyAuthRequired()
         throw new Error("Authentication required. Please provide a valid token.")
       }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -395,6 +443,7 @@ class HttpBackend implements Backend {
 
     this.subscriptions.clear()
     this.reconnectCallbacks.clear()
+    this.authRequiredCallbacks.clear()
   }
 }
 

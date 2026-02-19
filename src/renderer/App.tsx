@@ -10,10 +10,13 @@ import { Toasts } from "./components/shared/Toasts"
 import { GlobalConfirmDialog } from "./components/shared/GlobalConfirmDialog"
 import { SettingsDialog } from "./components/shared/SettingsDialog"
 import { UpdateNotification } from "./components/shared/UpdateNotification"
+import { AuthTokenDialog } from "./components/shared/AuthTokenDialog"
 import { configStore } from "./stores/ConfigStore"
 import { updateStore } from "./stores/UpdateStore"
 import { uiStore } from "./stores/UIStore"
+import { webAuthStore } from "./stores/WebAuthStore"
 import { backend } from "./backend"
+import { httpBackend } from "./backend/http"
 import { handleWindowCloseRequest, createDefaultDeps } from "./utils/windowClose"
 
 function DragHandle({
@@ -105,6 +108,14 @@ export default observer(function App() {
     // Check for updates on startup (non-blocking)
     updateStore.checkForUpdates()
 
+    // Set up auth required listener for web mode
+    let unsubscribeAuth: (() => void) | null = null
+    if (backend.type === "web") {
+      unsubscribeAuth = httpBackend.onAuthRequired(() => {
+        webAuthStore.setAuthRequired(true)
+      })
+    }
+
     // Auto-start HTTP server if configured (only in Tauri mode)
     if (backend.type === "tauri") {
       configStore.whenLoaded().then(() => {
@@ -160,6 +171,7 @@ export default observer(function App() {
 
     return () => {
       cleanupFns.forEach((p) => p.then((fn) => fn()))
+      if (unsubscribeAuth) unsubscribeAuth()
     }
   }, [])
 
@@ -225,6 +237,16 @@ export default observer(function App() {
         open={configStore.settingsOpen}
         onOpenChange={(open) => configStore.setSettingsOpen(open)}
       />
+      {backend.type === "web" && (
+        <AuthTokenDialog
+          open={webAuthStore.authRequired}
+          onAuthenticated={() => {
+            webAuthStore.setAuthRequired(false)
+            // Reload the page to reinitialize with the new token
+            window.location.reload()
+          }}
+        />
+      )}
     </>
   )
 })
