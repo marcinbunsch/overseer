@@ -7,6 +7,9 @@
 
 import type { Backend, EventCallback, Unsubscribe } from "./types"
 
+/** WebSocket connection state */
+export type WsConnectionState = "disconnected" | "connecting" | "connected"
+
 /** Response format from the HTTP server */
 interface InvokeResponse<T> {
   success: boolean
@@ -45,7 +48,9 @@ class HttpBackend implements Backend {
   private hasConnectedBefore = false
   private reconnectCallbacks = new Set<() => void>()
   private authRequiredCallbacks = new Set<() => void>()
+  private connectionStateCallbacks = new Set<(state: WsConnectionState) => void>()
   private _authRequired = false
+  private _connectionState: WsConnectionState = "disconnected"
 
   constructor(baseUrl?: string) {
     // Default to current origin, but handle Vite dev server specially
@@ -182,6 +187,40 @@ class HttpBackend implements Backend {
     }
   }
 
+  /**
+   * Get the current WebSocket connection state.
+   */
+  get connectionState(): WsConnectionState {
+    return this._connectionState
+  }
+
+  /**
+   * Register a callback to be notified when the WebSocket connection state changes.
+   *
+   * @returns An unsubscribe function to remove the callback
+   */
+  onConnectionStateChange(callback: (state: WsConnectionState) => void): () => void {
+    this.connectionStateCallbacks.add(callback)
+    return () => {
+      this.connectionStateCallbacks.delete(callback)
+    }
+  }
+
+  /**
+   * Update the connection state and notify all listeners.
+   */
+  private setConnectionState(state: WsConnectionState): void {
+    if (this._connectionState === state) return
+    this._connectionState = state
+    for (const callback of this.connectionStateCallbacks) {
+      try {
+        callback(state)
+      } catch (e) {
+        console.error("[HttpBackend] Connection state callback error:", e)
+      }
+    }
+  }
+
   async invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
     const url = `${this.baseUrl}/api/invoke/${command}`
 
@@ -278,27 +317,53 @@ class HttpBackend implements Backend {
     }
 
     if (this.wsConnecting) {
-      // Wait for existing connection attempt
-      return new Promise((resolve) => {
+      // Wait for existing connection attempt with timeout
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          clearInterval(check)
+          reject(new Error("WebSocket connection timeout"))
+        }, 10000)
+
         const check = setInterval(() => {
           if (this.ws?.readyState === WebSocket.OPEN) {
             clearInterval(check)
+            clearTimeout(timeout)
             resolve()
+          } else if (!this.wsConnecting) {
+            // Connection attempt finished but not connected (failed)
+            clearInterval(check)
+            clearTimeout(timeout)
+            reject(new Error("WebSocket connection failed"))
           }
         }, 50)
       })
     }
 
     this.wsConnecting = true
+    this.setConnectionState("connecting")
 
     return new Promise((resolve, reject) => {
+      // Connection timeout
+      const connectionTimeout = setTimeout(() => {
+        console.error("[HttpBackend] WebSocket connection timeout")
+        this.wsConnecting = false
+        this.setConnectionState("disconnected")
+        if (this.ws) {
+          this.ws.close()
+          this.ws = null
+        }
+        reject(new Error("WebSocket connection timeout"))
+      }, 10000)
+
       try {
         // Include auth token as query param for WebSocket (can't use headers)
         const wsUrl = this.authToken ? `${this.wsUrl}?token=${this.authToken}` : this.wsUrl
         this.ws = new WebSocket(wsUrl)
 
         this.ws.onopen = () => {
+          clearTimeout(connectionTimeout)
           this.wsConnecting = false
+          this.setConnectionState("connected")
           const isReconnect = this.hasConnectedBefore
           this.hasConnectedBefore = true
           console.log(`[HttpBackend] WebSocket ${isReconnect ? "reconnected" : "connected"}`)
@@ -326,18 +391,24 @@ class HttpBackend implements Backend {
         }
 
         this.ws.onclose = () => {
+          clearTimeout(connectionTimeout)
           this.wsConnecting = false
+          this.setConnectionState("disconnected")
           console.log("[HttpBackend] WebSocket disconnected")
           this.scheduleReconnect()
         }
 
         this.ws.onerror = (error) => {
+          clearTimeout(connectionTimeout)
           this.wsConnecting = false
+          this.setConnectionState("disconnected")
           console.error("[HttpBackend] WebSocket error:", error)
           reject(error)
         }
       } catch (e) {
+        clearTimeout(connectionTimeout)
         this.wsConnecting = false
+        this.setConnectionState("disconnected")
         reject(e)
       }
     })
@@ -444,6 +515,8 @@ class HttpBackend implements Backend {
     this.subscriptions.clear()
     this.reconnectCallbacks.clear()
     this.authRequiredCallbacks.clear()
+    this.connectionStateCallbacks.clear()
+    this.setConnectionState("disconnected")
   }
 }
 

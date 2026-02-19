@@ -284,6 +284,91 @@ describe("getBackend auto-detection", () => {
   })
 })
 
+describe("HttpBackend connection state", () => {
+  let mockFetch: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    mockFetch = vi.fn()
+    globalThis.fetch = mockFetch as typeof fetch
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    globalThis.WebSocket = originalWebSocket
+  })
+
+  it("initial state is disconnected", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    expect(backend.connectionState).toBe("disconnected")
+  })
+
+  it("changes to connecting then connected when WebSocket opens", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const stateChanges: string[] = []
+    backend.onConnectionStateChange((state) => stateChanges.push(state))
+
+    // Listen triggers WebSocket connection
+    backend.listen("test:event", vi.fn()).catch(() => {})
+
+    // Should immediately be connecting
+    expect(backend.connectionState).toBe("connecting")
+    expect(stateChanges).toContain("connecting")
+
+    // Wait for WebSocket to open
+    await new Promise((r) => setTimeout(r, 30))
+
+    expect(backend.connectionState).toBe("connected")
+    expect(stateChanges).toContain("connected")
+  })
+
+  it("changes to disconnected when WebSocket closes", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    // Connect first
+    await backend.listen("test:event", vi.fn())
+    await new Promise((r) => setTimeout(r, 30))
+    expect(backend.connectionState).toBe("connected")
+
+    const stateChanges: string[] = []
+    backend.onConnectionStateChange((state) => stateChanges.push(state))
+
+    // Simulate WebSocket close
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    ws.close()
+
+    expect(backend.connectionState).toBe("disconnected")
+    expect(stateChanges).toContain("disconnected")
+  })
+
+  it("unsubscribe removes callback", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const callback = vi.fn()
+    const unsubscribe = backend.onConnectionStateChange(callback)
+
+    // Trigger a state change
+    backend.listen("test:event", vi.fn()).catch(() => {})
+    expect(callback).toHaveBeenCalled()
+
+    // Clear and unsubscribe
+    callback.mockClear()
+    unsubscribe()
+
+    // Trigger another state change - callback should not be called
+    await new Promise((r) => setTimeout(r, 30))
+    // State changed to connected, but callback was unsubscribed
+    expect(callback).not.toHaveBeenCalled()
+  })
+})
+
 describe("HttpBackend reconnection", () => {
   let mockFetch: ReturnType<typeof vi.fn>
 

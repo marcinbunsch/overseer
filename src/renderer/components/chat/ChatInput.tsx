@@ -6,6 +6,7 @@ import { eventBus } from "../../utils/eventBus"
 import { ModelSelector } from "./ModelSelector"
 import { ClaudePermissionModeSelector } from "./ClaudePermissionModeSelector"
 import { ClaudeUsageIndicator } from "./ClaudeUsageIndicator"
+import { WebSocketConnectionIndicator } from "./WebSocketConnectionIndicator"
 import { AtSearch } from "./AtSearch"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 
@@ -253,6 +254,7 @@ export const ChatInput = observer(function ChatInput({
               />
             )}
             {agentType === "claude" && <ClaudeUsageIndicator />}
+            <WebSocketConnectionIndicator />
           </div>
           <div className="flex gap-2">
             {isSending && onStop && (
