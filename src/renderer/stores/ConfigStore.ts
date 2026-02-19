@@ -7,6 +7,13 @@ export type ClaudePermissionMode = "default" | "acceptEdits" | "bypassPermission
 export type CodexApprovalPolicy = "untrusted" | "full-auto"
 export type GeminiApprovalMode = "yolo" | "auto_edit"
 
+interface HttpServerConfig {
+  host: string
+  port: number
+  enableAuth: boolean
+  autoStart: boolean
+}
+
 interface Config {
   claudePath: string
   codexPath: string
@@ -35,6 +42,7 @@ interface Config {
   codexApprovalPolicy?: CodexApprovalPolicy
   geminiApprovalMode?: GeminiApprovalMode
   animationsEnabled?: boolean
+  httpServer?: HttpServerConfig
 }
 
 const ALL_AGENTS: AgentType[] = ["claude", "codex", "copilot", "gemini", "opencode"]
@@ -139,6 +147,12 @@ class ConfigStore {
   @observable agentShell: string = ""
   @observable settingsOpen: boolean = false
   @observable loaded: boolean = false
+
+  // HTTP Server settings
+  @observable httpServerHost: string = "127.0.0.1"
+  @observable httpServerPort: number = 6767
+  @observable httpServerEnableAuth: boolean = true
+  @observable httpServerAutoStart: boolean = false
 
   private loadPromise: Promise<void> | null = null
   private home: string = ""
@@ -245,6 +259,13 @@ class ConfigStore {
         this.defaultOpencodeModel = parsed.defaultOpencodeModel ?? null
         this.animationsEnabled = parsed.animationsEnabled ?? false
         this.agentShell = parsed.agentShell ?? ""
+        // HTTP Server settings
+        if (parsed.httpServer) {
+          this.httpServerHost = parsed.httpServer.host ?? "127.0.0.1"
+          this.httpServerPort = parsed.httpServer.port ?? 6767
+          this.httpServerEnableAuth = parsed.httpServer.enableAuth ?? true
+          this.httpServerAutoStart = parsed.httpServer.autoStart ?? false
+        }
         this.loaded = true
       })
     } catch (err) {
@@ -290,6 +311,12 @@ class ConfigStore {
         geminiApprovalMode: this.geminiApprovalMode,
         animationsEnabled: this.animationsEnabled,
         agentShell: this.agentShell || undefined,
+        httpServer: {
+          host: this.httpServerHost,
+          port: this.httpServerPort,
+          enableAuth: this.httpServerEnableAuth,
+          autoStart: this.httpServerAutoStart,
+        },
       }
       await backend.invoke("save_json_config", {
         filename: "config.json",
@@ -425,6 +452,45 @@ class ConfigStore {
     } catch (err) {
       console.error("Failed to refresh OpenCode models:", err)
     }
+  }
+
+  // --- HTTP Server settings ---
+
+  @action setHttpServerHost(host: string) {
+    this.httpServerHost = host
+    this.save()
+  }
+
+  @action setHttpServerPort(port: number) {
+    this.httpServerPort = port
+    this.save()
+  }
+
+  @action setHttpServerEnableAuth(enabled: boolean) {
+    this.httpServerEnableAuth = enabled
+    this.save()
+  }
+
+  @action setHttpServerAutoStart(enabled: boolean) {
+    this.httpServerAutoStart = enabled
+    this.save()
+  }
+
+  /**
+   * Update all HTTP server settings at once.
+   * Used when starting/configuring the server.
+   */
+  @action setHttpServerConfig(config: {
+    host?: string
+    port?: number
+    enableAuth?: boolean
+    autoStart?: boolean
+  }) {
+    if (config.host !== undefined) this.httpServerHost = config.host
+    if (config.port !== undefined) this.httpServerPort = config.port
+    if (config.enableAuth !== undefined) this.httpServerEnableAuth = config.enableAuth
+    if (config.autoStart !== undefined) this.httpServerAutoStart = config.autoStart
+    this.save()
   }
 }
 
