@@ -8,10 +8,10 @@
   "theme_color": "#1b1f24",
   "icons": [
     {
-      "src": "/overseer-logo-v2.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
+      "src": "/overseer_icon_rounded_1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
