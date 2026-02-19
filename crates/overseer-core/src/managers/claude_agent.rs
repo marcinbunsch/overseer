@@ -327,9 +327,14 @@ impl ClaudeAgentManager {
         // Persist the user message and emit with seq wrapper
         match chat_sessions.append_event_with_seq(&config.conversation_id, user_message.clone()) {
             Ok(seq) => {
+                // Use SeqEvent to ensure consistent flattened format with HTTP endpoints
+                let seq_event = crate::persistence::SeqEvent {
+                    seq,
+                    event: user_message.clone(),
+                };
                 event_bus.emit(
                     &format!("agent:event:{}", config.conversation_id),
-                    &serde_json::json!({ "seq": seq, "event": user_message }),
+                    &seq_event,
                 );
             }
             Err(err) => {
