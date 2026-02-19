@@ -246,3 +246,108 @@ describe("getBackend auto-detection", () => {
     expect(backend.type).toBe("tauri")
   })
 })
+
+describe("HttpBackend reconnection", () => {
+  let mockFetch: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    mockFetch = vi.fn()
+    globalThis.fetch = mockFetch as typeof fetch
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    globalThis.WebSocket = originalWebSocket
+  })
+
+  it("onReconnect registers callback and returns unsubscribe function", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const callback = vi.fn()
+    const unsubscribe = backend.onReconnect(callback)
+
+    expect(typeof unsubscribe).toBe("function")
+  })
+
+  it("onReconnect unsubscribe removes callback", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const callback = vi.fn()
+    const unsubscribe = backend.onReconnect(callback)
+
+    // Verify callback is added
+    const callbacks = (backend as unknown as { reconnectCallbacks: Set<() => void> })
+      .reconnectCallbacks
+    expect(callbacks.size).toBe(1)
+
+    // Unsubscribe
+    unsubscribe()
+    expect(callbacks.size).toBe(0)
+  })
+
+  it("disconnect clears reconnect callbacks", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    backend.onReconnect(vi.fn())
+    backend.onReconnect(vi.fn())
+
+    const callbacks = (backend as unknown as { reconnectCallbacks: Set<() => void> })
+      .reconnectCallbacks
+    expect(callbacks.size).toBe(2)
+
+    backend.disconnect()
+    expect(callbacks.size).toBe(0)
+  })
+
+  it("does not notify reconnect on initial connection", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const callback = vi.fn()
+    backend.onReconnect(callback)
+
+    // Listen triggers initial connection
+    await backend.listen("test:event", vi.fn())
+
+    // Wait for WebSocket to connect
+    await new Promise((r) => setTimeout(r, 20))
+
+    // Should not call callback on initial connection
+    expect(callback).not.toHaveBeenCalled()
+  })
+
+  it("notifies reconnect callbacks after WebSocket reconnects", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const callback = vi.fn()
+
+    // Initial connection
+    await backend.listen("test:event", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    // Now register callback (after initial connection)
+    backend.onReconnect(callback)
+
+    // Get the WebSocket instance and simulate disconnect
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    ws.close()
+
+    // Wait for reconnect timer (2000ms) plus connection time
+    // For faster testing, manually trigger by listening again
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Manually trigger a reconnection by calling listen again
+    // This will create a new WebSocket since the old one is closed
+    await backend.listen("another:event", vi.fn())
+    await new Promise((r) => setTimeout(r, 30))
+
+    // The callback should be called because hasConnectedBefore is true
+    expect(callback).toHaveBeenCalled()
+  })
+})

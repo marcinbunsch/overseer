@@ -42,6 +42,8 @@ class HttpBackend implements Backend {
   private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
   private wsConnecting = false
   private authToken: string | null = null
+  private hasConnectedBefore = false
+  private reconnectCallbacks = new Set<() => void>()
 
   constructor(baseUrl?: string) {
     // Default to current origin, but handle Vite dev server specially
@@ -249,11 +251,18 @@ class HttpBackend implements Backend {
 
         this.ws.onopen = () => {
           this.wsConnecting = false
-          console.log("[HttpBackend] WebSocket connected")
+          const isReconnect = this.hasConnectedBefore
+          this.hasConnectedBefore = true
+          console.log(`[HttpBackend] WebSocket ${isReconnect ? "reconnected" : "connected"}`)
 
           // Resubscribe to all patterns
           for (const pattern of this.subscriptions.keys()) {
             this.sendWsMessage({ type: "subscribe", pattern })
+          }
+
+          // Notify reconnection handlers so they can catch up on missed events
+          if (isReconnect) {
+            this.notifyReconnect()
           }
 
           resolve()
@@ -343,6 +352,33 @@ class HttpBackend implements Backend {
   }
 
   /**
+   * Register a callback to be notified when the WebSocket reconnects.
+   * This is used by ChatStore to catch up on events missed during disconnection.
+   *
+   * @returns An unsubscribe function to remove the callback
+   */
+  onReconnect(callback: () => void): () => void {
+    this.reconnectCallbacks.add(callback)
+    return () => {
+      this.reconnectCallbacks.delete(callback)
+    }
+  }
+
+  /**
+   * Notify all reconnection handlers.
+   * Called after WebSocket reconnects and resubscribes to patterns.
+   */
+  private notifyReconnect(): void {
+    for (const callback of this.reconnectCallbacks) {
+      try {
+        callback()
+      } catch (e) {
+        console.error("[HttpBackend] Reconnect callback error:", e)
+      }
+    }
+  }
+
+  /**
    * Disconnect the WebSocket connection.
    * Call this when the backend is no longer needed.
    */
@@ -358,6 +394,7 @@ class HttpBackend implements Backend {
     }
 
     this.subscriptions.clear()
+    this.reconnectCallbacks.clear()
   }
 }
 
