@@ -58,6 +58,22 @@ pub async fn load_chat_events(
     state.load_events(&project_name, &workspace_name, &chat_id)
 }
 
+/// Load events from a chat session starting at a given offset.
+///
+/// This is used for WebSocket reconnection - the client tracks how many events
+/// it has processed, and on reconnect fetches only the events after that offset.
+#[tauri::command]
+pub async fn load_chat_events_since(
+    state: State<'_, Arc<ChatSessionManager>>,
+    project_name: String,
+    workspace_name: String,
+    chat_id: String,
+    offset: usize,
+) -> Result<Vec<AgentEvent>, String> {
+    let events = state.load_events(&project_name, &workspace_name, &chat_id)?;
+    Ok(events.into_iter().skip(offset).collect())
+}
+
 /// Load chat metadata for a session.
 #[tauri::command]
 pub async fn load_chat_metadata(
