@@ -15,6 +15,7 @@ import {
   Wrench,
   RefreshCw,
   Copy,
+  Palette,
 } from "lucide-react"
 import classNames from "classnames"
 import { configStore } from "../../stores/ConfigStore"
@@ -26,8 +27,11 @@ import type { AgentType } from "../../types"
 import { AgentIcon } from "../chat/AgentIcon"
 import { ModelSelector } from "../chat/ModelSelector"
 import { ClaudePermissionModeSelect } from "./ClaudePermissionModeSelect"
+import { Input } from "./Input"
+import { Textarea } from "./Textarea"
+import { Checkbox } from "./Checkbox"
 
-type SettingsTab = "general" | "agents" | "advanced" | "updates"
+type SettingsTab = "general" | "agents" | "advanced" | "updates" | "design-system"
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <Settings2 className="size-4" /> },
@@ -458,12 +462,12 @@ const AdvancedTab = observer(function AdvancedTab() {
       {/* Shell Prefix */}
       <div>
         <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Shell Prefix</label>
-        <input
+        <Input
           type="text"
           value={configStore.agentShell}
           onChange={(e) => configStore.setAgentShell(e.target.value)}
           placeholder="$SHELL -l -c"
-          className="ovr-input w-full max-w-md px-3 py-2 text-xs"
+          className="max-w-md px-3 py-2 text-xs"
           data-testid="agent-shell-input"
         />
         <p className="mt-2 text-[11px] text-ovr-text-dim">
@@ -675,6 +679,92 @@ const UpdatesTab = observer(function UpdatesTab() {
   )
 })
 
+function DesignSystemTab() {
+  return (
+    <div className="space-y-8">
+      {/* Buttons */}
+      <div>
+        <h2 className="mb-4 text-sm font-semibold text-ovr-text-strong">Buttons</h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <button className="ovr-btn-primary px-3 py-1.5 text-xs">Primary</button>
+          <button className="ovr-btn-ghost px-3 py-1.5 text-xs">Ghost</button>
+          <button className="ovr-btn-danger px-3 py-1.5 text-xs">Danger</button>
+          <button className="ovr-btn-primary px-3 py-1.5 text-xs" disabled>
+            Disabled
+          </button>
+        </div>
+      </div>
+
+      {/* Form Elements */}
+      <div>
+        <h2 className="mb-4 text-sm font-semibold text-ovr-text-strong">Form Elements</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs text-ovr-text-dim">Input</label>
+            <Input placeholder="Example input" className="max-w-md text-xs" />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-ovr-text-dim">Textarea (resizable)</label>
+            <Textarea
+              placeholder="Example textarea"
+              rows={3}
+              className="max-w-md resize-y text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2">
+              <Checkbox defaultChecked />
+              <span className="text-xs text-ovr-text-primary">Example checkbox</span>
+            </label>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-ovr-text-dim">Select (Radix)</label>
+            <Select.Root defaultValue="option1">
+              <Select.Trigger className="flex w-full max-w-xs cursor-pointer items-center justify-between rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated px-3 py-2 text-xs text-ovr-text-primary focus:border-ovr-azure-500 focus:outline-none">
+                <Select.Value />
+                <Select.Icon>
+                  <ChevronDown className="size-3 text-ovr-text-dim" />
+                </Select.Icon>
+              </Select.Trigger>
+              <Select.Portal>
+                <Select.Content
+                  className="z-[100] overflow-hidden rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated shadow-lg"
+                  position="popper"
+                  sideOffset={4}
+                >
+                  <Select.Viewport className="p-1">
+                    <Select.Item
+                      value="option1"
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                    >
+                      <Select.ItemText>Option 1</Select.ItemText>
+                    </Select.Item>
+                    <Select.Item
+                      value="option2"
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                    >
+                      <Select.ItemText>Option 2</Select.ItemText>
+                    </Select.Item>
+                    <Select.Item
+                      value="option3"
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                    >
+                      <Select.ItemText>Option 3</Select.ItemText>
+                    </Select.Item>
+                  </Select.Viewport>
+                </Select.Content>
+              </Select.Portal>
+            </Select.Root>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ============================================================================
 // Main Dialog Component
 // ============================================================================
@@ -689,6 +779,18 @@ export const SettingsDialog = observer(function SettingsDialog({
   onOpenChange,
 }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general")
+
+  // Conditionally include Design System tab in dev mode
+  const visibleTabs = debugStore.showDevUI
+    ? [
+        ...TABS,
+        {
+          id: "design-system" as const,
+          label: "Design System",
+          icon: <Palette className="size-4" />,
+        },
+      ]
+    : TABS
 
   // Reset to General tab and refresh OpenCode models when dialog opens
   useEffect(() => {
@@ -731,7 +833,7 @@ export const SettingsDialog = observer(function SettingsDialog({
               role="tablist"
               aria-label="Settings sections"
             >
-              {TABS.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
                   key={tab.id}
                   role="tab"
@@ -790,6 +892,16 @@ export const SettingsDialog = observer(function SettingsDialog({
               >
                 <UpdatesTab />
               </div>
+              {debugStore.showDevUI && (
+                <div
+                  id="tabpanel-design-system"
+                  role="tabpanel"
+                  aria-labelledby="tab-design-system"
+                  className={activeTab === "design-system" ? "" : "hidden"}
+                >
+                  <DesignSystemTab />
+                </div>
+              )}
             </div>
           </div>
 

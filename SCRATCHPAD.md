@@ -53,6 +53,24 @@ My learning journal for this codebase. **Rules** are patterns I must follow. **M
 - **Never use nested ternaries** — Extract logic into utility functions or use switch statements. Nested ternaries are unreadable. Example: `getAgentDisplayName(agentType)` instead of `agentType === "codex" ? "Codex" : agentType === "copilot" ? "Copilot" : ...`
 - **Explicit over implicit** — Use explicit metadata/flags rather than content-based heuristics. For example, mark system messages with `meta.type = "system"` rather than detecting them by checking if content ends with another message's text. Explicit markers are maintainable and debuggable; implicit detection is brittle and breaks unexpectedly.
 
+### Design System
+
+Use shared components from `src/renderer/components/shared/` for consistent styling:
+
+- **Input** — `<Input>` for text inputs. Autocomplete disabled by default. Uses `ovr-input` class.
+- **Textarea** — `<Textarea>` for multiline text. Autocomplete disabled by default. Uses `ovr-textarea` class. Add `resize-none` for non-resizable, `resize-y` for vertically resizable.
+- **Checkbox** — `<Checkbox>` for checkboxes. Uses `ovr-checkbox` class.
+- **Buttons** — Use utility classes directly:
+  - `ovr-btn-primary` — Primary action (azure blue, glowing)
+  - `ovr-btn-ghost` — Secondary action (subtle, bordered)
+  - `ovr-btn-danger` — Destructive action (red)
+- **Select** — Use Radix UI `Select.*` components with these classes:
+  - Trigger: `rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated px-3 py-2 text-xs`
+  - Content: `rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated shadow-lg`
+  - Item: `rounded px-2 py-1.5 text-xs data-[highlighted]:bg-ovr-bg-panel`
+
+To preview all design system elements, enable dev mode and go to Settings → Design System tab.
+
 ---
 
 ## Project Knowledge

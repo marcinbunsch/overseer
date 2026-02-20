@@ -9,6 +9,7 @@ import { ClaudeUsageIndicator } from "./ClaudeUsageIndicator"
 import { WebSocketConnectionIndicator } from "./WebSocketConnectionIndicator"
 import { AtSearch } from "./AtSearch"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
+import { Textarea } from "../shared/Textarea"
 
 // Detect touch-only devices (mobile/tablet without keyboard)
 const isTouchDevice =
@@ -213,7 +214,7 @@ export const ChatInput = observer(function ChatInput({
             onSelectedIndexChange={setSelectedIndex}
           />
         )}
-        <textarea
+        <Textarea
           ref={textareaRef}
           value={input}
           onChange={handleChange}
@@ -226,14 +227,10 @@ export const ChatInput = observer(function ChatInput({
                 : `Ask ${getAgentDisplayName(agentType)}... (Enter to send, Shift+Enter for newline, @ to search files)`
           }
           rows={1}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          className={`min-h-20 resize-none overflow-y-auto rounded-lg border bg-ovr-bg-panel px-3 py-2 text-sm text-ovr-text-primary outline-none placeholder:text-ovr-text-muted focus:shadow-[var(--shadow-ovr-glow-soft)] disabled:opacity-50 ${
+          className={`min-h-20 resize-none text-sm placeholder:text-ovr-text-muted disabled:opacity-50 ${
             debugStore.showDevUI
               ? "border-ovr-dev focus:border-ovr-dev"
-              : "border-ovr-border-subtle focus:border-ovr-azure-500"
+              : "focus:border-ovr-azure-500"
           }`}
         />
         <div className="flex items-center justify-between">

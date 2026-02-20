@@ -15,6 +15,8 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   const containerRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(TURNS_PER_PAGE)
 
+  const isInitialMount = useRef(true)
+
   const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null
   const lastResultMessageId = lastTurn?.resultMessage?.id
 
@@ -76,7 +78,13 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
       console.log("[MessageList] ResizeObserver triggered:", {
         entryCount: entries.length,
       })
-      scrollToBottom()
+      if (isInitialMount.current) {
+        isInitialMount.current = false
+        console.log("[MessageList] ResizeObserver: initial mount, forcing scroll to bottom")
+        bottomRef.current?.scrollIntoView({ behavior: "instant" })
+      } else {
+        scrollToBottom()
+      }
     })
 
     console.log("[MessageList] ResizeObserver: starting observation")

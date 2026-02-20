@@ -2,6 +2,7 @@ import { useState } from "react"
 import { observer } from "mobx-react-lite"
 import type { AgentQuestion } from "../../types"
 import { areAllQuestionsAnswered, collectAnswers } from "../../utils/questions"
+import { Input } from "../shared/Input"
 
 interface AgentQuestionPanelProps {
   pendingQuestions: AgentQuestion[]
@@ -131,7 +132,7 @@ function QuestionSet({ agentQuestion, onAnswer }: QuestionSetProps) {
                 <div className="flex-1">
                   <div className="text-sm font-medium text-ovr-text-primary">Other</div>
                   {otherActive[key] && (
-                    <input
+                    <Input
                       type="text"
                       autoFocus
                       value={otherTexts[key] ?? ""}
@@ -146,7 +147,7 @@ function QuestionSet({ agentQuestion, onAnswer }: QuestionSetProps) {
                       }}
                       onClick={(e) => e.stopPropagation()}
                       placeholder="Type your answer..."
-                      className="mt-1 w-full rounded border border-ovr-border-subtle bg-ovr-bg-panel px-2 py-1 text-xs text-ovr-text-primary outline-none focus:border-ovr-azure-500"
+                      className="mt-1 rounded bg-ovr-bg-panel px-2 py-1 text-xs focus:border-ovr-azure-500"
                     />
                   )}
                 </div>
