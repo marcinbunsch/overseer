@@ -63,7 +63,7 @@ function DragHandle({
   return (
     <div
       onMouseDown={onMouseDown}
-      className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-ovr-azure-500"
+      className="h-full w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-ovr-azure-500"
       style={{ transition: "background-color 0.15s" }}
     />
   )
@@ -203,7 +203,7 @@ export default observer(function App() {
           </div>
 
           {/* Drag handle - hidden on mobile */}
-          <div className="hidden md:block">
+          <div className="hidden h-full md:block">
             <DragHandle onDrag={handleLeftDrag} onDragEnd={handleLeftDragEnd} />
           </div>
 
@@ -211,8 +211,7 @@ export default observer(function App() {
           <MiddlePane />
 
           {/* Drag handle - hidden on mobile */}
-
-          <div className="hidden md:block">
+          <div className="hidden h-full md:block">
             <DragHandle onDrag={handleRightDrag} onDragEnd={handleRightDragEnd} />
           </div>
 
