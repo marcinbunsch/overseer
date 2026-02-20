@@ -455,12 +455,41 @@ const AdvancedTab = observer(function AdvancedTab() {
 
   return (
     <div className="space-y-6">
+      {/* Shell Prefix */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Shell Prefix</label>
+        <input
+          type="text"
+          value={configStore.agentShell}
+          onChange={(e) => configStore.setAgentShell(e.target.value)}
+          placeholder="$SHELL -l -c"
+          className="ovr-input w-full max-w-md px-3 py-2 text-xs"
+          data-testid="agent-shell-input"
+        />
+        <p className="mt-2 text-[11px] text-ovr-text-dim">
+          Shell prefix for launching agents. Default: $SHELL -l -c (login shell).
+          <br />
+          Examples: /bin/bash -l -c, /bin/zsh -c
+        </p>
+      </div>
+
       {/* HTTP Server */}
       <div>
         <label className="mb-2 block text-xs font-medium text-ovr-text-muted">HTTP Server</label>
         <p className="mb-3 text-[11px] text-ovr-text-dim">
           Start an HTTP server to access Overseer from a web browser.
         </p>
+        <div className="mb-3 flex gap-2 rounded-lg border border-ovr-warn/50 bg-ovr-warn/10 p-3">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-ovr-bad" />
+          <div className="text-[11px] text-ovr-text-primary">
+            <p className="mb-1 font-medium">Highly experimental feature</p>
+            <p className="text-ovr-text-muted">
+              This is still a work in progress. You have to be <em>extremely</em> careful when using
+              this. <strong>Never</strong> make this publicly available. Before you turn this on,
+              make sure you understand the risk.
+            </p>
+          </div>
+        </div>
         <div className="space-y-3 rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated p-4">
           <div className="flex items-center gap-3">
             <div className="flex-1">
@@ -564,24 +593,6 @@ const AdvancedTab = observer(function AdvancedTab() {
             </button>
           </div>
         </div>
-      </div>
-
-      {/* Shell Prefix */}
-      <div>
-        <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Shell Prefix</label>
-        <input
-          type="text"
-          value={configStore.agentShell}
-          onChange={(e) => configStore.setAgentShell(e.target.value)}
-          placeholder="$SHELL -l -c"
-          className="ovr-input w-full max-w-md px-3 py-2 text-xs"
-          data-testid="agent-shell-input"
-        />
-        <p className="mt-2 text-[11px] text-ovr-text-dim">
-          Shell prefix for launching agents. Default: $SHELL -l -c (login shell).
-          <br />
-          Examples: /bin/bash -l -c, /bin/zsh -c
-        </p>
       </div>
     </div>
   )
