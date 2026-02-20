@@ -316,12 +316,14 @@ impl ClaudeAgentManager {
         approval_manager: Arc<ProjectApprovalManager>,
         chat_sessions: Arc<ChatSessionManager>,
     ) -> Result<(), String> {
-        // Create and emit user message event so all clients can see it
+        // Create and emit user message event so all clients can see it.
+        // Mark as "system" so UI knows to hide it (the actual user message
+        // was already persisted by the frontend before calling send_message).
         let user_message = AgentEvent::UserMessage {
             id: Uuid::new_v4().to_string(),
             content: config.prompt.clone(),
             timestamp: Utc::now(),
-            meta: None,
+            meta: Some(serde_json::json!({ "type": "system", "label": "System" })),
         };
 
         // Persist the user message and emit with seq wrapper

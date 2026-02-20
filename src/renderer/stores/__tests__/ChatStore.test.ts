@@ -1569,6 +1569,42 @@ Final text.`,
       expect(store.messages[0].content).toBe("Hello")
     })
 
+    it("skips userMessage event when meta.type is 'system'", () => {
+      const store = createChatStore()
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+
+      // First, simulate the user sending a message (persisted by frontend)
+      eventCallback({
+        seq: 1,
+        kind: "userMessage",
+        id: "msg-1",
+        content: "Add a logout button",
+        timestamp: new Date().toISOString(),
+      })
+
+      expect(store.messages.length).toBe(1)
+      expect(store.messages[0].content).toBe("Add a logout button")
+
+      // Now simulate the backend sending a userMessage event marked as system
+      // This is the combined initPrompt + userMessage that the agent receives
+      eventCallback({
+        seq: 2,
+        kind: "userMessage",
+        id: "msg-2",
+        content: "This is a React project.\n\nAdd a logout button",
+        timestamp: new Date().toISOString(),
+        meta: { type: "system", label: "System" },
+      })
+
+      // The system message should be skipped
+      expect(store.messages.length).toBe(1)
+      expect(store.messages[0].content).toBe("Add a logout button")
+    })
+
     it("dispose calls unsubscribeReconnect", () => {
       const store = createChatStore()
 

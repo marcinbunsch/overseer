@@ -847,6 +847,11 @@ export class ChatStore {
       return
     }
 
+    // Skip system messages (e.g., combined initPrompt + user message sent to the agent)
+    if (event.meta?.type === "system") {
+      return
+    }
+
     // Also skip if we have a recent user message with the same content
     // (handles the case where frontend adds message locally before backend event arrives)
     const recentMessages = this.chat.messages.slice(-3)
