@@ -304,6 +304,7 @@ class HttpBackend implements Backend {
 
     // Exclude Vitest/Jest test environments that use jsdom
     // These typically run on localhost with specific ports
+    // Don't look at me, this is Claude's doing, this is utter garbage
     if (origin.includes("localhost:51") || origin.includes("localhost:3000")) {
       return false
     }
@@ -403,6 +404,7 @@ class HttpBackend implements Backend {
           this.wsConnecting = false
           this.setConnectionState("disconnected")
           console.error("[HttpBackend] WebSocket error:", error)
+          this.scheduleReconnect()
           reject(error)
         }
       } catch (e) {

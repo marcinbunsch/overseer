@@ -218,7 +218,7 @@ fn start_http_server(
     };
 
     // Create shared state for HTTP server from the context with auth token
-    let shared_state = Arc::new(http_server::SharedState::from_context_with_auth(
+    let shared_state = Arc::new(http_server::HttpSharedState::from_context_with_auth(
         &context_state.0,
         auth_token.clone(),
     ));
@@ -352,7 +352,7 @@ pub fn run() {
             )?;
 
             // Set up the config directory on the context itself
-            // This is used by the HTTP server's SharedState
+            // This is used by the HTTP server's HttpSharedState
             let context_state = app.state::<OverseerContextState>();
             context_state.0.set_config_dir(config_dir.clone());
 

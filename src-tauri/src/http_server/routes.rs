@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use super::SharedState;
+use super::HttpSharedState;
 
 /// Response format for command invocation.
 #[derive(Serialize)]
@@ -40,7 +40,7 @@ pub struct InvokeRequest {
 /// Dispatches commands to the appropriate handler functions.
 pub async fn invoke_handler(
     Path(command): Path<String>,
-    State(state): State<Arc<SharedState>>,
+    State(state): State<Arc<HttpSharedState>>,
     Json(request): Json<InvokeRequest>,
 ) -> (StatusCode, Json<InvokeResponse>) {
     log::debug!("HTTP invoke: {} with args: {:?}", command, request.args);
@@ -867,7 +867,7 @@ async fn dispatch_list_files(args: serde_json::Value) -> (StatusCode, Json<Invok
 // ============================================================================
 
 async fn dispatch_load_project_registry(
-    state: &SharedState,
+    state: &HttpSharedState,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
         Some(dir) => dir,
@@ -904,7 +904,7 @@ async fn dispatch_load_project_registry(
 }
 
 async fn dispatch_save_project_registry(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -957,7 +957,7 @@ async fn dispatch_save_project_registry(
 }
 
 async fn dispatch_upsert_project(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -1026,7 +1026,7 @@ async fn dispatch_upsert_project(
 }
 
 async fn dispatch_remove_project(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -1094,7 +1094,7 @@ async fn dispatch_remove_project(
 }
 
 async fn dispatch_load_workspace_state(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -1160,7 +1160,7 @@ async fn dispatch_load_workspace_state(
 }
 
 async fn dispatch_save_workspace_state(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -1241,7 +1241,7 @@ async fn dispatch_save_workspace_state(
 }
 
 async fn dispatch_load_chat_index(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -1311,7 +1311,7 @@ async fn dispatch_load_chat_index(
 }
 
 async fn dispatch_save_chat_index(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -1396,7 +1396,7 @@ async fn dispatch_save_chat_index(
 }
 
 async fn dispatch_upsert_chat_entry(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -1498,7 +1498,7 @@ async fn dispatch_upsert_chat_entry(
 }
 
 async fn dispatch_remove_chat_entry(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -1599,7 +1599,7 @@ async fn dispatch_remove_chat_entry(
 }
 
 async fn dispatch_load_chat(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -1683,7 +1683,7 @@ async fn dispatch_load_chat(
 }
 
 async fn dispatch_save_chat(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -1768,7 +1768,7 @@ async fn dispatch_save_chat(
 }
 
 async fn dispatch_delete_chat(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -1852,7 +1852,7 @@ async fn dispatch_delete_chat(
 }
 
 async fn dispatch_list_chat_ids(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -1922,7 +1922,7 @@ async fn dispatch_list_chat_ids(
 }
 
 async fn dispatch_migrate_chat_if_needed(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -2005,7 +2005,7 @@ async fn dispatch_migrate_chat_if_needed(
     }
 }
 
-async fn dispatch_get_config_dir(state: &SharedState) -> (StatusCode, Json<InvokeResponse>) {
+async fn dispatch_get_config_dir(state: &HttpSharedState) -> (StatusCode, Json<InvokeResponse>) {
     match state.get_config_dir() {
         Some(dir) => (
             StatusCode::OK,
@@ -2027,7 +2027,7 @@ async fn dispatch_get_config_dir(state: &SharedState) -> (StatusCode, Json<Invok
 }
 
 async fn dispatch_save_json_config(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -2133,7 +2133,7 @@ async fn dispatch_save_json_config(
 }
 
 async fn dispatch_load_json_config(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -2212,7 +2212,7 @@ async fn dispatch_load_json_config(
 }
 
 async fn dispatch_config_file_exists(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -2255,7 +2255,7 @@ async fn dispatch_config_file_exists(
 }
 
 async fn dispatch_archive_chat_dir(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
@@ -2363,7 +2363,7 @@ async fn dispatch_archive_chat_dir(
 }
 
 async fn dispatch_ensure_chat_dir(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let chat_dir = match get_chat_dir_from_args(state, &args) {
@@ -2393,7 +2393,7 @@ async fn dispatch_ensure_chat_dir(
 }
 
 async fn dispatch_remove_chat_file(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let chat_dir = match get_chat_dir_from_args(state, &args) {
@@ -2442,7 +2442,7 @@ async fn dispatch_remove_chat_file(
 
 // Helper function to extract chat_dir from args
 fn get_chat_dir_from_args(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: &serde_json::Value,
 ) -> Result<PathBuf, (StatusCode, Json<InvokeResponse>)> {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -2491,7 +2491,7 @@ fn get_chat_dir_from_args(
 // ============================================================================
 
 async fn dispatch_load_project_approvals(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -2520,7 +2520,7 @@ async fn dispatch_load_project_approvals(
 }
 
 async fn dispatch_add_approval(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -2574,7 +2574,7 @@ async fn dispatch_add_approval(
 }
 
 async fn dispatch_remove_approval(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -2628,7 +2628,7 @@ async fn dispatch_remove_approval(
 }
 
 async fn dispatch_clear_project_approvals(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -2670,7 +2670,7 @@ async fn dispatch_clear_project_approvals(
 // ============================================================================
 
 async fn dispatch_register_chat_session(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let chat_id = match args.get("chatId").and_then(|v| v.as_str()) {
@@ -2751,7 +2751,7 @@ async fn dispatch_register_chat_session(
 }
 
 async fn dispatch_unregister_chat_session(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let chat_id = match args.get("chatId").and_then(|v| v.as_str()) {
@@ -2789,7 +2789,7 @@ async fn dispatch_unregister_chat_session(
 }
 
 async fn dispatch_append_chat_event(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let chat_id = match args.get("chatId").and_then(|v| v.as_str()) {
@@ -2842,7 +2842,7 @@ async fn dispatch_append_chat_event(
 }
 
 async fn dispatch_load_chat_events(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -2908,7 +2908,7 @@ async fn dispatch_load_chat_events(
 }
 
 async fn dispatch_load_chat_events_with_seq(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -2978,7 +2978,7 @@ async fn dispatch_load_chat_events_with_seq(
 }
 
 async fn dispatch_load_chat_events_since_seq(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -3062,7 +3062,7 @@ async fn dispatch_load_chat_events_since_seq(
 }
 
 async fn dispatch_load_chat_metadata(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -3128,7 +3128,7 @@ async fn dispatch_load_chat_metadata(
 }
 
 async fn dispatch_save_chat_metadata(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let project_name = match args.get("projectName").and_then(|v| v.as_str()) {
@@ -3195,7 +3195,7 @@ async fn dispatch_save_chat_metadata(
 }
 
 async fn dispatch_add_user_message(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let chat_id = match args.get("chatId").and_then(|v| v.as_str()) {
@@ -3445,7 +3445,7 @@ async fn dispatch_fetch_claude_usage() -> (StatusCode, Json<InvokeResponse>) {
 // ============================================================================
 
 async fn dispatch_stop_agent(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let conversation_id = match args.get("conversationId").and_then(|v| v.as_str()) {
@@ -3474,7 +3474,7 @@ async fn dispatch_stop_agent(
 }
 
 async fn dispatch_agent_stdin(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     let conversation_id = match args.get("conversationId").and_then(|v| v.as_str()) {
@@ -3525,7 +3525,7 @@ async fn dispatch_agent_stdin(
     }
 }
 
-async fn dispatch_list_running(state: &SharedState) -> (StatusCode, Json<InvokeResponse>) {
+async fn dispatch_list_running(state: &HttpSharedState) -> (StatusCode, Json<InvokeResponse>) {
     let running = state.context.claude_agents.list_running();
     (
         StatusCode::OK,
@@ -3538,7 +3538,7 @@ async fn dispatch_list_running(state: &SharedState) -> (StatusCode, Json<InvokeR
 }
 
 async fn dispatch_send_message(
-    state: &SharedState,
+    state: &HttpSharedState,
     args: serde_json::Value,
 ) -> (StatusCode, Json<InvokeResponse>) {
     // Extract required arguments
@@ -3748,7 +3748,7 @@ mod tests {
     #[tokio::test]
     async fn dispatch_get_config_dir_without_config() {
         let context = Arc::new(overseer_core::OverseerContext::builder().build());
-        let state = SharedState::new(context);
+        let state = HttpSharedState::new(context);
         let (status, Json(response)) = dispatch_get_config_dir(&state).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert!(!response.success);
@@ -3757,7 +3757,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_get_config_dir_with_config() {
-        let state = SharedState::with_config_dir(PathBuf::from("/tmp/test"));
+        let state = HttpSharedState::with_config_dir(PathBuf::from("/tmp/test"));
         let (status, Json(response)) = dispatch_get_config_dir(&state).await;
         assert_eq!(status, StatusCode::OK);
         assert!(response.success);
@@ -3767,7 +3767,7 @@ mod tests {
     #[tokio::test]
     async fn dispatch_load_project_registry_without_config() {
         let context = Arc::new(overseer_core::OverseerContext::builder().build());
-        let state = SharedState::new(context);
+        let state = HttpSharedState::new(context);
         let (status, Json(response)) = dispatch_load_project_registry(&state).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert!(!response.success);

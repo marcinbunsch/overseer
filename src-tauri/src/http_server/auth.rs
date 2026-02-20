@@ -1,6 +1,19 @@
 //! Authentication middleware for the HTTP server.
 //!
 //! Provides bearer token authentication for API and WebSocket routes.
+//!
+//! # Token Extraction
+//!
+//! Tokens can be provided in two ways:
+//! 1. **Authorization header**: `Authorization: Bearer <token>` - used for REST API calls
+//! 2. **Query parameter**: `?token=<token>` - used for WebSocket connections (which can't set headers)
+//!
+//! # Middleware Flow
+//!
+//! 1. If no auth token is configured on the server, all requests pass through
+//! 2. Otherwise, extract token from header (preferred) or query param (fallback)
+//! 3. Validate token matches the configured server token
+//! 4. Return 401 Unauthorized if token is missing or invalid
 
 use axum::{
     extract::{Request, State},
@@ -10,21 +23,40 @@ use axum::{
 };
 use std::sync::Arc;
 
-use super::SharedState;
+use super::HttpSharedState;
 
-/// Extract bearer token from Authorization header.
-fn extract_bearer_token(req: &Request) -> Option<&str> {
+/// Extract bearer token from the Authorization header.
+///
+/// Looks for header in format: `Authorization: Bearer <token>`
+/// Returns None if header is missing, malformed, or uses a different auth scheme.
+///
+/// # Arguments
+/// * `req` - HTTP request (generic over body type for testability)
+fn extract_bearer_token<B>(req: &axum::http::Request<B>) -> Option<&str> {
     req.headers()
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
 }
 
-/// Extract token from query parameter (for WebSocket connections).
-fn extract_query_token(req: &Request) -> Option<String> {
+/// Extract token from URL query parameter.
+///
+/// Looks for `?token=<value>` in the URL query string.
+/// This is the fallback method for WebSocket connections which cannot set custom headers.
+///
+/// # Arguments
+/// * `req` - HTTP request (generic over body type for testability)
+///
+/// # Example URLs
+/// - `/ws/events?token=abc123` -> Some("abc123")
+/// - `/ws/events?foo=bar&token=abc123&baz=qux` -> Some("abc123")
+/// - `/ws/events?foo=bar` -> None
+fn extract_query_token<B>(req: &axum::http::Request<B>) -> Option<String> {
     req.uri()
         .query()
         .and_then(|query| {
+            // Parse query string manually (avoids adding url crate dependency)
+            // Format: key1=value1&key2=value2&...
             query
                 .split('&')
                 .find_map(|pair| {
@@ -45,7 +77,7 @@ fn extract_query_token(req: &Request) -> Option<String> {
 /// Checks for a valid bearer token in the Authorization header.
 /// For WebSocket upgrade requests, also checks for token in query params.
 pub async fn auth_middleware(
-    State(state): State<Arc<SharedState>>,
+    State(state): State<Arc<HttpSharedState>>,
     req: Request,
     next: Next,
 ) -> Response {

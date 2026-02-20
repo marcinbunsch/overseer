@@ -473,3 +473,526 @@ describe("HttpBackend reconnection", () => {
     expect(callback).toHaveBeenCalled()
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUTH TOKEN TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("HttpBackend auth token handling", () => {
+  let mockFetch: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    mockFetch = vi.fn()
+    globalThis.fetch = mockFetch as typeof fetch
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    globalThis.WebSocket = originalWebSocket
+  })
+
+  it("includes auth token in Authorization header when set", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: null }),
+    })
+
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+    backend.setAuthToken("my-secret-token")
+
+    await backend.invoke("test_command")
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer my-secret-token",
+        },
+      })
+    )
+  })
+
+  it("does not include Authorization header when no token", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: null }),
+    })
+
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+    // No token set
+
+    await backend.invoke("test_command")
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: { "Content-Type": "application/json" },
+      })
+    )
+  })
+
+  it("includes auth token in WebSocket URL when set", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+    backend.setAuthToken("ws-token")
+
+    await backend.listen("test:event", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    expect(ws.url).toContain("?token=ws-token")
+  })
+
+  it("getAuthToken returns current token", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    expect(backend.getAuthToken()).toBeNull()
+
+    backend.setAuthToken("test-token")
+    expect(backend.getAuthToken()).toBe("test-token")
+
+    backend.setAuthToken(null)
+    expect(backend.getAuthToken()).toBeNull()
+  })
+
+  it("clearAuthRequired resets the auth required flag", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+    })
+
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    await expect(backend.invoke("test_command")).rejects.toThrow()
+    expect(backend.authRequired).toBe(true)
+
+    backend.clearAuthRequired()
+    expect(backend.authRequired).toBe(false)
+  })
+
+  it("onAuthRequired unsubscribe removes callback", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const callback = vi.fn()
+    const unsubscribe = backend.onAuthRequired(callback)
+
+    const callbacks = (backend as unknown as { authRequiredCallbacks: Set<() => void> })
+      .authRequiredCallbacks
+    expect(callbacks.size).toBe(1)
+
+    unsubscribe()
+    expect(callbacks.size).toBe(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEBSOCKET SUBSCRIPTION MESSAGE TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("HttpBackend WebSocket subscription messages", () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as typeof fetch
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    globalThis.WebSocket = originalWebSocket
+  })
+
+  it("sends subscribe message when first listener added", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    await backend.listen("agent:event:*", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    const subscribeMsg = ws.sentMessages.find((m) => m.includes("subscribe"))
+    expect(subscribeMsg).toBeDefined()
+
+    const parsed = JSON.parse(subscribeMsg!)
+    expect(parsed).toEqual({ type: "subscribe", pattern: "agent:event:*" })
+  })
+
+  it("sends unsubscribe message when last listener removed", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const unsubscribe = await backend.listen("test:pattern", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    ws.sentMessages = [] // Clear previous messages
+
+    unsubscribe()
+
+    const unsubscribeMsg = ws.sentMessages.find((m) => m.includes("unsubscribe"))
+    expect(unsubscribeMsg).toBeDefined()
+
+    const parsed = JSON.parse(unsubscribeMsg!)
+    expect(parsed).toEqual({ type: "unsubscribe", pattern: "test:pattern" })
+  })
+
+  it("does not send unsubscribe when other listeners remain", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    // Add two listeners for same pattern
+    const unsubscribe1 = await backend.listen("same:pattern", vi.fn())
+    await backend.listen("same:pattern", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    ws.sentMessages = []
+
+    // Remove first listener
+    unsubscribe1()
+
+    // Should NOT send unsubscribe since second listener remains
+    const unsubscribeMsg = ws.sentMessages.find((m) => m.includes("unsubscribe"))
+    expect(unsubscribeMsg).toBeUndefined()
+  })
+
+  it("resubscribes to all patterns on reconnect", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    // Subscribe to multiple patterns
+    await backend.listen("pattern:one:*", vi.fn())
+    await backend.listen("pattern:two:*", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    // Get first WS and close it
+    const ws1 = (backend as unknown as { ws: MockWebSocket }).ws
+    ws1.close()
+
+    // Trigger reconnect by listening again
+    await backend.listen("pattern:three:*", vi.fn())
+    await new Promise((r) => setTimeout(r, 30))
+
+    // Get new WS
+    const ws2 = (backend as unknown as { ws: MockWebSocket }).ws
+    expect(ws2).not.toBe(ws1)
+
+    // Check that all patterns were resubscribed
+    const subscriptions = ws2.sentMessages
+      .filter((m) => m.includes('"type":"subscribe"'))
+      .map((m) => JSON.parse(m).pattern)
+
+    expect(subscriptions).toContain("pattern:one:*")
+    expect(subscriptions).toContain("pattern:two:*")
+    expect(subscriptions).toContain("pattern:three:*")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONSTRUCTOR AND URL HANDLING TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("HttpBackend constructor and URL handling", () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as typeof fetch
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    globalThis.WebSocket = originalWebSocket
+  })
+
+  it("uses provided baseUrl", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://custom-host:8080")
+
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: null }),
+    })
+    globalThis.fetch = mockFetch as typeof fetch
+
+    await backend.invoke("test")
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://custom-host:8080/api/invoke/test",
+      expect.any(Object)
+    )
+  })
+
+  it("constructs WebSocket URL from baseUrl", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://example.com:3000")
+
+    await backend.listen("test:event", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    expect(ws.url).toBe("ws://example.com:3000/ws/events")
+  })
+
+  it("handles https to wss conversion", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("https://secure.example.com")
+
+    await backend.listen("test:event", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    expect(ws.url).toBe("wss://secure.example.com/ws/events")
+  })
+
+  it("backend type is web", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    expect(backend.type).toBe("web")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MULTIPLE LISTENER TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("HttpBackend multiple listeners", () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as typeof fetch
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    globalThis.WebSocket = originalWebSocket
+  })
+
+  it("multiple callbacks for same pattern all receive events", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const callback1 = vi.fn()
+    const callback2 = vi.fn()
+    const callback3 = vi.fn()
+
+    await backend.listen("shared:event:*", callback1)
+    await backend.listen("shared:event:*", callback2)
+    await backend.listen("shared:event:*", callback3)
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    ws.receiveMessage({
+      event_type: "shared:event:123",
+      payload: { test: true },
+    })
+
+    expect(callback1).toHaveBeenCalledWith({ test: true })
+    expect(callback2).toHaveBeenCalledWith({ test: true })
+    expect(callback3).toHaveBeenCalledWith({ test: true })
+  })
+
+  it("different patterns receive only matching events", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const agentCallback = vi.fn()
+    const ptyCallback = vi.fn()
+
+    await backend.listen("agent:event:*", agentCallback)
+    await backend.listen("pty:data:*", ptyCallback)
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+
+    // Send agent event
+    ws.receiveMessage({
+      event_type: "agent:event:123",
+      payload: { type: "agent" },
+    })
+
+    expect(agentCallback).toHaveBeenCalledWith({ type: "agent" })
+    expect(ptyCallback).not.toHaveBeenCalled()
+
+    agentCallback.mockClear()
+
+    // Send pty event
+    ws.receiveMessage({
+      event_type: "pty:data:456",
+      payload: { type: "pty" },
+    })
+
+    expect(ptyCallback).toHaveBeenCalledWith({ type: "pty" })
+    expect(agentCallback).not.toHaveBeenCalled()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEBSOCKET ERROR HANDLING TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("HttpBackend WebSocket error handling", () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as typeof fetch
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    globalThis.WebSocket = originalWebSocket
+  })
+
+  it("rejects listen when WebSocket fails to connect", async () => {
+    // Create a failing WebSocket mock
+    class FailingWebSocket {
+      static CONNECTING = 0
+      static OPEN = 1
+      static CLOSED = 3
+
+      readyState = FailingWebSocket.CONNECTING
+      onopen: (() => void) | null = null
+      onerror: ((error: Event) => void) | null = null
+      onclose: (() => void) | null = null
+
+      constructor() {
+        // Simulate connection failure
+        setTimeout(() => {
+          this.onerror?.(new Event("error"))
+        }, 10)
+      }
+
+      send() {}
+      close() {
+        this.readyState = FailingWebSocket.CLOSED
+      }
+    }
+
+    globalThis.WebSocket = FailingWebSocket as unknown as typeof WebSocket
+
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    await expect(backend.listen("test:event", vi.fn())).rejects.toThrow()
+  })
+
+  it("handles malformed WebSocket messages gracefully", async () => {
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    const callback = vi.fn()
+    await backend.listen("test:event", callback)
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+
+    // Send malformed JSON - should not crash
+    ws.onmessage?.({ data: "not valid json {{{" })
+
+    // Callback should not be called
+    expect(callback).not.toHaveBeenCalled()
+
+    // Backend should still work for valid messages
+    ws.receiveMessage({
+      event_type: "test:event",
+      payload: { valid: true },
+    })
+
+    expect(callback).toHaveBeenCalledWith({ valid: true })
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DISCONNECT TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("HttpBackend disconnect", () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as typeof fetch
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    globalThis.WebSocket = originalWebSocket
+  })
+
+  it("closes WebSocket on disconnect", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    await backend.listen("test:event", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    expect(ws.readyState).toBe(MockWebSocket.OPEN)
+
+    backend.disconnect()
+
+    expect(ws.readyState).toBe(MockWebSocket.CLOSED)
+  })
+
+  it("clears all subscriptions on disconnect", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    await backend.listen("pattern:1", vi.fn())
+    await backend.listen("pattern:2", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    const subscriptions = (backend as unknown as { subscriptions: Map<string, unknown> })
+      .subscriptions
+    expect(subscriptions.size).toBe(2)
+
+    backend.disconnect()
+
+    expect(subscriptions.size).toBe(0)
+  })
+
+  it("clears all callback sets on disconnect", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    backend.onReconnect(vi.fn())
+    backend.onAuthRequired(vi.fn())
+    backend.onConnectionStateChange(vi.fn())
+
+    backend.disconnect()
+
+    const reconnectCallbacks = (backend as unknown as { reconnectCallbacks: Set<unknown> })
+      .reconnectCallbacks
+    const authRequiredCallbacks = (backend as unknown as { authRequiredCallbacks: Set<unknown> })
+      .authRequiredCallbacks
+    const connectionStateCallbacks = (
+      backend as unknown as { connectionStateCallbacks: Set<unknown> }
+    ).connectionStateCallbacks
+
+    expect(reconnectCallbacks.size).toBe(0)
+    expect(authRequiredCallbacks.size).toBe(0)
+    expect(connectionStateCallbacks.size).toBe(0)
+  })
+
+  it("sets connection state to disconnected", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    await backend.listen("test:event", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(backend.connectionState).toBe("connected")
+
+    backend.disconnect()
+
+    expect(backend.connectionState).toBe("disconnected")
+  })
+})
