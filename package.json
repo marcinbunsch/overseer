@@ -19,7 +19,7 @@
     "format:check": "prettier --check src --experimental-cli",
     "lint": "oxlint src/",
     "typecheck": "tsgo --noEmit",
-    "rustcheck": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "rustcheck": "cargo check",
     "checks": "pnpm run \"/format:check|lint|typecheck|rustcheck/\"",
     "checks:ui": "pnpm run \"/format:check|lint|typecheck/\" ",
     "test": "vitest run --silent --reporter=dot",
