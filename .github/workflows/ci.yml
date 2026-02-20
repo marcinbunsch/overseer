@@ -54,6 +54,9 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Build frontend
+        run: pnpm vite-build
+
       - name: Run rustcheck
         run: pnpm rustcheck
 
