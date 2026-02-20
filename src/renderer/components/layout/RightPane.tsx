@@ -9,20 +9,23 @@ function HorizontalDragHandle({
   onDrag,
   onDragEnd,
 }: {
-  onDrag: (deltaY: number) => void
+  onDrag: (deltaY: number, isStart: boolean) => void
   onDragEnd: () => void
 }) {
   const startY = useRef(0)
+  const isFirstMove = useRef(true)
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
       startY.current = e.clientY
+      isFirstMove.current = true
 
       const onMouseMove = (ev: MouseEvent) => {
         const delta = ev.clientY - startY.current
         startY.current = ev.clientY
-        onDrag(delta)
+        onDrag(delta, isFirstMove.current)
+        isFirstMove.current = false
       }
 
       const onMouseUp = () => {
@@ -56,7 +59,8 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
   const isGitRepo = project?.isGitRepo ?? true
   const changesHeight = useRef(configStore.changesHeight)
 
-  const handleDrag = useCallback((delta: number) => {
+  const handleDrag = useCallback((delta: number, isStart: boolean) => {
+    if (isStart) changesHeight.current = configStore.changesHeight
     const newHeight = Math.max(80, changesHeight.current + delta)
     changesHeight.current = newHeight
     configStore.changesHeight = newHeight

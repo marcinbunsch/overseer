@@ -125,7 +125,7 @@ class CopilotAgentService implements AgentService {
     return chat
   }
 
-  private async attachListeners(chatId: string): Promise<void> {
+  async attachListeners(chatId: string): Promise<void> {
     const chat = this.getOrCreateChat(chatId)
     const serverId = chat.serverId
 

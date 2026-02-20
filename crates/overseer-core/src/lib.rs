@@ -15,8 +15,11 @@
 
 pub mod agents;
 pub mod approval;
+pub mod context;
+pub mod event_bus;
 pub mod git;
 pub mod logging;
+pub mod managers;
 pub mod overseer_actions;
 pub mod paths;
 pub mod persistence;
@@ -28,4 +31,8 @@ pub mod usage;
 // Re-export commonly used types
 pub use agents::event::AgentEvent;
 pub use approval::ApprovalContext;
+pub use context::{OverseerContext, OverseerContextBuilder};
+pub use event_bus::{BroadcastEvent, EventBus};
+pub use managers::{ChatSessionManager, ProjectApprovalManager};
+pub use persistence::SeqEvent;
 pub use session::{Session, SessionId, SessionManager};

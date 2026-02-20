@@ -389,6 +389,10 @@ class OpenCodeAgentService implements AgentService {
     this.doneCallbacks.set(chatId, callback)
   }
 
+  async attachListeners(chatId: string): Promise<void> {
+    await this.attachCloseListener(chatId)
+  }
+
   private emitEvent(chatId: string, event: AgentEvent): void {
     this.persistEvent(chatId, event)
     this.eventCallbacks.get(chatId)?.(event)

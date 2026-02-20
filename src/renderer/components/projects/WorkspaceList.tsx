@@ -13,6 +13,7 @@ import type { Workspace } from "../../types"
 import { configStore } from "../../stores/ConfigStore"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { toastStore } from "../../stores/ToastStore"
+import { uiStore } from "../../stores/UIStore"
 import type { ProjectStore } from "../../stores/ProjectStore"
 
 interface WorkspaceListProps {
@@ -50,6 +51,7 @@ export const WorkspaceList = observer(function WorkspaceList({ project }: Worksp
                 if (wt.isCreating) return
                 projectRegistry.selectProject(project.id)
                 projectRegistry.selectWorkspace(wt.id)
+                uiStore.setLeftSidebarOpen(false)
               }}
             >
               {wt.isCreating ? (

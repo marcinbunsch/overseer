@@ -6,9 +6,16 @@ import { eventBus } from "../../utils/eventBus"
 import { ModelSelector } from "./ModelSelector"
 import { ClaudePermissionModeSelector } from "./ClaudePermissionModeSelector"
 import { ClaudeUsageIndicator } from "./ClaudeUsageIndicator"
+import { WebSocketConnectionIndicator } from "./WebSocketConnectionIndicator"
 import { AtSearch } from "./AtSearch"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 import { Textarea } from "../shared/Textarea"
+
+// Detect touch-only devices (mobile/tablet without keyboard)
+const isTouchDevice =
+  typeof window !== "undefined" &&
+  ("ontouchstart" in window || navigator.maxTouchPoints > 0) &&
+  !window.matchMedia("(pointer: fine)").matches
 
 interface ChatInputProps {
   onSend: (content: string) => void
@@ -187,7 +194,9 @@ export const ChatInput = observer(function ChatInput({
       }
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    // On desktop: Enter sends, Shift+Enter adds newline
+    // On mobile/touch: Enter adds newline (use Send button to send)
+    if (e.key === "Enter" && !e.shiftKey && !isTouchDevice) {
       e.preventDefault()
       handleSubmit()
     }
@@ -213,7 +222,9 @@ export const ChatInput = observer(function ChatInput({
           placeholder={
             isSending
               ? "Type a follow-up message to queue..."
-              : `Ask ${getAgentDisplayName(agentType)}... (Enter to send, Shift+Enter for newline, @ to search files)`
+              : isTouchDevice
+                ? `Ask ${getAgentDisplayName(agentType)}...`
+                : `Ask ${getAgentDisplayName(agentType)}... (Enter to send, Shift+Enter for newline, @ to search files)`
           }
           rows={1}
           className={`min-h-20 resize-none text-sm placeholder:text-ovr-text-muted disabled:opacity-50 ${
@@ -240,6 +251,7 @@ export const ChatInput = observer(function ChatInput({
               />
             )}
             {agentType === "claude" && <ClaudeUsageIndicator />}
+            <WebSocketConnectionIndicator />
           </div>
           <div className="flex gap-2">
             {isSending && onStop && (

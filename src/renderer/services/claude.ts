@@ -99,6 +99,13 @@ type BackendAgentEvent =
       is_processed?: boolean
     }
   | { kind: "planApproval"; request_id: string; content: string; is_processed?: boolean }
+  | {
+      kind: "userMessage"
+      id: string
+      content: string
+      timestamp: string
+      meta?: Record<string, unknown> | null
+    }
   | { kind: "sessionId"; session_id: string }
   | { kind: "turnComplete" }
   | { kind: "done" }
@@ -136,7 +143,7 @@ class ClaudeAgentService implements AgentService {
     return conv
   }
 
-  private async attachListeners(chatId: string): Promise<void> {
+  async attachListeners(chatId: string): Promise<void> {
     const conv = this.getOrCreateConversation(chatId)
 
     if (!conv.unlistenStdout) {
@@ -191,39 +198,15 @@ class ClaudeAgentService implements AgentService {
     await this.attachListeners(chatId)
     const conv = this.getOrCreateConversation(chatId)
 
-    // If process is already running, send follow-up via stdin
-    if (conv.running && conv.sessionId) {
-      const envelope = {
-        type: "user",
-        message: {
-          role: "user",
-          content: prompt,
-        },
-      }
-      console.log(`Sending follow-up via stdin [${chatId}], session:`, conv.sessionId)
-      await backend.invoke("agent_stdin", {
-        conversationId: chatId,
-        data: JSON.stringify(envelope),
-      })
-      return
-    }
+    // Prepend initPrompt only on the first message (no session yet)
+    const isFirstMessage = !conv.sessionId
+    const messageText = isFirstMessage && initPrompt ? `${initPrompt}\n\n${prompt}` : prompt
 
-    // Otherwise start a new process
-    await this.stopChat(chatId)
-    conv.rawOutput = ""
-
-    // Prepend initPrompt to the first message (meta instruction)
-    const messageText = initPrompt ? `${initPrompt}\n\n${prompt}` : prompt
-
-    console.log(
-      `Starting Claude process [${chatId}] in dir:`,
-      workingDir,
-      "session:",
-      conv.sessionId
-    )
+    console.log(`Sending message [${chatId}] in dir:`, workingDir, "session:", conv.sessionId)
 
     try {
-      await backend.invoke("start_agent", {
+      // Backend decides whether to start a new process or send via stdin
+      await backend.invoke("send_message", {
         conversationId: chatId,
         projectName: projectName ?? "",
         prompt: messageText,
@@ -341,6 +324,18 @@ class ClaudeAgentService implements AgentService {
           id: event.request_id,
           planContent: event.content ?? "",
           isProcessed: event.is_processed ?? false,
+        })
+        return
+      }
+      case "userMessage": {
+        // User message from another client - mark chat as running and forward event
+        conv.running = true
+        this.emitEvent(chatId, {
+          kind: "userMessage",
+          id: event.id,
+          content: event.content,
+          timestamp: new Date(event.timestamp),
+          meta: event.meta as import("../types").MessageMeta | undefined,
         })
         return
       }

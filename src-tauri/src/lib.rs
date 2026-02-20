@@ -2,15 +2,36 @@ mod agents;
 mod approvals;
 mod chat_session;
 mod git;
-mod logging;
+mod http_server;
 mod persistence;
 mod pty;
 
-use overseer_core::shell::build_login_shell_command;
 use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
 use overseer_core::paths;
+use overseer_core::shell::build_login_shell_command;
+use overseer_core::OverseerContext;
+use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager, WindowEvent};
+
+/// Wrapper for OverseerContext to use with Tauri's managed state.
+///
+/// OverseerContext lives in overseer-core and is framework-agnostic.
+/// This wrapper allows it to be used with Tauri's state management.
+pub struct OverseerContextState(pub Arc<OverseerContext>);
+
+/// State for the HTTP server.
+pub struct HttpServerState {
+    handle: std::sync::Mutex<http_server::HttpServerHandle>,
+}
+
+impl Default for HttpServerState {
+    fn default() -> Self {
+        Self {
+            handle: std::sync::Mutex::new(http_server::HttpServerHandle::default()),
+        }
+    }
+}
 
 #[tauri::command]
 async fn show_main_window(window: tauri::Window) {
@@ -134,18 +155,107 @@ async fn fetch_claude_usage() -> Result<overseer_core::usage::ClaudeUsageRespons
         .map_err(|e| e.to_string())
 }
 
+/// Response from starting the HTTP server.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpServerStartResult {
+    /// The authentication token (if auth is enabled).
+    auth_token: Option<String>,
+}
+
+/// Generate a random authentication token.
+fn generate_auth_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Generate a simple random token using current time and random bytes
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+
+    // Mix timestamp with some randomness from memory addresses
+    let random_part: u64 = std::ptr::null::<()>() as u64 ^ (timestamp as u64);
+
+    format!("{:016x}{:016x}", timestamp as u64, random_part)
+}
+
+/// Start the HTTP server.
+#[tauri::command]
+fn start_http_server(
+    app_handle: tauri::AppHandle,
+    http_server_state: tauri::State<HttpServerState>,
+    context_state: tauri::State<OverseerContextState>,
+    host: String,
+    port: u16,
+    enable_auth: Option<bool>,
+) -> Result<HttpServerStartResult, String> {
+    let mut handle = http_server_state.handle.lock().unwrap();
+
+    // Stop existing server if running
+    if handle.is_running() {
+        handle.stop();
+    }
+
+    // Resolve the frontend static directory from bundled resources
+    // In production, resources are at Contents/Resources/frontend/
+    let static_dir = app_handle
+        .path()
+        .resolve("frontend", tauri::path::BaseDirectory::Resource)
+        .ok()
+        .map(|p| p.to_string_lossy().to_string());
+
+    if let Some(ref dir) = static_dir {
+        log::info!("HTTP server will serve frontend from: {}", dir);
+    } else {
+        log::warn!("HTTP server: could not resolve frontend resource directory");
+    }
+
+    // Generate auth token if authentication is enabled
+    let auth_token = if enable_auth.unwrap_or(false) {
+        Some(generate_auth_token())
+    } else {
+        None
+    };
+
+    // Create shared state for HTTP server from the context with auth token
+    let shared_state = Arc::new(http_server::HttpSharedState::from_context_with_auth(
+        &context_state.0,
+        auth_token.clone(),
+    ));
+
+    // Start the server
+    *handle = http_server::start(shared_state, host, port, static_dir)?;
+
+    Ok(HttpServerStartResult { auth_token })
+}
+
+/// Stop the HTTP server.
+#[tauri::command]
+fn stop_http_server(http_server_state: tauri::State<HttpServerState>) -> Result<(), String> {
+    let mut handle = http_server_state.handle.lock().unwrap();
+    handle.stop();
+    Ok(())
+}
+
+/// Check if the HTTP server is running.
+#[tauri::command]
+fn get_http_server_status(http_server_state: tauri::State<HttpServerState>) -> bool {
+    let handle = http_server_state.handle.lock().unwrap();
+    handle.is_running()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Create OverseerContext - the central shared state
+    let context = Arc::new(OverseerContext::builder().build());
+    let context_state = OverseerContextState(Arc::clone(&context));
+
     tauri::Builder::default()
-        .manage(agents::AgentProcessMap::default())
-        .manage(agents::CodexServerMap::default())
-        .manage(agents::CopilotServerMap::default())
-        .manage(agents::GeminiServerMap::default())
-        .manage(agents::OpenCodeServerMap::default())
-        .manage(approvals::ProjectApprovalManager::default())
-        .manage(chat_session::ChatSessionManager::default())
+        .manage(context_state)
+        .manage(HttpServerState::default())
+        .manage(Arc::clone(&context.approval_manager))
+        .manage(Arc::clone(&context.chat_sessions))
         .manage(persistence::PersistenceConfig::default())
-        .manage(pty::PtyMap::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
@@ -241,17 +351,44 @@ pub fn run() {
                     .build(),
             )?;
 
+            // Set up the config directory on the context itself
+            // This is used by the HTTP server's HttpSharedState
+            let context_state = app.state::<OverseerContextState>();
+            context_state.0.set_config_dir(config_dir.clone());
+
             // Set up the config directory for approvals persistence
-            let approval_manager = app.state::<approvals::ProjectApprovalManager>();
-            approval_manager.set_config_dir(config_dir.clone());
+            context_state.0.approval_manager.set_config_dir(config_dir.clone());
 
             // Set up the config directory for chat session persistence
-            let chat_session_manager = app.state::<chat_session::ChatSessionManager>();
-            chat_session_manager.set_config_dir(config_dir.clone());
+            context_state.0.chat_sessions.set_config_dir(config_dir.clone());
 
             // Set up the config directory for general persistence
             let persistence_config = app.state::<persistence::PersistenceConfig>();
             persistence_config.set_config_dir(config_dir);
+
+            // Set up EventBus -> Tauri event forwarding
+            // This allows all events emitted to the EventBus to be forwarded to Tauri's IPC
+            let context_state = app.state::<OverseerContextState>();
+            let mut event_rx = context_state.0.event_bus.subscribe();
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                // Use a simple blocking loop since broadcast::Receiver has blocking_recv
+                loop {
+                    match event_rx.blocking_recv() {
+                        Ok(event) => {
+                            let _ = app_handle.emit(&event.event_type, event.payload);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                            log::warn!("EventBus forwarder lagged by {} events", count);
+                            // Continue receiving
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            log::info!("EventBus closed, stopping Tauri forwarder");
+                            break;
+                        }
+                    }
+                }
+            });
 
             Ok(())
         })
@@ -269,10 +406,10 @@ pub fn run() {
             git::get_pr_status,
             git::delete_branch,
             git::is_git_repo,
-            agents::claude::start_agent,
             agents::claude::stop_agent,
             agents::claude::agent_stdin,
             agents::claude::list_running,
+            agents::claude::send_message,
             agents::codex::start_codex_server,
             agents::codex::stop_codex_server,
             agents::codex::codex_stdin,
@@ -305,6 +442,9 @@ pub fn run() {
             chat_session::unregister_chat_session,
             chat_session::append_chat_event,
             chat_session::load_chat_events,
+            chat_session::load_chat_events_since,
+            chat_session::load_chat_events_with_seq,
+            chat_session::load_chat_events_since_seq,
             chat_session::load_chat_metadata,
             chat_session::save_chat_metadata,
             chat_session::add_user_message,
@@ -335,6 +475,9 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
             fetch_claude_usage,
+            start_http_server,
+            stop_http_server,
+            get_http_server_status,
         ])
         .on_window_event(|_window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

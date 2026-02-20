@@ -12,17 +12,33 @@
 
 import type { Backend, EventCallback, Unsubscribe } from "./types"
 import { tauriBackend } from "./tauri"
+import { httpBackend } from "./http"
 
 export type { Backend, EventCallback, Unsubscribe }
 
 /**
  * Get the appropriate backend for the current environment.
  *
- * Currently only supports Tauri. Web backend will be added later.
+ * Detects whether we're running in Tauri or a browser and returns
+ * the appropriate backend implementation.
+ *
+ * Detection priority:
+ * 1. If __TAURI_INTERNALS__ exists -> TauriBackend (desktop app)
+ * 2. If httpBackend.isAvailable() -> HttpBackend (browser via HTTP server)
+ * 3. Otherwise -> TauriBackend (default for tests that mock Tauri)
  */
 function getBackend(): Backend {
-  // For now, always use Tauri
-  // In the future, detect environment and return appropriate backend
+  // Check if we're running in Tauri (desktop app)
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+    return tauriBackend
+  }
+
+  // Check if HTTP backend is available (browser environment, not Tauri, not test)
+  if (httpBackend.isAvailable()) {
+    return httpBackend
+  }
+
+  // Default to Tauri (for tests that mock Tauri APIs)
   return tauriBackend
 }
 

@@ -1,6 +1,6 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
-import { check, type Update } from "@tauri-apps/plugin-updater"
-import { relaunch } from "@tauri-apps/plugin-process"
+import type { Update } from "@tauri-apps/plugin-updater"
+import { backend } from "../backend"
 
 export interface UpdateInfo {
   version: string
@@ -35,12 +35,15 @@ class UpdateStore {
 
   @action
   async checkForUpdates(showToast = true): Promise<void> {
+    // Updates are only available in Tauri
+    if (backend.type !== "tauri") return
     if (this.isChecking) return
 
     this.isChecking = true
     this.error = null
 
     try {
+      const { check } = await import("@tauri-apps/plugin-updater")
       const update = await check()
 
       runInAction(() => {
@@ -113,6 +116,7 @@ class UpdateStore {
       })
 
       // Relaunch the app after successful install
+      const { relaunch } = await import("@tauri-apps/plugin-process")
       await relaunch()
     } catch (err) {
       runInAction(() => {

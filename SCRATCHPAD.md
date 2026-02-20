@@ -51,6 +51,7 @@ My learning journal for this codebase. **Rules** are patterns I must follow. **M
 ### Code Style
 
 - **Never use nested ternaries** — Extract logic into utility functions or use switch statements. Nested ternaries are unreadable. Example: `getAgentDisplayName(agentType)` instead of `agentType === "codex" ? "Codex" : agentType === "copilot" ? "Copilot" : ...`
+- **Explicit over implicit** — Use explicit metadata/flags rather than content-based heuristics. For example, mark system messages with `meta.type = "system"` rather than detecting them by checking if content ends with another message's text. Explicit markers are maintainable and debuggable; implicit detection is brittle and breaks unexpectedly.
 
 ### Design System
 

@@ -1,0 +1,29 @@
+{
+  "name": "Overseer",
+  "short_name": "Overseer",
+  "description": "Desktop GUI frontend for AI coding agents",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1b1f24",
+  "theme_color": "#1b1f24",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

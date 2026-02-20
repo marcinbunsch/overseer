@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -42,6 +41,7 @@ pub struct ClaudeUsageResponse {
 /// Token never enters Overseer memory - stays in shell pipeline
 #[cfg(target_os = "macos")]
 pub async fn fetch_claude_usage() -> Result<ClaudeUsageResponse, UsageError> {
+    use std::process::Command;
     use tokio::task;
 
     // Run blocking shell command in dedicated thread pool

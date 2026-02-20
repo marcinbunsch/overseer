@@ -14,11 +14,13 @@ import {
   Bot,
   Wrench,
   RefreshCw,
+  Copy,
   Palette,
 } from "lucide-react"
 import classNames from "classnames"
 import { configStore } from "../../stores/ConfigStore"
 import { debugStore } from "../../stores/DebugStore"
+import { toastStore } from "../../stores/ToastStore"
 import { toolAvailabilityStore, type ToolStatus } from "../../stores/ToolAvailabilityStore"
 import { updateStore } from "../../stores/UpdateStore"
 import type { AgentType } from "../../types"
@@ -381,8 +383,83 @@ const AgentsTab = observer(function AgentsTab() {
 })
 
 const AdvancedTab = observer(function AdvancedTab() {
+  const [httpServerRunning, setHttpServerRunning] = useState(false)
+  const [httpServerLoading, setHttpServerLoading] = useState(false)
+  const [authToken, setAuthToken] = useState<string | null>(null)
+
+  // Use config store values for the form (with local state for editing)
+  const [httpHost, setHttpHost] = useState(configStore.httpServerHost)
+  const [httpPort, setHttpPort] = useState(String(configStore.httpServerPort))
+  const [enableAuth, setEnableAuth] = useState(configStore.httpServerEnableAuth)
+
+  // Sync local state when config loads (only on mount)
+  useEffect(() => {
+    if (configStore.loaded) {
+      setHttpHost(configStore.httpServerHost)
+      setHttpPort(String(configStore.httpServerPort))
+      setEnableAuth(configStore.httpServerEnableAuth)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- configStore is a MobX singleton, we only sync on mount
+  }, [configStore.loaded])
+
+  // Check server status on mount
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const { backend } = await import("../../backend")
+        const running = await backend.invoke<boolean>("get_http_server_status")
+        setHttpServerRunning(running)
+      } catch {
+        // Ignore errors
+      }
+    }
+    checkStatus()
+  }, [])
+
+  const handleToggleHttpServer = async () => {
+    setHttpServerLoading(true)
+    try {
+      const { backend } = await import("../../backend")
+      if (httpServerRunning) {
+        await backend.invoke("stop_http_server")
+        setHttpServerRunning(false)
+        setAuthToken(null)
+      } else {
+        // Save settings before starting
+        const port = parseInt(httpPort, 10)
+        configStore.setHttpServerConfig({
+          host: httpHost,
+          port,
+          enableAuth,
+        })
+
+        // Start the HTTP server - the backend will resolve the frontend
+        // static directory from bundled resources automatically
+        const result = await backend.invoke<{ authToken: string | null }>("start_http_server", {
+          host: httpHost,
+          port,
+          enableAuth,
+        })
+        setHttpServerRunning(true)
+        setAuthToken(result.authToken)
+      }
+    } catch (err) {
+      console.error("Failed to toggle HTTP server:", err)
+    } finally {
+      setHttpServerLoading(false)
+    }
+  }
+
+  const handleCopyToken = async () => {
+    if (authToken) {
+      await navigator.clipboard.writeText(authToken)
+      toastStore.show("Token copied to clipboard")
+    }
+  }
+
   return (
     <div className="space-y-6">
+      {/* Shell Prefix */}
       <div>
         <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Shell Prefix</label>
         <Input
@@ -398,6 +475,128 @@ const AdvancedTab = observer(function AdvancedTab() {
           <br />
           Examples: /bin/bash -l -c, /bin/zsh -c
         </p>
+      </div>
+
+      {/* HTTP Server */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-ovr-text-muted">HTTP Server</label>
+        <p className="mb-3 text-[11px] text-ovr-text-dim">
+          Start an HTTP server to access Overseer from a web browser.
+        </p>
+        <div className="mb-3 flex gap-2 rounded-lg border border-ovr-warn/50 bg-ovr-warn/10 p-3">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-ovr-bad" />
+          <div className="text-[11px] text-ovr-text-primary">
+            <p className="mb-1 font-medium">Highly experimental feature</p>
+            <p className="text-ovr-text-muted">
+              This is still a work in progress. You have to be <em>extremely</em> careful when using
+              this. <strong>Never</strong> make this publicly available. Before you turn this on,
+              make sure you understand the risk.
+            </p>
+          </div>
+        </div>
+        <div className="space-y-3 rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <label className="mb-1 block text-[11px] text-ovr-text-muted">Host</label>
+              <input
+                type="text"
+                value={httpHost}
+                onChange={(e) => setHttpHost(e.target.value)}
+                disabled={httpServerRunning}
+                className="ovr-input w-full px-2 py-1.5 text-xs disabled:opacity-50"
+                data-testid="http-host-input"
+              />
+            </div>
+            <div className="w-24">
+              <label className="mb-1 block text-[11px] text-ovr-text-muted">Port</label>
+              <input
+                type="text"
+                value={httpPort}
+                onChange={(e) => setHttpPort(e.target.value)}
+                disabled={httpServerRunning}
+                className="ovr-input w-full px-2 py-1.5 text-xs disabled:opacity-50"
+                data-testid="http-port-input"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ovr-text-muted">Require authentication</span>
+            </div>
+            <Switch.Root
+              checked={enableAuth}
+              onCheckedChange={(checked: boolean) => setEnableAuth(checked)}
+              disabled={httpServerRunning}
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500 disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="http-auth-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ovr-text-muted">Start on launch</span>
+            </div>
+            <Switch.Root
+              checked={configStore.httpServerAutoStart}
+              onCheckedChange={(checked: boolean) => configStore.setHttpServerAutoStart(checked)}
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500"
+              data-testid="http-auto-start-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+          </div>
+          {authToken && (
+            <div className="rounded-lg border border-ovr-azure-500/30 bg-ovr-azure-500/10 p-3">
+              <div className="mb-1 text-[11px] text-ovr-text-muted">Authentication Token</div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 overflow-x-auto rounded bg-ovr-bg-panel px-2 py-1 font-mono text-xs text-ovr-text-primary">
+                  {authToken}
+                </code>
+                <button
+                  onClick={handleCopyToken}
+                  className="rounded p-1.5 text-ovr-text-muted hover:bg-ovr-bg-panel hover:text-ovr-text-primary"
+                  title="Copy token"
+                >
+                  <Copy className="size-4" />
+                </button>
+              </div>
+              <p className="mt-2 text-[10px] text-ovr-text-dim">
+                Use this token in the Authorization header: Bearer {"{token}"}
+              </p>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span
+                className={classNames("size-2 rounded-full", {
+                  "bg-ovr-ok": httpServerRunning,
+                  "bg-ovr-text-dim": !httpServerRunning,
+                })}
+              />
+              <span className="text-xs text-ovr-text-primary">
+                {httpServerRunning ? `Running on http://${httpHost}:${httpPort}` : "Stopped"}
+              </span>
+            </div>
+            <button
+              onClick={handleToggleHttpServer}
+              disabled={httpServerLoading}
+              className={classNames("px-3 py-1.5 text-xs", {
+                "ovr-btn-danger": httpServerRunning,
+                "ovr-btn-primary": !httpServerRunning,
+              })}
+              data-testid="http-server-toggle"
+            >
+              {httpServerLoading ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : httpServerRunning ? (
+                "Stop Server"
+              ) : (
+                "Start Server"
+              )}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )

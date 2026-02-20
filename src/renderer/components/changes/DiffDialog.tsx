@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { observer } from "mobx-react-lite"
 import * as AlertDialog from "@radix-ui/react-alert-dialog"
-import { X } from "lucide-react"
+import { X, ChevronDown, ChevronRight, PanelLeftClose, PanelLeft } from "lucide-react"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { createDiffNotesStore, type DiffNote } from "../../stores/DiffNotesStore"
 import { createDiffViewStore } from "../../stores/DiffViewStore"
@@ -36,6 +36,12 @@ export const DiffDialog = observer(function DiffDialog({
   )
   const fetchedRef = useRef<string | null>(null)
   const [pendingFile, setPendingFile] = useState<ChangedFile | null>(null)
+  const [uncommittedCollapsed, setUncommittedCollapsed] = useState(false)
+  const [branchCollapsed, setBranchCollapsed] = useState(false)
+  // Hide sidebar by default on small screens
+  const [sidebarVisible, setSidebarVisible] = useState(
+    () => typeof window !== "undefined" && window.innerWidth >= 768
+  )
 
   // Create store instances for this dialog
   const notesStore = useMemo(() => createDiffNotesStore(), [])
@@ -223,17 +229,26 @@ export const DiffDialog = observer(function DiffDialog({
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
         <AlertDialog.Content
-          className="fixed inset-10 z-50 flex flex-col overflow-hidden rounded-xl border border-ovr-border-subtle bg-ovr-bg-panel shadow-ovr-panel"
+          className="fixed inset-0 z-50 flex flex-col overflow-hidden border-ovr-border-subtle bg-ovr-bg-panel shadow-ovr-panel md:inset-10 md:rounded-xl md:border"
           onOpenAutoFocus={onOpenAutoFocus}
           onEscapeKeyDown={handleEscapeKeyDown}
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-ovr-border-subtle px-4 py-3">
             <div className="flex min-w-0 items-center gap-2">
+              <button
+                onClick={() => setSidebarVisible(!sidebarVisible)}
+                className="flex shrink-0 cursor-pointer items-center justify-center rounded p-1 text-ovr-text-muted transition-colors hover:bg-ovr-bg-elevated hover:text-ovr-text-primary"
+                title={sidebarVisible ? "Hide file list" : "Show file list"}
+              >
+                {sidebarVisible ? <PanelLeftClose size={16} /> : <PanelLeft size={16} />}
+              </button>
               <AlertDialog.Title className="truncate font-mono text-sm font-semibold text-ovr-text-strong">
                 {diffStore.fileName}
               </AlertDialog.Title>
-              <span className="text-xs text-ovr-text-dim">{diffStore.selectedFile.path}</span>
+              <span className="hidden text-xs text-ovr-text-dim md:inline">
+                {diffStore.selectedFile.path}
+              </span>
               <StatusBadge status={diffStore.selectedFile.status} />
             </div>
             <AlertDialog.Cancel asChild>
@@ -245,79 +260,101 @@ export const DiffDialog = observer(function DiffDialog({
 
           {/* Body: sidebar + diff */}
           <div className="flex min-h-0 flex-1">
-            {/* File list sidebar */}
-            <div className="w-56 shrink-0 overflow-y-auto border-r border-ovr-border-subtle bg-ovr-bg-panel">
-              {/* Uncommitted Changes Section */}
-              {uncommittedFiles.length > 0 && (
-                <>
-                  <div className="sticky top-0 z-10 border-b border-ovr-border-subtle bg-ovr-bg-panel px-3 py-1.5 text-xs font-medium text-ovr-text-muted">
-                    Uncommitted Changes
+            {/* File list sidebar - hidden on mobile by default, toggleable */}
+            {sidebarVisible && (
+              <div className="w-56 shrink-0 overflow-y-auto border-r border-ovr-border-subtle bg-ovr-bg-panel">
+                {/* Uncommitted Changes Section */}
+                {uncommittedFiles.length > 0 && (
+                  <div>
+                    <button
+                      onClick={() => setUncommittedCollapsed(!uncommittedCollapsed)}
+                      className="sticky top-0 z-10 flex w-full cursor-pointer items-center gap-1.5 border-b border-ovr-border-subtle bg-ovr-bg-panel px-3 py-1.5 text-left text-xs font-medium text-ovr-text-muted hover:bg-ovr-bg-elevated/50"
+                    >
+                      {uncommittedCollapsed ? (
+                        <ChevronRight className="size-3.5" />
+                      ) : (
+                        <ChevronDown className="size-3.5" />
+                      )}
+                      <span className="flex-1">Uncommitted Changes</span>
+                      <span className="text-ovr-text-dim">{uncommittedFiles.length}</span>
+                    </button>
+                    {!uncommittedCollapsed &&
+                      uncommittedFiles.map((file) => {
+                        const style = STATUS_STYLES[file.status] ?? STATUS_STYLES["?"]
+                        const isSelected =
+                          file.path === diffStore.selectedFile.path && file.isUncommitted
+                        return (
+                          <button
+                            key={`uncommitted-${file.status}-${file.path}`}
+                            className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-ovr-bg-elevated/50 ${
+                              isSelected
+                                ? "bg-ovr-bg-elevated text-ovr-text-strong"
+                                : "text-ovr-text-primary"
+                            }`}
+                            onClick={() => handleSelectFile(file)}
+                          >
+                            <span
+                              className={`w-3 shrink-0 text-center font-mono text-xs font-semibold ${style.color}`}
+                            >
+                              {style.label}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">
+                              {file.path.split("/").pop()}
+                            </span>
+                          </button>
+                        )
+                      })}
                   </div>
-                  {uncommittedFiles.map((file) => {
-                    const style = STATUS_STYLES[file.status] ?? STATUS_STYLES["?"]
-                    const isSelected =
-                      file.path === diffStore.selectedFile.path && file.isUncommitted
-                    return (
-                      <button
-                        key={`uncommitted-${file.status}-${file.path}`}
-                        className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-ovr-bg-elevated/50 ${
-                          isSelected
-                            ? "bg-ovr-bg-elevated text-ovr-text-strong"
-                            : "text-ovr-text-primary"
-                        }`}
-                        onClick={() => handleSelectFile(file)}
-                      >
-                        <span
-                          className={`w-3 shrink-0 text-center font-mono text-xs font-semibold ${style.color}`}
-                        >
-                          {style.label}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">
-                          {file.path.split("/").pop()}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </>
-              )}
+                )}
 
-              {/* Branch Changes Section */}
-              {branchFiles.length > 0 && (
-                <>
-                  <div className="sticky top-0 z-10 border-b border-ovr-border-subtle bg-ovr-bg-panel px-3 py-1.5 text-xs font-medium text-ovr-text-muted">
-                    Branch Changes
+                {/* Branch Changes Section */}
+                {branchFiles.length > 0 && (
+                  <div>
+                    <button
+                      onClick={() => setBranchCollapsed(!branchCollapsed)}
+                      className="sticky top-0 z-10 flex w-full cursor-pointer items-center gap-1.5 border-b border-ovr-border-subtle bg-ovr-bg-panel px-3 py-1.5 text-left text-xs font-medium text-ovr-text-muted hover:bg-ovr-bg-elevated/50"
+                    >
+                      {branchCollapsed ? (
+                        <ChevronRight className="size-3.5" />
+                      ) : (
+                        <ChevronDown className="size-3.5" />
+                      )}
+                      <span className="flex-1">Branch Changes</span>
+                      <span className="text-ovr-text-dim">{branchFiles.length}</span>
+                    </button>
+                    {!branchCollapsed &&
+                      branchFiles.map((file) => {
+                        const style = STATUS_STYLES[file.status] ?? STATUS_STYLES["?"]
+                        const isSelected =
+                          file.path === diffStore.selectedFile.path && !file.isUncommitted
+                        return (
+                          <button
+                            key={`branch-${file.status}-${file.path}`}
+                            className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-ovr-bg-elevated/50 ${
+                              isSelected
+                                ? "bg-ovr-bg-elevated text-ovr-text-strong"
+                                : "text-ovr-text-primary"
+                            }`}
+                            onClick={() => handleSelectFile(file)}
+                          >
+                            <span
+                              className={`w-3 shrink-0 text-center font-mono text-xs font-semibold ${style.color}`}
+                            >
+                              {style.label}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">
+                              {file.path.split("/").pop()}
+                            </span>
+                          </button>
+                        )
+                      })}
                   </div>
-                  {branchFiles.map((file) => {
-                    const style = STATUS_STYLES[file.status] ?? STATUS_STYLES["?"]
-                    const isSelected =
-                      file.path === diffStore.selectedFile.path && !file.isUncommitted
-                    return (
-                      <button
-                        key={`branch-${file.status}-${file.path}`}
-                        className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-ovr-bg-elevated/50 ${
-                          isSelected
-                            ? "bg-ovr-bg-elevated text-ovr-text-strong"
-                            : "text-ovr-text-primary"
-                        }`}
-                        onClick={() => handleSelectFile(file)}
-                      >
-                        <span
-                          className={`w-3 shrink-0 text-center font-mono text-xs font-semibold ${style.color}`}
-                        >
-                          {style.label}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">
-                          {file.path.split("/").pop()}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             {/* Diff content */}
-            <div className="flex min-h-0 flex-1 flex-col bg-ovr-bg-app">
+            <div className="flex min-h-0 flex-1 flex-col overflow-x-auto bg-ovr-bg-app">
               {diffStore.status === "loading" && (
                 <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
                   Loading diff...

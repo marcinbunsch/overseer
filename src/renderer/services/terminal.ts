@@ -64,11 +64,17 @@ class TerminalService {
   private decoder = new TextDecoder("utf-8")
 
   private getDefaultShell(): string {
-    const current = platform()
-    if (current === "windows") return "powershell.exe"
-    if (current === "macos") return "/bin/zsh"
-    if (current === "linux") return "/bin/bash"
-    return "sh"
+    try {
+      const current = platform()
+      if (current === "windows") return "powershell.exe"
+      if (current === "macos") return "/bin/zsh"
+      if (current === "linux") return "/bin/bash"
+      return "sh"
+    } catch {
+      // platform() fails in web mode (no Tauri OS plugin)
+      // Return a reasonable default - the PTY won't work anyway in web mode
+      return "/bin/sh"
+    }
   }
 
   async getOrCreate(workspacePath: string, workspaceRoot?: string): Promise<TerminalInstance> {
