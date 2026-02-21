@@ -47,6 +47,19 @@ More text here.`
       })
     })
 
+    it("parses action without newline before closing backticks (Codex format)", () => {
+      // Codex sometimes outputs the block without a newline before the closing backticks
+      const content = `\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "Codex style"}}\`\`\``
+
+      const blocks = parseOverseerBlocks(content)
+      expect(blocks).toHaveLength(1)
+      expect(blocks[0].action).toEqual({
+        action: "rename_chat",
+        params: { title: "Codex style" },
+      })
+    })
+
     it("parses multiple overseer blocks", () => {
       const content = `\`\`\`overseer
 {"action": "rename_chat", "params": {"title": "My Task"}}

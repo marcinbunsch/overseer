@@ -46,8 +46,9 @@ export interface ParsedOverseerBlock {
 /**
  * Regex to match ```overseer ... ``` blocks
  * Captures the JSON content inside
+ * The newline before closing backticks is optional (Codex sometimes omits it)
  */
-const OVERSEER_BLOCK_REGEX = /```overseer\s*\n([\s\S]*?)\n```/g
+const OVERSEER_BLOCK_REGEX = /```overseer\s*\n([\s\S]*?)\n?```/g
 
 /**
  * Parse all overseer action blocks from content
