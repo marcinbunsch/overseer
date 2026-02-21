@@ -19,7 +19,7 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
 
   const [showNewMessageIndicator, setShowNewMessageIndicator] = useState(false)
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottomImmediate = useCallback(() => {
     const container = containerRef.current
     if (!container) return
 
@@ -30,17 +30,24 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
     setShowNewMessageIndicator(false)
   }, [])
 
+  const scrollToBottom = useCallback(() => {
+    // Wait for React to render the new content before scrolling
+    // Double rAF ensures we're past both the React commit and browser paint
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollToBottomImmediate()
+      })
+    })
+  }, [scrollToBottomImmediate])
+
   const scrollToBottomIfCloseToBottom = useCallback(() => {
-    console.log("Checking if should auto-scroll to bottom...")
     const container = containerRef.current
     if (!container) return
 
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
     if (distanceFromBottom < SCROLL_THRESHOLD) {
-      console.log("Auto-scrolling to bottom...")
       scrollToBottom()
     } else {
-      console.log("Not auto-scrolling, user is not close to bottom")
       setShowNewMessageIndicator(true)
     }
   }, [scrollToBottom])
@@ -57,17 +64,19 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
         setShowNewMessageIndicator(false)
       }
     },
-    16,
+    16, // 60fps limit
     []
   )
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
+  useEffect(scrollToBottom, [])
   useEventBus("agent:messageSent", scrollToBottom)
   useEventBus("agent:messageReceived", scrollToBottomIfCloseToBottom)
 
   if (turns.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-ovr-text-muted">
-        Start a chat with Claude
+        Start a chat
       </div>
     )
   }
