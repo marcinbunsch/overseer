@@ -30,20 +30,20 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
     setShowNewMessageIndicator(false)
   }, [])
 
-  // const scrollToBottomIfCloseToBottom = useCallback(() => {
-  //   console.log("Checking if should auto-scroll to bottom...")
-  //   const container = containerRef.current
-  //   if (!container) return
+  const scrollToBottomIfCloseToBottom = useCallback(() => {
+    console.log("Checking if should auto-scroll to bottom...")
+    const container = containerRef.current
+    if (!container) return
 
-  //   const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-  //   if (distanceFromBottom < SCROLL_THRESHOLD) {
-  //     console.log("Auto-scrolling to bottom...")
-  //     scrollToBottom()
-  //   } else {
-  //     console.log("Not auto-scrolling, user is not close to bottom")
-  //     setShowNewMessageIndicator(true)
-  //   }
-  // }, [scrollToBottom])
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    if (distanceFromBottom < SCROLL_THRESHOLD) {
+      console.log("Auto-scrolling to bottom...")
+      scrollToBottom()
+    } else {
+      console.log("Not auto-scrolling, user is not close to bottom")
+      setShowNewMessageIndicator(true)
+    }
+  }, [scrollToBottom])
 
   const checkIfAtBottom = useDebouncedCallback(
     () => {
@@ -62,6 +62,7 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   )
 
   useEventBus("agent:messageSent", scrollToBottom)
+  useEventBus("agent:messageReceived", scrollToBottomIfCloseToBottom)
 
   if (turns.length === 0) {
     return (
