@@ -1482,6 +1482,110 @@ Final text.`,
       // Should NOT process overseer blocks from user messages
       expect(renameChatMock).not.toHaveBeenCalled()
     })
+
+    it("does not execute overseer actions when isReplaying is true (message event)", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      // Access private members for testing
+      const storePrivate = store as unknown as {
+        isReplaying: boolean
+        handleAgentEvent: (event: { kind: string; content?: string }) => void
+      }
+
+      // Set isReplaying to true (simulating loadFromDisk)
+      storePrivate.isReplaying = true
+
+      // Call handleAgentEvent with an overseer block
+      storePrivate.handleAgentEvent({
+        kind: "message",
+        content: `\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "Replayed Title"}}
+\`\`\`
+
+Some text here.`,
+      })
+
+      // The action should NOT be executed during replay
+      expect(renameChatMock).not.toHaveBeenCalled()
+
+      // But the message should still be added with the block stripped
+      expect(store.messages).toHaveLength(1)
+      expect(store.messages[0].content).toBe("Some text here.")
+    })
+
+    it("does not execute overseer actions when isReplaying is true (turnComplete)", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      // Access private members for testing
+      const storePrivate = store as unknown as {
+        isReplaying: boolean
+        handleAgentEvent: (event: { kind: string; content?: string }) => void
+      }
+
+      // Add an assistant message with an overseer block (simulating delta-streamed content)
+      runInAction(() => {
+        store.chat.messages.push({
+          id: "msg-1",
+          role: "assistant",
+          content: `\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "Delta Title"}}
+\`\`\`
+
+Streamed text.`,
+          timestamp: new Date(),
+        })
+      })
+
+      // Set isReplaying to true
+      storePrivate.isReplaying = true
+
+      runInAction(() => {
+        store.isSending = true
+        store.chat.status = "running"
+      })
+
+      // Trigger turnComplete which calls processOverseerBlocksFromRecentMessages
+      storePrivate.handleAgentEvent({ kind: "turnComplete" })
+
+      // The action should NOT be executed during replay
+      expect(renameChatMock).not.toHaveBeenCalled()
+
+      // The message content should still be cleaned
+      expect(store.messages[0].content).toBe("Streamed text.")
+    })
+
+    it("executes overseer actions when isReplaying is false (normal operation)", () => {
+      const renameChatMock = vi.fn()
+      const store = createChatStore(undefined, { renameChat: renameChatMock })
+
+      // Access private members for testing
+      const storePrivate = store as unknown as {
+        isReplaying: boolean
+        handleAgentEvent: (event: { kind: string; content?: string }) => void
+      }
+
+      // Ensure isReplaying is false (default)
+      expect(storePrivate.isReplaying).toBe(false)
+
+      // Call handleAgentEvent with an overseer block
+      storePrivate.handleAgentEvent({
+        kind: "message",
+        content: `\`\`\`overseer
+{"action": "rename_chat", "params": {"title": "Live Title"}}
+\`\`\`
+
+Live text.`,
+      })
+
+      // The action SHOULD be executed during normal operation
+      expect(renameChatMock).toHaveBeenCalledWith("test-chat-id", "Live Title")
+
+      // And the message should be added with the block stripped
+      expect(store.messages).toHaveLength(1)
+      expect(store.messages[0].content).toBe("Live text.")
+    })
   })
 
   describe("seq tracking and reconnection", () => {

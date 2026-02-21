@@ -89,6 +89,8 @@ export class ChatStore {
 
   private context: ChatStoreContext
   private sessionRegistered: boolean = false
+  /** True during loadFromDisk - prevents re-executing overseer actions on replay */
+  private isReplaying: boolean = false
 
   constructor(chat: Chat, context: ChatStoreContext) {
     this.chat = chat
@@ -529,9 +531,9 @@ export class ChatStore {
           break
 
         case "message": {
-          // Check for overseer action blocks and execute them
+          // Check for overseer action blocks and execute them (skip during replay)
           const { cleanContent, actions } = extractOverseerBlocks(event.content)
-          if (actions.length > 0) {
+          if (actions.length > 0 && !this.isReplaying) {
             this.executeOverseerActions(actions)
           }
           // Push the message (with or without the overseer blocks removed)
@@ -735,7 +737,10 @@ export class ChatStore {
       if (actions.length > 0) {
         // Update the message content to remove the overseer blocks
         msg.content = cleanContent
-        this.executeOverseerActions(actions)
+        // Only execute actions during live streaming, not replay
+        if (!this.isReplaying) {
+          this.executeOverseerActions(actions)
+        }
       }
     }
   }
@@ -911,12 +916,15 @@ export class ChatStore {
           }
         }
 
+        // Set replaying flag to prevent re-executing overseer actions
+        this.isReplaying = true
         for (const event of events) {
           const mapped = this.mapRustEvent(event)
           if (mapped) {
             this.handleAgentEvent(mapped)
           }
         }
+        this.isReplaying = false
 
         if (this.chat.agentSessionId && this.service) {
           this.service.setSessionId(this.chat.id, this.chat.agentSessionId)
