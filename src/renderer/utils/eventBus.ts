@@ -5,6 +5,8 @@
  * creating circular dependencies.
  */
 
+import { useEffect } from "react"
+
 type EventCallback<T = unknown> = (payload: T) => void
 
 interface EventMap {
@@ -14,6 +16,8 @@ interface EventMap {
   "overseer:open_diff_review": void
   "overseer:focus_chat_input": void
   "agent:turnComplete": { agentType: string; chatId: string }
+  "agent:messageSent": { agentType: string; chatId: string }
+  "agent:messageReceived": { agentType: string; chatId: string; messageId: string }
 }
 
 type EventName = keyof EventMap
@@ -52,3 +56,15 @@ class EventBus {
 }
 
 export const eventBus = new EventBus()
+
+export function useEventBus<K extends EventName>(
+  event: K,
+  callback: EventCallback<EventMap[K]>
+): void {
+  useEffect(() => {
+    const unsubscribe = eventBus.on(event, callback)
+    return () => {
+      unsubscribe()
+    }
+  }, [event, callback])
+}

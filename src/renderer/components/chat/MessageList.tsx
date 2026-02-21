@@ -1,7 +1,9 @@
 import { observer } from "mobx-react-lite"
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useRef, useState, useCallback, useEffect } from "react"
 import type { MessageTurn } from "../../types"
 import { TurnSection } from "./TurnSection"
+import { useEventBus } from "../../utils/eventBus"
+import { useDebouncedCallback } from "../../hooks/useDebuncedCallback"
 
 const TURNS_PER_PAGE = 10
 const SCROLL_THRESHOLD = 50 // px from bottom to consider "at bottom"
@@ -15,86 +17,51 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   const containerRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(TURNS_PER_PAGE)
 
-  const isInitialMount = useRef(true)
+  const [showNewMessageIndicator, setShowNewMessageIndicator] = useState(false)
 
-  const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null
-  const lastResultMessageId = lastTurn?.resultMessage?.id
-
-  // Check if user is at bottom of scroll
-  const checkIfAtBottom = useCallback(() => {
+  const scrollToBottom = useCallback(() => {
     const container = containerRef.current
-    if (!container) {
-      console.log("[MessageList] checkIfAtBottom: no container")
-      return false
-    }
+    if (!container) return
 
-    const { scrollHeight, scrollTop, clientHeight } = container
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight
-    const atBottom = distanceFromBottom <= SCROLL_THRESHOLD
-    console.log("[MessageList] checkIfAtBottom:", {
-      scrollHeight,
-      scrollTop,
-      clientHeight,
-      distanceFromBottom,
-      threshold: SCROLL_THRESHOLD,
-      atBottom,
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: "instant",
     })
-    return atBottom
+    setShowNewMessageIndicator(false)
   }, [])
 
-  // Auto-scroll to bottom if user is at bottom
-  const scrollToBottom = useCallback(() => {
-    const atBottom = checkIfAtBottom()
-    console.log("[MessageList] scrollToBottom: atBottom =", atBottom)
-    if (atBottom) {
-      console.log("[MessageList] scrollToBottom: scrolling to bottom")
-      bottomRef.current?.scrollIntoView({ behavior: "instant" })
-    } else {
-      console.log("[MessageList] scrollToBottom: skipping (user not at bottom)")
-    }
-  }, [checkIfAtBottom])
+  // const scrollToBottomIfCloseToBottom = useCallback(() => {
+  //   console.log("Checking if should auto-scroll to bottom...")
+  //   const container = containerRef.current
+  //   if (!container) return
 
-  // Auto-scroll when a turn completes (existing behavior)
-  useEffect(() => {
-    console.log("[MessageList] turn completion effect:", {
-      turnsLength: turns.length,
-      lastResultMessageId,
-    })
-    if (lastResultMessageId) {
-      console.log("[MessageList] turn completed: forcing scroll to bottom")
-      bottomRef.current?.scrollIntoView({ behavior: "instant" })
-    }
-  }, [turns.length, lastResultMessageId])
+  //   const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+  //   if (distanceFromBottom < SCROLL_THRESHOLD) {
+  //     console.log("Auto-scrolling to bottom...")
+  //     scrollToBottom()
+  //   } else {
+  //     console.log("Not auto-scrolling, user is not close to bottom")
+  //     setShowNewMessageIndicator(true)
+  //   }
+  // }, [scrollToBottom])
 
-  // Auto-scroll during streaming when content grows
-  useEffect(() => {
-    const bottom = bottomRef.current
-    if (!bottom) {
-      console.log("[MessageList] ResizeObserver: no bottomRef")
-      return
-    }
+  const checkIfAtBottom = useDebouncedCallback(
+    () => {
+      const container = containerRef.current
+      if (!container) return
 
-    const observer = new ResizeObserver((entries) => {
-      console.log("[MessageList] ResizeObserver triggered:", {
-        entryCount: entries.length,
-      })
-      if (isInitialMount.current) {
-        isInitialMount.current = false
-        console.log("[MessageList] ResizeObserver: initial mount, forcing scroll to bottom")
-        bottomRef.current?.scrollIntoView({ behavior: "instant" })
-      } else {
-        scrollToBottom()
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight
+      const shouldHide = distanceFromBottom < SCROLL_THRESHOLD
+      if (showNewMessageIndicator && shouldHide) {
+        setShowNewMessageIndicator(false)
       }
-    })
+    },
+    16,
+    []
+  )
 
-    console.log("[MessageList] ResizeObserver: starting observation")
-    observer.observe(bottom.parentElement!) // Observe the messages container
-
-    return () => {
-      console.log("[MessageList] ResizeObserver: disconnecting")
-      observer.disconnect()
-    }
-  }, [scrollToBottom])
+  useEventBus("agent:messageSent", scrollToBottom)
 
   if (turns.length === 0) {
     return (
@@ -108,7 +75,11 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   const visibleTurns = hiddenCount > 0 ? turns.slice(hiddenCount) : turns
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
+    <div
+      ref={containerRef}
+      className="flex-1 overflow-y-auto p-4"
+      onScroll={showNewMessageIndicator ? checkIfAtBottom : undefined}
+    >
       {hiddenCount > 0 && (
         <button
           onClick={() => setVisibleCount((c) => c + TURNS_PER_PAGE)}
@@ -120,6 +91,11 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
       {visibleTurns.map((turn) => (
         <TurnSection key={turn.userMessage.id} turn={turn} />
       ))}
+      {showNewMessageIndicator && (
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-ovr-bg-elevated text-ovr-text-primary px-4 py-2 rounded shadow">
+          New message
+        </div>
+      )}
       <div ref={bottomRef} />
     </div>
   )

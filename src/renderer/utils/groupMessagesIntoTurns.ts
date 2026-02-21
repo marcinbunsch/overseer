@@ -16,6 +16,9 @@ export function groupMessagesIntoTurns(messages: Message[], isSending: boolean):
   let currentTurn: MessageTurn | null = null
 
   for (const msg of messages) {
+    // Skip system messages
+    // if (msg.meta?.type === "system") continue
+
     if (msg.role === "user") {
       // Finalize the previous turn before starting a new one
       if (currentTurn) {
