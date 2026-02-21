@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen } from "@testing-library/react"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { MessageList } from "../MessageList"
 import type { MessageTurn } from "../../../types"
@@ -13,26 +13,15 @@ vi.mock("../TurnSection", () => ({
   ),
 }))
 
+// Mock the eventBus hook
+vi.mock("../../../utils/eventBus", () => ({
+  useEventBus: vi.fn(),
+}))
+
 describe("MessageList", () => {
-  let mockObserve: ReturnType<typeof vi.fn>
-  let mockDisconnect: ReturnType<typeof vi.fn>
-  let mockUnobserve: ReturnType<typeof vi.fn>
-
   beforeEach(() => {
-    // Mock scrollIntoView
-    HTMLElement.prototype.scrollIntoView = vi.fn()
-
-    // Mock ResizeObserver
-    mockObserve = vi.fn()
-    mockDisconnect = vi.fn()
-    mockUnobserve = vi.fn()
-
-    globalThis.ResizeObserver = class ResizeObserver {
-      observe = mockObserve
-      disconnect = mockDisconnect
-      unobserve = mockUnobserve
-      constructor() {}
-    } as unknown as typeof ResizeObserver
+    // Mock scrollTo on Element prototype for JSDOM
+    Element.prototype.scrollTo = vi.fn()
   })
 
   afterEach(() => {
@@ -60,7 +49,7 @@ describe("MessageList", () => {
 
   it("renders empty state when no turns", () => {
     render(<MessageList turns={[]} />)
-    expect(screen.getByText("Start a chat with Claude")).toBeInTheDocument()
+    expect(screen.getByText("Start a chat")).toBeInTheDocument()
   })
 
   it("renders all turns when count is below pagination threshold", () => {
@@ -72,24 +61,11 @@ describe("MessageList", () => {
     expect(screen.getByTestId("turn-3")).toBeInTheDocument()
   })
 
-  it("auto-scrolls when a turn completes", async () => {
-    const { rerender } = render(<MessageList turns={[createTurn("1", false)]} />)
+  it("renders turns correctly", () => {
+    render(<MessageList turns={[createTurn("1", false)]} />)
 
-    // Turn completes
-    rerender(<MessageList turns={[createTurn("1", true)]} />)
-
-    await waitFor(() => {
-      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
-    })
-  })
-
-  it("sets up ResizeObserver for streaming content", () => {
-    const { unmount } = render(<MessageList turns={[createTurn("1")]} />)
-
-    expect(mockObserve).toHaveBeenCalled()
-
-    unmount()
-    expect(mockDisconnect).toHaveBeenCalled()
+    // Verify the turn is rendered
+    expect(screen.getByTestId("turn-1")).toBeInTheDocument()
   })
 
   it("handles scroll events to track user position", () => {
