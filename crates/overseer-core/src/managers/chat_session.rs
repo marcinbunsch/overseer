@@ -613,4 +613,129 @@ mod tests {
             .unwrap();
         assert_eq!(seq, 4);
     }
+
+    // ------------------------------------------------------------------------
+    // Flush Behavior Tests
+    // ------------------------------------------------------------------------
+    //
+    // Events are buffered in memory for performance and flushed to disk when:
+    // 1. MAX_PENDING_EVENTS (10) is reached (count-based trigger)
+    // 2. FLUSH_INTERVAL (2s) has passed (time-based trigger - not tested)
+    // 3. Session is unregistered (explicit flush)
+
+    #[test]
+    fn flush_triggers_at_max_pending_events() {
+        // After 10 events, the buffer should auto-flush to disk.
+        // We verify this by checking the JSONL file exists after 10 appends.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        let jsonl_path = test_dir
+            .path()
+            .join("chats/test-project/test-workspace/chat-123.jsonl");
+
+        // Append 9 events - should NOT trigger flush yet
+        for i in 0..9 {
+            manager
+                .append_event("chat-123", sample_user_message(&format!("Message {}", i)))
+                .unwrap();
+        }
+        assert!(!jsonl_path.exists(), "Should not flush before 10 events");
+
+        // 10th event should trigger flush
+        manager
+            .append_event("chat-123", sample_user_message("Message 10"))
+            .unwrap();
+        assert!(jsonl_path.exists(), "Should flush at 10 events");
+    }
+
+    #[test]
+    fn flush_creates_file_on_first_write() {
+        // The JSONL file is created lazily - only when we actually flush.
+        // This avoids creating empty files for sessions with no events.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        let jsonl_path = test_dir
+            .path()
+            .join("chats/test-project/test-workspace/chat-123.jsonl");
+
+        // Before any events, no JSONL file
+        assert!(!jsonl_path.exists());
+
+        // Append and flush
+        manager
+            .append_event("chat-123", sample_user_message("Hello"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap();
+
+        // Now the file should exist
+        assert!(jsonl_path.exists());
+    }
+
+    #[test]
+    fn flush_appends_to_existing_file() {
+        // Multiple flushes should append, not overwrite.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata.clone(),
+            )
+            .unwrap();
+
+        // First batch
+        manager
+            .append_event("chat-123", sample_user_message("First"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap();
+
+        // Re-register and add more
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("Second"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap();
+
+        // Should have 2 events total
+        let events = manager
+            .load_events("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(events.len(), 2);
+    }
 }
