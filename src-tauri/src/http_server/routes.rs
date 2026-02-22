@@ -129,44 +129,51 @@ pub async fn invoke_handler(
         // =====================================================================
         // AGENTS (Codex, Copilot, Gemini, OpenCode) - Not yet implemented
         // =====================================================================
-        "start_codex_server" | "stop_codex_server" | "codex_stdin" |
-        "start_copilot_server" | "stop_copilot_server" | "copilot_stdin" |
-        "start_gemini_server" | "stop_gemini_server" | "gemini_stdin" |
-        "start_opencode_server" | "stop_opencode_server" | "get_opencode_port" |
-        "get_opencode_password" | "opencode_get_models" | "opencode_list_models" |
-        "opencode_subscribe_events" | "opencode_unsubscribe_events" => {
-            (
-                StatusCode::NOT_IMPLEMENTED,
-                Json(InvokeResponse {
-                    success: false,
-                    data: None,
-                    error: Some(format!(
-                        "Command '{}' is not yet available via HTTP. \
+        "start_codex_server"
+        | "stop_codex_server"
+        | "codex_stdin"
+        | "start_copilot_server"
+        | "stop_copilot_server"
+        | "copilot_stdin"
+        | "start_gemini_server"
+        | "stop_gemini_server"
+        | "gemini_stdin"
+        | "start_opencode_server"
+        | "stop_opencode_server"
+        | "get_opencode_port"
+        | "get_opencode_password"
+        | "opencode_get_models"
+        | "opencode_list_models"
+        | "opencode_subscribe_events"
+        | "opencode_unsubscribe_events" => (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(format!(
+                    "Command '{}' is not yet available via HTTP. \
                         Other agent backends need similar refactoring to Claude.",
-                        command
-                    )),
-                }),
-            )
-        }
+                    command
+                )),
+            }),
+        ),
 
         // =====================================================================
         // PTY
         // =====================================================================
         // PTY commands require native process management
-        "pty_spawn" | "pty_write" | "pty_resize" | "pty_kill" => {
-            (
-                StatusCode::NOT_IMPLEMENTED,
-                Json(InvokeResponse {
-                    success: false,
-                    data: None,
-                    error: Some(format!(
-                        "Command '{}' requires native PTY management and is not available via HTTP. \
+        "pty_spawn" | "pty_write" | "pty_resize" | "pty_kill" => (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(format!(
+                    "Command '{}' requires native PTY management and is not available via HTTP. \
                         Terminal commands must be run from the Tauri desktop client.",
-                        command
-                    )),
-                }),
-            )
-        }
+                    command
+                )),
+            }),
+        ),
 
         // =====================================================================
         // UTILITIES
@@ -178,37 +185,33 @@ pub async fn invoke_handler(
         "extract_overseer_blocks_cmd" => dispatch_extract_overseer_blocks(request.args).await,
 
         // open_external, show_main_window require native window management
-        "open_external" | "show_main_window" => {
-            (
-                StatusCode::NOT_IMPLEMENTED,
-                Json(InvokeResponse {
-                    success: false,
-                    data: None,
-                    error: Some(format!(
-                        "Command '{}' requires native window management and is not available via HTTP.",
-                        command
-                    )),
-                }),
-            )
-        }
+        "open_external" | "show_main_window" => (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(format!(
+                    "Command '{}' requires native window management and is not available via HTTP.",
+                    command
+                )),
+            }),
+        ),
 
         // fetch_claude_usage is an async network call that works fine via HTTP
         "fetch_claude_usage" => dispatch_fetch_claude_usage().await,
 
         // HTTP server commands (these wouldn't make sense via HTTP)
-        "start_http_server" | "stop_http_server" | "get_http_server_status" => {
-            (
-                StatusCode::NOT_IMPLEMENTED,
-                Json(InvokeResponse {
-                    success: false,
-                    data: None,
-                    error: Some(format!(
-                        "Command '{}' manages the HTTP server itself and cannot be called via HTTP.",
-                        command
-                    )),
-                }),
-            )
-        }
+        "start_http_server" | "stop_http_server" | "get_http_server_status" => (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(format!(
+                    "Command '{}' manages the HTTP server itself and cannot be called via HTTP.",
+                    command
+                )),
+            }),
+        ),
 
         // Debug utility
         "echo" => (
@@ -2720,9 +2723,16 @@ async fn dispatch_add_approval(
         }
     };
 
-    let is_prefix = args.get("isPrefix").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_prefix = args
+        .get("isPrefix")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
-    match state.context.approval_manager.add_approval(project_name, tool_or_prefix, is_prefix) {
+    match state
+        .context
+        .approval_manager
+        .add_approval(project_name, tool_or_prefix, is_prefix)
+    {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -2774,9 +2784,16 @@ async fn dispatch_remove_approval(
         }
     };
 
-    let is_prefix = args.get("isPrefix").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_prefix = args
+        .get("isPrefix")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
-    match state.context.approval_manager.remove_approval(project_name, tool_or_prefix, is_prefix) {
+    match state
+        .context
+        .approval_manager
+        .remove_approval(project_name, tool_or_prefix, is_prefix)
+    {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -2899,7 +2916,12 @@ async fn dispatch_register_chat_session(
             }
         };
 
-    match state.context.chat_sessions.register_session(chat_id, project_name, workspace_name, metadata) {
+    match state.context.chat_sessions.register_session(
+        chat_id,
+        project_name,
+        workspace_name,
+        metadata,
+    ) {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -3056,7 +3078,11 @@ async fn dispatch_load_chat_events(
         }
     };
 
-    match state.context.chat_sessions.load_events(project_name, workspace_name, chat_id) {
+    match state
+        .context
+        .chat_sessions
+        .load_events(project_name, workspace_name, chat_id)
+    {
         Ok(events) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -3206,11 +3232,12 @@ async fn dispatch_load_chat_events_since_seq(
         }
     };
 
-    match state
-        .context
-        .chat_sessions
-        .load_events_since_seq(project_name, workspace_name, chat_id, since_seq)
-    {
+    match state.context.chat_sessions.load_events_since_seq(
+        project_name,
+        workspace_name,
+        chat_id,
+        since_seq,
+    ) {
         Ok(events) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -3276,7 +3303,11 @@ async fn dispatch_load_chat_metadata(
         }
     };
 
-    match state.context.chat_sessions.load_metadata(project_name, workspace_name, chat_id) {
+    match state
+        .context
+        .chat_sessions
+        .load_metadata(project_name, workspace_name, chat_id)
+    {
         Ok(metadata) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -3343,7 +3374,11 @@ async fn dispatch_save_chat_metadata(
             }
         };
 
-    match state.context.chat_sessions.save_metadata(project_name, workspace_name, metadata) {
+    match state
+        .context
+        .chat_sessions
+        .save_metadata(project_name, workspace_name, metadata)
+    {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -3397,7 +3432,11 @@ async fn dispatch_add_user_message(
 
     let meta = args.get("meta").cloned();
 
-    match state.context.chat_sessions.add_user_message(chat_id, content, meta) {
+    match state
+        .context
+        .chat_sessions
+        .add_user_message(chat_id, content, meta)
+    {
         Ok(event) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -3486,7 +3525,9 @@ async fn dispatch_check_command_exists(
     // Run command check in a blocking task
     let result = tokio::task::spawn_blocking(move || {
         let run_command = |args: Vec<String>| -> Result<std::process::Output, String> {
-            let mut cmd = match overseer_core::shell::build_login_shell_command(&command, &args, None, None) {
+            let mut cmd = match overseer_core::shell::build_login_shell_command(
+                &command, &args, None, None,
+            ) {
                 Ok(c) => c,
                 Err(e) => return Err(e),
             };
@@ -3573,7 +3614,8 @@ async fn dispatch_extract_overseer_blocks(
         }
     };
 
-    let (clean_content, actions) = overseer_core::overseer_actions::extract_overseer_blocks(content);
+    let (clean_content, actions) =
+        overseer_core::overseer_actions::extract_overseer_blocks(content);
 
     (
         StatusCode::OK,
@@ -3674,7 +3716,11 @@ async fn dispatch_agent_stdin(
         }
     };
 
-    match state.context.claude_agents.write_stdin(conversation_id, data) {
+    match state
+        .context
+        .claude_agents
+        .write_stdin(conversation_id, data)
+    {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {

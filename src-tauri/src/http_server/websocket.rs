@@ -197,7 +197,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<HttpSharedState>) {
                         let subs = subscriptions.lock().unwrap();
                         // No subscriptions = send everything (useful for debugging)
                         // With subscriptions = only send matching events
-                        subs.is_empty() || subs.iter().any(|pattern| matches_pattern(&event.event_type, pattern))
+                        subs.is_empty()
+                            || subs
+                                .iter()
+                                .any(|pattern| matches_pattern(&event.event_type, pattern))
                     };
 
                     if should_send {

@@ -172,13 +172,7 @@ impl GeminiAgentManager {
                         event_bus.emit(&format!("gemini:stderr:{}", sid), &line);
                     }
                     ProcessEvent::Exit(exit) => {
-                        flush_and_emit(
-                            &parser_arc,
-                            &chat_sessions,
-                            &event_bus,
-                            &sid,
-                            &process_arc,
-                        );
+                        flush_and_emit(&parser_arc, &chat_sessions, &event_bus, &sid, &process_arc);
                         event_bus.emit(&format!("gemini:close:{}", sid), &exit);
                         break;
                     }
@@ -186,13 +180,7 @@ impl GeminiAgentManager {
             }
 
             // Channel closed without Exit event - emit close anyway
-            flush_and_emit(
-                &parser_arc,
-                &chat_sessions,
-                &event_bus,
-                &sid,
-                &process_arc,
-            );
+            flush_and_emit(&parser_arc, &chat_sessions, &event_bus, &sid, &process_arc);
             event_bus.emit(
                 &format!("gemini:close:{}", sid),
                 &AgentExit {

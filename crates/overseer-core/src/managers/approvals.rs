@@ -98,10 +98,7 @@ impl ProjectApprovalManager {
                 }
             }
         } else {
-            log::warn!(
-                "No project dir for '{}', using empty context",
-                project_name
-            );
+            log::warn!("No project dir for '{}', using empty context", project_name);
             ApprovalContext::new()
         };
 
@@ -292,11 +289,7 @@ mod tests {
             .unwrap();
 
         // Now should be approved
-        assert!(manager.should_auto_approve(
-            "test-project",
-            "Bash",
-            &["pnpm install".to_string()]
-        ));
+        assert!(manager.should_auto_approve("test-project", "Bash", &["pnpm install".to_string()]));
     }
 
     #[test]
@@ -327,11 +320,7 @@ mod tests {
         manager
             .add_approval("test-project", "pnpm install", true)
             .unwrap();
-        assert!(manager.should_auto_approve(
-            "test-project",
-            "Bash",
-            &["pnpm install".to_string()]
-        ));
+        assert!(manager.should_auto_approve("test-project", "Bash", &["pnpm install".to_string()]));
 
         // Remove and verify
         manager
@@ -359,11 +348,7 @@ mod tests {
             .unwrap();
 
         // Verify they work
-        assert!(manager.should_auto_approve(
-            "test-project",
-            "Bash",
-            &["pnpm install".to_string()]
-        ));
+        assert!(manager.should_auto_approve("test-project", "Bash", &["pnpm install".to_string()]));
         assert!(manager.should_auto_approve("test-project", "Write", &[]));
 
         // Clear all
