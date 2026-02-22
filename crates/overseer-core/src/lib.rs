@@ -28,6 +28,10 @@ pub mod shell;
 pub mod spawn;
 pub mod usage;
 
+// Test support module - only compiled during tests
+#[cfg(test)]
+pub mod test_support;
+
 // Re-export commonly used types
 pub use agents::event::AgentEvent;
 pub use approval::ApprovalContext;
