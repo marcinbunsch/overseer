@@ -487,12 +487,6 @@ impl MockEventBus {
     }
 }
 
-impl Default for MockEventBus {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 // ============================================================================
 // MOCK APPROVAL MANAGER - Configurable approval responses
 // ============================================================================
