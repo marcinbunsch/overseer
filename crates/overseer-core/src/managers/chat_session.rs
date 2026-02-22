@@ -491,4 +491,126 @@ mod tests {
         let result = manager.unregister_session("unknown-session");
         assert!(result.is_ok());
     }
+
+    // ------------------------------------------------------------------------
+    // Event Appending Tests
+    // ------------------------------------------------------------------------
+    //
+    // Events are appended to sessions and buffered in memory until flushed.
+    // Each event gets a sequence number (1-indexed line number in the JSONL).
+
+    #[test]
+    fn append_event_to_registered_session() {
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Append should succeed for registered sessions
+        let event = sample_user_message("Hello!");
+        let result = manager.append_event("chat-123", event);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn append_event_to_unregistered_session_fails() {
+        // Can't append to sessions we don't know about - forces explicit
+        // registration which ensures metadata is saved first.
+        let manager = ChatSessionManager::new();
+
+        let event = sample_user_message("Hello!");
+        let result = manager.append_event("unknown-chat", event);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not registered"));
+    }
+
+    #[test]
+    fn append_event_returns_sequential_seq_numbers() {
+        // Sequence numbers start at 1 and increment for each event.
+        // These correspond to line numbers in the JSONL file.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Each append should return incrementing seq numbers
+        let seq1 = manager
+            .append_event_with_seq("chat-123", sample_user_message("First"))
+            .unwrap();
+        let seq2 = manager
+            .append_event_with_seq("chat-123", sample_user_message("Second"))
+            .unwrap();
+        let seq3 = manager
+            .append_event_with_seq("chat-123", sample_user_message("Third"))
+            .unwrap();
+
+        assert_eq!(seq1, 1);
+        assert_eq!(seq2, 2);
+        assert_eq!(seq3, 3);
+    }
+
+    #[test]
+    fn append_event_seq_starts_from_existing_count() {
+        // When resuming a session, seq should continue from where we left off.
+        // This test writes events, re-registers, and verifies seq continues.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+
+        // First session: append 3 events and flush
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata.clone(),
+            )
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("One"))
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("Two"))
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("Three"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap(); // Flushes to disk
+
+        // Re-register the same session (simulates app restart)
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Next seq should be 4 (continuing from the 3 existing events)
+        let seq = manager
+            .append_event_with_seq("chat-123", sample_user_message("Four"))
+            .unwrap();
+        assert_eq!(seq, 4);
+    }
 }
