@@ -25,13 +25,13 @@ function formatMessage(message: Message): string {
       return ""
     }
 
-    // Meta messages (like plan reviews) - show label, right-aligned blockquote
+    // Meta messages (like plan reviews) - show label
     if (message.meta) {
-      return `<div align="right"><blockquote>\n\n**${message.meta.label}**\n\n${message.content}\n\n</blockquote></div>\n`
+      return `> **${message.meta.label}:** ${message.content}\n`
     }
 
-    // Regular user message - right-aligned blockquote
-    return `<div align="right"><blockquote>\n\n${message.content}\n\n</blockquote></div>\n`
+    // Regular user message - blockquote with Me: prefix
+    return `> **Me:** ${message.content}\n`
   }
 
   // Assistant messages

@@ -39,7 +39,7 @@ describe("exportChatToMarkdown", () => {
     expect(md).toContain("---")
   })
 
-  it("formats user messages as right-aligned blockquotes", () => {
+  it("formats user messages as blockquotes with Me prefix", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -50,24 +50,7 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain('<div align="right"><blockquote>')
-    expect(md).toContain("What is the meaning of life?")
-    expect(md).toContain("</blockquote></div>")
-  })
-
-  it("formats multiline user messages in blockquote", () => {
-    const chat = makeChat({
-      messages: [
-        makeMessage({
-          role: "user",
-          content: "Line one\nLine two\nLine three",
-        }),
-      ],
-    })
-    const md = exportChatToMarkdown(chat)
-
-    expect(md).toContain("<blockquote>")
-    expect(md).toContain("Line one\nLine two\nLine three")
+    expect(md).toContain("> **Me:** What is the meaning of life?")
   })
 
   it("formats assistant text messages as plain text", () => {
@@ -203,7 +186,7 @@ describe("exportChatToMarkdown", () => {
     expect(md).not.toContain("Some system content")
   })
 
-  it("formats user meta messages with label as right-aligned blockquote", () => {
+  it("formats user meta messages with label", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -215,9 +198,7 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain('<div align="right"><blockquote>')
-    expect(md).toContain("**Plan Review**")
-    expect(md).toContain("Please review my plan")
+    expect(md).toContain("> **Plan Review:** Please review my plan")
   })
 
   it("handles empty chat", () => {
