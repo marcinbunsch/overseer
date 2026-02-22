@@ -876,4 +876,78 @@ mod tests {
             .unwrap();
         assert_eq!(loaded.id, "chat-123");
     }
+
+    // ------------------------------------------------------------------------
+    // Edge Cases Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn add_user_message_generates_uuid_and_timestamp() {
+        // add_user_message is a convenience method that generates the UUID
+        // and timestamp automatically. Verify these fields are populated.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        let event = manager
+            .add_user_message("chat-123", "Hello!".to_string(), None)
+            .unwrap();
+
+        // Destructure the event to verify fields
+        if let AgentEvent::UserMessage { id, timestamp, .. } = event {
+            // UUID should be 36 chars (8-4-4-4-12 with dashes)
+            assert_eq!(id.len(), 36);
+            // Timestamp should be recent (within last minute)
+            let now = Utc::now();
+            let diff = now.signed_duration_since(timestamp);
+            assert!(diff.num_seconds() < 60);
+        } else {
+            panic!("Expected UserMessage event");
+        }
+    }
+
+    #[test]
+    fn config_dir_not_set_returns_error() {
+        // If config_dir isn't set, operations that need it should fail
+        // with a clear error message.
+        let manager = ChatSessionManager::new();
+        // Don't call set_config_dir
+
+        let result = manager.load_events("project", "workspace", "chat-123");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not set"));
+    }
+
+    #[test]
+    fn save_metadata_without_session_works() {
+        // save_metadata is a standalone operation - doesn't require
+        // the session to be registered. Useful for updating metadata
+        // like title after the fact.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-456");
+
+        // Save without registering session first
+        let result =
+            manager.save_metadata("test-project", "test-workspace", metadata);
+        assert!(result.is_ok());
+
+        // Should be loadable
+        let loaded = manager
+            .load_metadata("test-project", "test-workspace", "chat-456")
+            .unwrap();
+        assert_eq!(loaded.id, "chat-456");
+    }
 }
