@@ -48,6 +48,10 @@ My learning journal for this codebase. **Rules** are patterns I must follow. **M
 - **Don't overthink working solutions** — If user provides a working shell command, use it exactly. Don't try to "improve" by removing dependencies or using alternatives.
 - **Platform-specific features** — Use `#[cfg(target_os = "macos")]` in Rust. Frontend should detect unsupported platforms once and gracefully disable the feature (use `isSupported` flag pattern).
 
+### Rust
+
+- **Small bites with context** — When writing Rust code, make changes incrementally with explanations. The user is learning Rust, so explain concepts, idioms, and the "why" behind patterns as you go.
+
 ### Code Style
 
 - **Never use nested ternaries** — Extract logic into utility functions or use switch statements. Nested ternaries are unreadable. Example: `getAgentDisplayName(agentType)` instead of `agentType === "codex" ? "Codex" : agentType === "copilot" ? "Copilot" : ...`
