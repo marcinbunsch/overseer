@@ -364,4 +364,131 @@ mod tests {
         let result = ChatSessionManager::validate_path_component("my_project-1");
         assert!(result.is_ok());
     }
+
+    // ------------------------------------------------------------------------
+    // Session Lifecycle Tests
+    // ------------------------------------------------------------------------
+    //
+    // These tests verify session registration, unregistration, and the
+    // interactions between them. Sessions are the core abstraction for
+    // tracking active chats.
+
+    #[test]
+    fn register_session_creates_metadata_file() {
+        // TestChatDir creates a temp directory that auto-deletes when dropped.
+        // This is a common Rust pattern for test cleanup - use RAII (Resource
+        // Acquisition Is Initialization) to tie cleanup to scope exit.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+
+        // Register should succeed and create the metadata file
+        let result = manager.register_session(
+            "chat-123".to_string(),
+            "test-project".to_string(),
+            "test-workspace".to_string(),
+            metadata,
+        );
+        assert!(result.is_ok());
+
+        // Verify metadata file exists on disk
+        let metadata_path = test_dir
+            .path()
+            .join("chats/test-project/test-workspace/chat-123.meta.json");
+        assert!(metadata_path.exists(), "Metadata file should be created");
+    }
+
+    #[test]
+    fn register_session_with_mismatched_id_fails() {
+        // The metadata.id must match the chat_id parameter - this prevents
+        // accidentally saving metadata to the wrong file.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("different-id");
+
+        let result = manager.register_session(
+            "chat-123".to_string(), // Different from metadata.id!
+            "test-project".to_string(),
+            "test-workspace".to_string(),
+            metadata,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not match"));
+    }
+
+    #[test]
+    fn register_session_twice_is_idempotent() {
+        // Double-registering the same session shouldn't error - this can
+        // happen if the UI reconnects or reloads.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+
+        // First registration
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata.clone(),
+            )
+            .unwrap();
+
+        // Second registration - should succeed (idempotent)
+        let result = manager.register_session(
+            "chat-123".to_string(),
+            "test-project".to_string(),
+            "test-workspace".to_string(),
+            metadata,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unregister_session_flushes_pending_events() {
+        // When a session is unregistered (user closes chat), we must flush
+        // any buffered events to disk to avoid data loss.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Append an event (won't auto-flush because we're under MAX_PENDING_EVENTS)
+        let event = sample_user_message("Hello!");
+        manager.append_event("chat-123", event).unwrap();
+
+        // Unregister should flush to disk
+        manager.unregister_session("chat-123").unwrap();
+
+        // Verify event was persisted
+        let events = manager
+            .load_events("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn unregister_nonexistent_session_returns_ok() {
+        // Unregistering an unknown session shouldn't error - makes cleanup
+        // code simpler (no need to check if session exists first).
+        let manager = ChatSessionManager::new();
+
+        let result = manager.unregister_session("unknown-session");
+        assert!(result.is_ok());
+    }
 }
