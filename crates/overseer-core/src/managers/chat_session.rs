@@ -738,4 +738,142 @@ mod tests {
             .unwrap();
         assert_eq!(events.len(), 2);
     }
+
+    // ------------------------------------------------------------------------
+    // Loading Events Tests
+    // ------------------------------------------------------------------------
+    //
+    // These tests verify that events can be persisted and loaded back
+    // correctly (round-trip testing).
+
+    #[test]
+    fn load_events_returns_persisted_events() {
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Add events and flush
+        manager
+            .append_event("chat-123", sample_user_message("Hello"))
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("World"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap();
+
+        // Load and verify
+        let events = manager
+            .load_events("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(events.len(), 2);
+
+        // Verify event content by matching on the enum variant
+        // In Rust, we use `if let` or `match` to destructure enums
+        if let AgentEvent::UserMessage { content, .. } = &events[0] {
+            assert_eq!(content, "Hello");
+        } else {
+            panic!("Expected UserMessage event");
+        }
+    }
+
+    #[test]
+    fn load_events_with_seq_returns_seq_numbers() {
+        // load_events_with_seq returns SeqEvent which includes the line number
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        manager
+            .append_event("chat-123", sample_user_message("First"))
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("Second"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap();
+
+        // Load with seq numbers
+        let seq_events = manager
+            .load_events_with_seq("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(seq_events.len(), 2);
+        assert_eq!(seq_events[0].seq, 1);
+        assert_eq!(seq_events[1].seq, 2);
+    }
+
+    #[test]
+    fn load_events_since_seq_filters_correctly() {
+        // load_events_since_seq is used for incremental sync - only get new events
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Add 5 events
+        for i in 1..=5 {
+            manager
+                .append_event("chat-123", sample_user_message(&format!("Message {}", i)))
+                .unwrap();
+        }
+        manager.unregister_session("chat-123").unwrap();
+
+        // Load events since seq 3 (should get events 4 and 5)
+        let events = manager
+            .load_events_since_seq("test-project", "test-workspace", "chat-123", 3)
+            .unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].seq, 4);
+        assert_eq!(events[1].seq, 5);
+    }
+
+    #[test]
+    fn load_metadata_returns_saved_metadata() {
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Load metadata back
+        let loaded = manager
+            .load_metadata("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(loaded.id, "chat-123");
+    }
 }
