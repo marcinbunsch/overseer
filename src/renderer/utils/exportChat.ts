@@ -25,13 +25,13 @@ function formatMessage(message: Message): string {
       return ""
     }
 
-    // Meta messages (like plan reviews) - show label, right-aligned
+    // Meta messages (like plan reviews) - show label, right-aligned blockquote
     if (message.meta) {
-      return `<div align="right">\n\n**${message.meta.label}**\n\n${message.content}\n\n</div>\n`
+      return `<div align="right">\n\n> **${message.meta.label}**\n>\n${quoteContent(message.content)}\n\n</div>\n`
     }
 
-    // Regular user message - right-aligned
-    return `<div align="right">\n\n${message.content}\n\n</div>\n`
+    // Regular user message - right-aligned blockquote
+    return `<div align="right">\n\n${quoteContent(message.content)}\n\n</div>\n`
   }
 
   // Assistant messages
@@ -58,6 +58,16 @@ function formatMessage(message: Message): string {
 
   // Plain assistant text
   return `${message.content}\n`
+}
+
+/**
+ * Quote content (each line prefixed with >)
+ */
+function quoteContent(content: string): string {
+  return content
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n")
 }
 
 /**
