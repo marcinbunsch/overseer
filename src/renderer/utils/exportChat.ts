@@ -15,7 +15,7 @@ import { parseToolCall } from "../components/chat/tools/parseToolCall"
 
 /**
  * Format a single message to markdown.
- * User messages are right-aligned (blockquote), assistant messages are plain.
+ * User messages are right-aligned (HTML), assistant messages are plain.
  */
 function formatMessage(message: Message): string {
   // User messages
@@ -25,13 +25,13 @@ function formatMessage(message: Message): string {
       return ""
     }
 
-    // Meta messages (like plan reviews) - show label
+    // Meta messages (like plan reviews) - show label, right-aligned
     if (message.meta) {
-      return `> **${message.meta.label}**\n>\n${quoteContent(message.content)}\n`
+      return `<div align="right">\n\n**${message.meta.label}**\n\n${message.content}\n\n</div>\n`
     }
 
-    // Regular user message - blockquoted
-    return `${quoteContent(message.content)}\n`
+    // Regular user message - right-aligned
+    return `<div align="right">\n\n${message.content}\n\n</div>\n`
   }
 
   // Assistant messages
@@ -58,16 +58,6 @@ function formatMessage(message: Message): string {
 
   // Plain assistant text
   return `${message.content}\n`
-}
-
-/**
- * Quote content for user messages (each line prefixed with >)
- */
-function quoteContent(content: string): string {
-  return content
-    .split("\n")
-    .map((line) => `> ${line}`)
-    .join("\n")
 }
 
 /**
