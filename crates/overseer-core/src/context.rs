@@ -215,11 +215,11 @@ impl OverseerContext {
 
     /// Get the chats directory for a project/workspace.
     pub fn get_chat_dir(&self, project_name: &str, workspace_name: &str) -> Option<PathBuf> {
-        self.config_dir.read().unwrap().as_ref().map(|dir| {
-            dir.join("chats")
-                .join(project_name)
-                .join(workspace_name)
-        })
+        self.config_dir
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|dir| dir.join("chats").join(project_name).join(workspace_name))
     }
 
     /// Get the project directory for approvals.

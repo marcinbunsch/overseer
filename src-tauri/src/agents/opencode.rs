@@ -4,9 +4,7 @@
 //! All business logic lives in overseer-core; this module just exposes Tauri commands.
 
 use crate::OverseerContextState;
-use overseer_core::managers::{
-    opencode_list_models_cli, OpenCodeModel, OpenCodeStartConfig,
-};
+use overseer_core::managers::{opencode_list_models_cli, OpenCodeModel, OpenCodeStartConfig};
 use std::sync::Arc;
 
 /// Start an `opencode serve` process for a given server_id.
@@ -29,10 +27,10 @@ pub fn start_opencode_server(
         agent_shell,
     };
 
-    let info = context_state.0.opencode_agents.start(
-        config,
-        Arc::clone(&context_state.0.event_bus),
-    )?;
+    let info = context_state
+        .0
+        .opencode_agents
+        .start(config, Arc::clone(&context_state.0.event_bus))?;
 
     // Return JSON with port and password
     Ok(format!(
@@ -98,7 +96,10 @@ pub fn opencode_unsubscribe_events(
     context_state: tauri::State<OverseerContextState>,
     server_id: String,
 ) -> Result<(), String> {
-    context_state.0.opencode_agents.unsubscribe_events(&server_id);
+    context_state
+        .0
+        .opencode_agents
+        .unsubscribe_events(&server_id);
     Ok(())
 }
 

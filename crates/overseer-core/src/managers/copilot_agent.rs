@@ -185,8 +185,7 @@ impl CopilotAgentManager {
                         for pending in pending_requests {
                             if pending.method == "session/request_permission" {
                                 // Auto-accept permission requests
-                                let response =
-                                    build_approval_response(&pending.id.to_string());
+                                let response = build_approval_response(&pending.id.to_string());
                                 log_line(&log_file, "STDIN", &response);
                                 if let Ok(guard) = process_arc.lock() {
                                     if let Some(ref process) = *guard {
@@ -223,13 +222,7 @@ impl CopilotAgentManager {
                         event_bus.emit(&format!("copilot:stderr:{}", sid), &line);
                     }
                     ProcessEvent::Exit(exit) => {
-                        flush_and_emit(
-                            &parser_arc,
-                            &chat_sessions,
-                            &event_bus,
-                            &sid,
-                            &process_arc,
-                        );
+                        flush_and_emit(&parser_arc, &chat_sessions, &event_bus, &sid, &process_arc);
                         event_bus.emit(&format!("copilot:close:{}", sid), &exit);
                         break;
                     }
@@ -237,13 +230,7 @@ impl CopilotAgentManager {
             }
 
             // Channel closed without Exit event - emit close anyway
-            flush_and_emit(
-                &parser_arc,
-                &chat_sessions,
-                &event_bus,
-                &sid,
-                &process_arc,
-            );
+            flush_and_emit(&parser_arc, &chat_sessions, &event_bus, &sid, &process_arc);
             event_bus.emit(
                 &format!("copilot:close:{}", sid),
                 &AgentExit {

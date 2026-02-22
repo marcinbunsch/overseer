@@ -17,8 +17,8 @@ use crate::persistence::chat_jsonl::{
     count_events, load_chat_events as load_chat_events_jsonl,
     load_chat_events_since_seq as load_events_since_seq_jsonl,
     load_chat_events_with_seq as load_events_with_seq_jsonl,
-    load_chat_metadata as load_chat_metadata_jsonl,
-    save_chat_metadata as save_chat_metadata_jsonl, serialize_event_for_storage, SeqEvent,
+    load_chat_metadata as load_chat_metadata_jsonl, save_chat_metadata as save_chat_metadata_jsonl,
+    serialize_event_for_storage, SeqEvent,
 };
 use crate::persistence::types::ChatMetadata;
 

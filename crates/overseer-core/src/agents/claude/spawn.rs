@@ -17,7 +17,9 @@ pub struct ClaudeConfig {
 impl ClaudeConfig {
     /// Build a SpawnConfig for Claude CLI.
     pub fn build(self) -> SpawnConfig {
-        let mode = self.permission_mode.unwrap_or_else(|| "default".to_string());
+        let mode = self
+            .permission_mode
+            .unwrap_or_else(|| "default".to_string());
         let mut args = vec![
             "--output-format".to_string(),
             "stream-json".to_string(),

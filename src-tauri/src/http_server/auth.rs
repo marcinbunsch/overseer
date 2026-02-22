@@ -52,24 +52,20 @@ fn extract_bearer_token<B>(req: &axum::http::Request<B>) -> Option<&str> {
 /// - `/ws/events?foo=bar&token=abc123&baz=qux` -> Some("abc123")
 /// - `/ws/events?foo=bar` -> None
 fn extract_query_token<B>(req: &axum::http::Request<B>) -> Option<String> {
-    req.uri()
-        .query()
-        .and_then(|query| {
-            // Parse query string manually (avoids adding url crate dependency)
-            // Format: key1=value1&key2=value2&...
-            query
-                .split('&')
-                .find_map(|pair| {
-                    let mut parts = pair.splitn(2, '=');
-                    let key = parts.next()?;
-                    let value = parts.next()?;
-                    if key == "token" {
-                        Some(value.to_string())
-                    } else {
-                        None
-                    }
-                })
+    req.uri().query().and_then(|query| {
+        // Parse query string manually (avoids adding url crate dependency)
+        // Format: key1=value1&key2=value2&...
+        query.split('&').find_map(|pair| {
+            let mut parts = pair.splitn(2, '=');
+            let key = parts.next()?;
+            let value = parts.next()?;
+            if key == "token" {
+                Some(value.to_string())
+            } else {
+                None
+            }
         })
+    })
 }
 
 /// Authentication middleware.
@@ -97,7 +93,11 @@ pub async fn auth_middleware(
     if state.validate_token(token) {
         next.run(req).await
     } else {
-        (StatusCode::UNAUTHORIZED, "Invalid or missing authentication token").into_response()
+        (
+            StatusCode::UNAUTHORIZED,
+            "Invalid or missing authentication token",
+        )
+            .into_response()
     }
 }
 
@@ -139,7 +139,10 @@ mod tests {
             .uri("/ws/events?token=test-token-456")
             .body(())
             .unwrap();
-        assert_eq!(extract_query_token(&req), Some("test-token-456".to_string()));
+        assert_eq!(
+            extract_query_token(&req),
+            Some("test-token-456".to_string())
+        );
     }
 
     #[test]
