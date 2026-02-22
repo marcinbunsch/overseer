@@ -301,3 +301,67 @@ impl ChatSession {
         Ok(())
     }
 }
+
+// ============================================================================
+// TESTS
+// ============================================================================
+//
+// The #[cfg(test)] attribute tells Rust to only compile this module when
+// running `cargo test`. This keeps test code out of production builds.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{sample_chat_metadata, sample_user_message, TestChatDir};
+
+    // ------------------------------------------------------------------------
+    // Path Validation Tests (Security Critical)
+    // ------------------------------------------------------------------------
+    //
+    // These tests verify that `validate_path_component` blocks path traversal
+    // attacks. A malicious project_name like "../../../etc" could let an
+    // attacker read/write files outside the chat directory.
+
+    #[test]
+    fn validate_path_component_rejects_empty() {
+        // Empty strings would create invalid paths like "/chats//workspace"
+        let result = ChatSessionManager::validate_path_component("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn validate_path_component_rejects_dot_dot() {
+        // ".." is the classic path traversal attack - go up a directory
+        let result = ChatSessionManager::validate_path_component("..");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_path_component_rejects_absolute_path() {
+        // Absolute paths like "/etc/passwd" would bypass the chat directory
+        let result = ChatSessionManager::validate_path_component("/foo");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_path_component_rejects_slash() {
+        // Slashes would create nested paths: "foo/bar" -> ".../foo/bar/..."
+        let result = ChatSessionManager::validate_path_component("foo/bar");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_path_component_accepts_normal_name() {
+        // Normal directory names should work
+        let result = ChatSessionManager::validate_path_component("my-project");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_path_component_accepts_hyphen_underscore() {
+        // Hyphens and underscores are common in project names
+        let result = ChatSessionManager::validate_path_component("my_project-1");
+        assert!(result.is_ok());
+    }
+}
