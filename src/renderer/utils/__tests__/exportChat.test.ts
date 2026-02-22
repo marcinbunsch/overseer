@@ -30,18 +30,16 @@ function makeChat(overrides: Partial<Chat> = {}): Chat {
 }
 
 describe("exportChatToMarkdown", () => {
-  it("includes chat metadata header", () => {
+  it("includes minimal chat header", () => {
     const chat = makeChat()
     const md = exportChatToMarkdown(chat)
 
     expect(md).toContain("# Test Chat")
-    expect(md).toContain("**Agent**: Claude")
-    expect(md).toContain("**Model**: opus")
-    expect(md).toContain("**Created**:")
-    expect(md).toContain("**Updated**:")
+    expect(md).toContain("_Claude (opus)_")
+    expect(md).toContain("---")
   })
 
-  it("formats user messages", () => {
+  it("formats user messages as blockquotes", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -52,11 +50,24 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain("## User")
-    expect(md).toContain("What is the meaning of life?")
+    expect(md).toContain("> What is the meaning of life?")
   })
 
-  it("formats assistant text messages", () => {
+  it("formats multiline user messages with each line quoted", () => {
+    const chat = makeChat({
+      messages: [
+        makeMessage({
+          role: "user",
+          content: "Line one\nLine two\nLine three",
+        }),
+      ],
+    })
+    const md = exportChatToMarkdown(chat)
+
+    expect(md).toContain("> Line one\n> Line two\n> Line three")
+  })
+
+  it("formats assistant text messages as plain text", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -67,11 +78,12 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain("## Assistant")
     expect(md).toContain("The answer is 42.")
+    // Should NOT be blockquoted
+    expect(md).not.toContain("> The answer is 42.")
   })
 
-  it("formats bash tool calls", () => {
+  it("formats bash tool calls as code blocks", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -82,13 +94,11 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain("### Tool: Bash")
-    expect(md).toContain("> Install dependencies")
     expect(md).toContain("```bash")
     expect(md).toContain("npm install")
   })
 
-  it("formats read tool calls", () => {
+  it("formats read tool calls with emoji", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -99,11 +109,10 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain("### Tool: Read")
-    expect(md).toContain("Reading: `/path/to/file.ts`")
+    expect(md).toContain("📖 `/path/to/file.ts`")
   })
 
-  it("formats write tool calls", () => {
+  it("formats write tool calls with emoji", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -114,11 +123,24 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain("### Tool: Write")
-    expect(md).toContain("Writing: `/path/to/output.ts`")
+    expect(md).toContain("📝 `/path/to/output.ts`")
   })
 
-  it("formats bash output messages", () => {
+  it("formats edit tool calls with emoji", () => {
+    const chat = makeChat({
+      messages: [
+        makeMessage({
+          role: "assistant",
+          content: '[Edit]\n{"file_path": "/path/to/file.ts"}',
+        }),
+      ],
+    })
+    const md = exportChatToMarkdown(chat)
+
+    expect(md).toContain("✏️ `/path/to/file.ts`")
+  })
+
+  it("formats bash output messages as code blocks", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -160,7 +182,7 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain("_User cancelled_")
+    expect(md).toContain("_Cancelled_")
   })
 
   it("skips system meta messages", () => {
@@ -175,11 +197,10 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    // Should not contain the system message content directly after the header
     expect(md).not.toContain("Some system content")
   })
 
-  it("formats user meta messages with label", () => {
+  it("formats user meta messages with label in blockquote", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -191,8 +212,8 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain("### Plan Review")
-    expect(md).toContain("Please review my plan")
+    expect(md).toContain("> **Plan Review**")
+    expect(md).toContain("> Please review my plan")
   })
 
   it("handles empty chat", () => {
@@ -200,10 +221,10 @@ describe("exportChatToMarkdown", () => {
     const md = exportChatToMarkdown(chat)
 
     expect(md).toContain("# Test Chat")
-    expect(md).toContain("**Agent**: Claude")
+    expect(md).toContain("_Claude (opus)_")
   })
 
-  it("formats web search tool calls", () => {
+  it("formats web search tool calls with emoji", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -214,11 +235,10 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain("### Tool: WebSearch")
-    expect(md).toContain('Query: "Tauri v2 dialog plugin"')
+    expect(md).toContain('🔍 "Tauri v2 dialog plugin"')
   })
 
-  it("formats unknown tools as JSON", () => {
+  it("formats unknown tools with bold name", () => {
     const chat = makeChat({
       messages: [
         makeMessage({
@@ -229,9 +249,29 @@ describe("exportChatToMarkdown", () => {
     })
     const md = exportChatToMarkdown(chat)
 
-    expect(md).toContain("### Tool: CustomTool")
-    expect(md).toContain("```json")
-    expect(md).toContain('"foo": "bar"')
+    expect(md).toContain("**CustomTool**")
+  })
+
+  it("skips TodoWrite tool calls", () => {
+    const chat = makeChat({
+      messages: [
+        makeMessage({
+          role: "assistant",
+          content: '[TodoWrite]\n{"todos": []}',
+        }),
+      ],
+    })
+    const md = exportChatToMarkdown(chat)
+
+    expect(md).not.toContain("TodoWrite")
+  })
+
+  it("handles chat without model version", () => {
+    const chat = makeChat({ modelVersion: null })
+    const md = exportChatToMarkdown(chat)
+
+    expect(md).toContain("_Claude_")
+    expect(md).not.toContain("(null)")
   })
 })
 

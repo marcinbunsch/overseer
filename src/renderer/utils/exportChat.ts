@@ -14,24 +14,10 @@ import { getAgentDisplayName } from "./agentDisplayName"
 import { parseToolCall } from "../components/chat/tools/parseToolCall"
 
 /**
- * Format a timestamp for display in the export
- */
-function formatTimestamp(date: Date): string {
-  return date.toLocaleString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
-/**
- * Format a single message to markdown
+ * Format a single message to markdown.
+ * User messages are right-aligned (blockquote), assistant messages are plain.
  */
 function formatMessage(message: Message): string {
-  const timestamp = formatTimestamp(new Date(message.timestamp))
-
   // User messages
   if (message.role === "user") {
     // Skip system meta messages
@@ -39,18 +25,19 @@ function formatMessage(message: Message): string {
       return ""
     }
 
-    // Meta messages (like plan reviews)
+    // Meta messages (like plan reviews) - show label
     if (message.meta) {
-      return `### ${message.meta.label}\n_${timestamp}_\n\n${message.content}\n`
+      return `> **${message.meta.label}**\n>\n${quoteContent(message.content)}\n`
     }
 
-    return `## User\n_${timestamp}_\n\n${message.content}\n`
+    // Regular user message - blockquoted
+    return `${quoteContent(message.content)}\n`
   }
 
   // Assistant messages
   // Skip cancelled messages
   if (message.content === "[cancelled]") {
-    return `_User cancelled_\n`
+    return "_Cancelled_\n"
   }
 
   // Bash output
@@ -63,116 +50,85 @@ function formatMessage(message: Message): string {
     return `_${message.content}_\n`
   }
 
-  // Tool calls
+  // Tool calls - compact format
   const tool = parseToolCall(message.content)
   if (tool) {
-    return formatToolCall(tool.toolName, tool.input, timestamp)
+    return formatToolCall(tool.toolName, tool.input)
   }
 
-  // Plain text
-  return `## Assistant\n_${timestamp}_\n\n${message.content}\n`
+  // Plain assistant text
+  return `${message.content}\n`
 }
 
 /**
- * Format a tool call to markdown
+ * Quote content for user messages (each line prefixed with >)
  */
-function formatToolCall(
-  toolName: string,
-  input: Record<string, unknown> | null,
-  timestamp: string
-): string {
-  const lines: string[] = [`### Tool: ${toolName}`, `_${timestamp}_`, ""]
+function quoteContent(content: string): string {
+  return content
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n")
+}
 
+/**
+ * Format a tool call to compact markdown
+ */
+function formatToolCall(toolName: string, input: Record<string, unknown> | null): string {
   if (!input) {
-    return lines.join("\n") + "\n"
+    return `**${toolName}**\n`
   }
 
-  // Format based on tool type
+  // Format based on tool type - keep it compact
   switch (toolName) {
     case "Bash": {
       const command = input.command as string | undefined
-      const description = input.description as string | undefined
-      if (description) {
-        lines.push(`> ${description}`)
-        lines.push("")
-      }
       if (command) {
-        lines.push("```bash", command, "```")
+        return `\`\`\`bash\n${command}\n\`\`\`\n`
       }
-      break
+      return `**Bash**\n`
     }
 
     case "Read": {
       const filePath = input.file_path as string | undefined
-      if (filePath) {
-        lines.push(`Reading: \`${filePath}\``)
-      }
-      break
+      return filePath ? `📖 \`${filePath}\`\n` : `**Read**\n`
     }
 
     case "Write": {
       const filePath = input.file_path as string | undefined
-      if (filePath) {
-        lines.push(`Writing: \`${filePath}\``)
-      }
-      break
+      return filePath ? `📝 \`${filePath}\`\n` : `**Write**\n`
     }
 
     case "Edit": {
       const filePath = input.file_path as string | undefined
-      if (filePath) {
-        lines.push(`Editing: \`${filePath}\``)
-      }
-      break
+      return filePath ? `✏️ \`${filePath}\`\n` : `**Edit**\n`
     }
 
     case "Glob": {
       const pattern = input.pattern as string | undefined
-      const path = input.path as string | undefined
-      if (pattern) {
-        lines.push(`Pattern: \`${pattern}\``)
-      }
-      if (path) {
-        lines.push(`Path: \`${path}\``)
-      }
-      break
+      return pattern ? `🔍 \`${pattern}\`\n` : `**Glob**\n`
     }
 
     case "Grep": {
       const pattern = input.pattern as string | undefined
-      const path = input.path as string | undefined
-      if (pattern) {
-        lines.push(`Pattern: \`${pattern}\``)
-      }
-      if (path) {
-        lines.push(`Path: \`${path}\``)
-      }
-      break
+      return pattern ? `🔎 \`${pattern}\`\n` : `**Grep**\n`
     }
 
     case "WebFetch": {
       const url = input.url as string | undefined
-      if (url) {
-        lines.push(`URL: ${url}`)
-      }
-      break
+      return url ? `🌐 ${url}\n` : `**WebFetch**\n`
     }
 
     case "WebSearch": {
       const query = input.query as string | undefined
-      if (query) {
-        lines.push(`Query: "${query}"`)
-      }
-      break
+      return query ? `🔍 "${query}"\n` : `**WebSearch**\n`
     }
 
-    default: {
-      // Generic: show JSON
-      lines.push("```json", JSON.stringify(input, null, 2), "```")
-    }
+    case "TodoWrite":
+      return "" // Skip todo writes, they're noise
+
+    default:
+      return `**${toolName}**\n`
   }
-
-  return lines.join("\n") + "\n"
 }
 
 /**
@@ -181,18 +137,11 @@ function formatToolCall(
 export function exportChatToMarkdown(chat: Chat): string {
   const lines: string[] = []
 
-  // Header
+  // Minimal header
   lines.push(`# ${chat.label}`)
-  lines.push("")
-
-  // Metadata
   const agentName = chat.agentType ? getAgentDisplayName(chat.agentType) : "Unknown"
-  lines.push(`**Agent**: ${agentName}`)
-  if (chat.modelVersion) {
-    lines.push(`**Model**: ${chat.modelVersion}`)
-  }
-  lines.push(`**Created**: ${formatTimestamp(new Date(chat.createdAt))}`)
-  lines.push(`**Updated**: ${formatTimestamp(new Date(chat.updatedAt))}`)
+  const model = chat.modelVersion ? ` (${chat.modelVersion})` : ""
+  lines.push(`_${agentName}${model}_`)
   lines.push("")
   lines.push("---")
   lines.push("")
