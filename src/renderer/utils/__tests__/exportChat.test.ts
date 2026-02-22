@@ -53,6 +53,20 @@ describe("exportChatToMarkdown", () => {
     expect(md).toContain("> **Me:** What is the meaning of life?")
   })
 
+  it("formats multi-line user messages with each line quoted", () => {
+    const chat = makeChat({
+      messages: [
+        makeMessage({
+          role: "user",
+          content: "Line one\nLine two\nLine three",
+        }),
+      ],
+    })
+    const md = exportChatToMarkdown(chat)
+
+    expect(md).toContain("> **Me:** Line one\n> Line two\n> Line three")
+  })
+
   it("formats assistant text messages as plain text", () => {
     const chat = makeChat({
       messages: [
@@ -96,6 +110,20 @@ describe("exportChatToMarkdown", () => {
     const md = exportChatToMarkdown(chat)
 
     expect(md).toContain("📖 `/path/to/file.ts`")
+  })
+
+  it("formats read tool calls with path fallback", () => {
+    const chat = makeChat({
+      messages: [
+        makeMessage({
+          role: "assistant",
+          content: '[Read]\n{"path": "/alt/path/file.ts"}',
+        }),
+      ],
+    })
+    const md = exportChatToMarkdown(chat)
+
+    expect(md).toContain("📖 `/alt/path/file.ts`")
   })
 
   it("formats write tool calls with emoji", () => {

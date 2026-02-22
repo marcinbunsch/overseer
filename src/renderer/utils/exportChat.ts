@@ -1,12 +1,9 @@
 /**
- * Export chat to Markdown format.
+ * Utilities to export chat data to Markdown format.
  *
- * This is a Tauri-only feature because it relies on:
- * - @tauri-apps/plugin-dialog for native file picker
- * - @tauri-apps/plugin-fs for writing files
- *
- * These are Tauri-specific APIs not available in overseer-core's
- * framework-agnostic design.
+ * This module is pure formatting logic with no I/O or Tauri dependencies.
+ * The Tauri-specific behavior (file picker, file writing) lives in
+ * SaveChatButton.tsx which calls these helpers.
  */
 
 import type { Chat, Message } from "../types"
@@ -15,7 +12,7 @@ import { parseToolCall } from "../components/chat/tools/parseToolCall"
 
 /**
  * Format a single message to markdown.
- * User messages are right-aligned (HTML), assistant messages are plain.
+ * User messages are blockquotes with "Me:" prefix, assistant messages are plain.
  */
 function formatMessage(message: Message): string {
   // User messages
@@ -27,11 +24,11 @@ function formatMessage(message: Message): string {
 
     // Meta messages (like plan reviews) - show label
     if (message.meta) {
-      return `> **${message.meta.label}:** ${message.content}\n`
+      return formatBlockquote(`**${message.meta.label}:** ${message.content}`)
     }
 
     // Regular user message - blockquote with Me: prefix
-    return `> **Me:** ${message.content}\n`
+    return formatBlockquote(`**Me:** ${message.content}`)
   }
 
   // Assistant messages
@@ -61,6 +58,25 @@ function formatMessage(message: Message): string {
 }
 
 /**
+ * Format content as a markdown blockquote (handles multi-line)
+ */
+function formatBlockquote(content: string): string {
+  return (
+    content
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n") + "\n"
+  )
+}
+
+/**
+ * Get file path from tool input (supports both file_path and path keys)
+ */
+function getFilePath(input: Record<string, unknown>): string | undefined {
+  return (input.file_path as string | undefined) ?? (input.path as string | undefined)
+}
+
+/**
  * Format a tool call to compact markdown
  */
 function formatToolCall(toolName: string, input: Record<string, unknown> | null): string {
@@ -79,17 +95,17 @@ function formatToolCall(toolName: string, input: Record<string, unknown> | null)
     }
 
     case "Read": {
-      const filePath = input.file_path as string | undefined
+      const filePath = getFilePath(input)
       return filePath ? `📖 \`${filePath}\`\n` : `**Read**\n`
     }
 
     case "Write": {
-      const filePath = input.file_path as string | undefined
+      const filePath = getFilePath(input)
       return filePath ? `📝 \`${filePath}\`\n` : `**Write**\n`
     }
 
     case "Edit": {
-      const filePath = input.file_path as string | undefined
+      const filePath = getFilePath(input)
       return filePath ? `✏️ \`${filePath}\`\n` : `**Edit**\n`
     }
 
