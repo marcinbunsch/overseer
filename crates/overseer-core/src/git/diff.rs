@@ -7,12 +7,16 @@
 //!
 //! - **Branch changes**: Committed changes compared to the default branch
 //! - **Uncommitted changes**: Staged and unstaged changes vs HEAD
+//! - **Commit changes**: Changes introduced by a specific commit
 //!
 //! # Key Operations
 //!
 //! - [`list_changed_files`] - Get all changed files in a workspace
 //! - [`get_file_diff`] - Get the diff for a specific file (branch changes)
 //! - [`get_uncommitted_diff`] - Get the diff for uncommitted changes
+//! - [`list_commits_on_branch`] - Get all commits on this branch vs default
+//! - [`list_commit_files`] - Get files changed in a specific commit
+//! - [`get_commit_diff`] - Get the diff for a file in a specific commit
 //!
 //! # File Status Codes
 //!
@@ -44,6 +48,19 @@ pub struct ChangedFile {
 
     /// Path to the file, relative to the workspace root
     pub path: String,
+}
+
+/// A commit on the branch.
+///
+/// Represents a single commit with its short SHA and message.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Commit {
+    /// Short commit SHA (7 characters)
+    pub short_id: String,
+
+    /// First line of the commit message
+    pub message: String,
 }
 
 /// Result of listing changed files.
@@ -319,6 +336,175 @@ pub async fn get_uncommitted_diff(
 }
 
 // ============================================================================
+// COMMIT OPERATIONS
+// ============================================================================
+
+/// List all commits on this branch vs the default branch.
+///
+/// Returns commits from oldest to newest (so they appear in chronological order).
+///
+/// # Arguments
+///
+/// * `workspace_path` - Path to the workspace directory
+///
+/// # Returns
+///
+/// A vector of `Commit` with short SHA and message.
+pub async fn list_commits_on_branch(workspace_path: &Path) -> Result<Vec<Commit>, GitError> {
+    // Get current branch
+    let current_branch = get_current_branch(workspace_path).await?;
+
+    let is_default_branch =
+        current_branch == "main" || current_branch == "master" || current_branch == "HEAD";
+
+    if is_default_branch {
+        return Ok(Vec::new());
+    }
+
+    let default_branch = get_default_branch(workspace_path).await;
+
+    // Find the merge base (common ancestor)
+    let merge_base = run_git(&["merge-base", "HEAD", &default_branch], workspace_path).await?;
+
+    if !merge_base.success {
+        return Ok(Vec::new());
+    }
+
+    let base_ref = String::from_utf8_lossy(&merge_base.stdout)
+        .trim()
+        .to_string();
+
+    // Get commits from merge-base to HEAD, oldest first
+    // Format: short-sha|commit message (first line)
+    let range = format!("{}..HEAD", base_ref);
+    let output = run_git(
+        &["log", "--pretty=format:%h|%s", "--reverse", &range],
+        workspace_path,
+    )
+    .await?;
+
+    if !output.success {
+        return Ok(Vec::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let commits = parse_commit_log(&stdout);
+
+    Ok(commits)
+}
+
+/// Parse the output of `git log --pretty=format:"%h|%s"`.
+///
+/// The format is:
+/// ```text
+/// abc1234|First commit message
+/// def5678|Second commit message
+/// ```
+fn parse_commit_log(stdout: &str) -> Vec<Commit> {
+    let mut commits = Vec::new();
+
+    for line in stdout.lines() {
+        if let Some((short_id, message)) = line.split_once('|') {
+            commits.push(Commit {
+                short_id: short_id.to_string(),
+                message: message.to_string(),
+            });
+        }
+    }
+
+    commits
+}
+
+/// List files changed in a specific commit.
+///
+/// # Arguments
+///
+/// * `workspace_path` - Path to the workspace
+/// * `commit_sha` - Short or full SHA of the commit
+///
+/// # Returns
+///
+/// A vector of `ChangedFile` with status and path.
+pub async fn list_commit_files(
+    workspace_path: &Path,
+    commit_sha: &str,
+) -> Result<Vec<ChangedFile>, GitError> {
+    // Use diff-tree to get files changed in this commit
+    let output = run_git(
+        &["diff-tree", "--no-commit-id", "--name-status", "-r", commit_sha],
+        workspace_path,
+    )
+    .await?;
+
+    if !output.success {
+        return Err(GitError::GitFailed {
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let files = parse_diff_name_status(&stdout);
+
+    Ok(files)
+}
+
+/// Get the diff for a specific file in a specific commit.
+///
+/// Shows the changes introduced by that commit for the given file.
+///
+/// # Arguments
+///
+/// * `workspace_path` - Path to the workspace
+/// * `commit_sha` - Short or full SHA of the commit
+/// * `file_path` - Path to the file (relative to workspace root)
+/// * `file_status` - Status code from [`ChangedFile::status`]
+///
+/// # Returns
+///
+/// The diff output as a string in unified diff format.
+pub async fn get_commit_diff(
+    workspace_path: &Path,
+    commit_sha: &str,
+    file_path: &str,
+    file_status: &str,
+) -> Result<String, GitError> {
+    // For added files, show full content as diff
+    if file_status == "A" {
+        // Show the file as added (diff from empty)
+        let output = run_git(
+            &["show", "--format=", commit_sha, "--", file_path],
+            workspace_path,
+        )
+        .await?;
+
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+
+    // For deleted files, show what was removed
+    if file_status == "D" {
+        // Show the diff for the deleted file
+        let parent = format!("{}^", commit_sha);
+        let output = run_git(
+            &["diff", &parent, commit_sha, "--", file_path],
+            workspace_path,
+        )
+        .await?;
+
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+
+    // For modified/other files, show the diff introduced by this commit
+    let output = run_git(
+        &["show", "--format=", commit_sha, "--", file_path],
+        workspace_path,
+    )
+    .await?;
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+// ============================================================================
 // TESTS
 // ============================================================================
 
@@ -445,6 +631,57 @@ mod tests {
                                               // Then untracked (alphabetically)
         assert_eq!(files[2].path, "aaa.txt"); // ?
         assert_eq!(files[3].path, "bbb.txt"); // ?
+    }
+
+    // ------------------------------------------------------------------------
+    // Commit Parsing Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn parse_commit_log_basic() {
+        let output = "abc1234|First commit\ndef5678|Second commit";
+        let commits = parse_commit_log(output);
+
+        assert_eq!(commits.len(), 2);
+
+        assert_eq!(commits[0].short_id, "abc1234");
+        assert_eq!(commits[0].message, "First commit");
+
+        assert_eq!(commits[1].short_id, "def5678");
+        assert_eq!(commits[1].message, "Second commit");
+    }
+
+    #[test]
+    fn parse_commit_log_with_pipe_in_message() {
+        // Commit message containing a pipe should still work
+        let output = "abc1234|Fix bug | add test";
+        let commits = parse_commit_log(output);
+
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].short_id, "abc1234");
+        assert_eq!(commits[0].message, "Fix bug | add test");
+    }
+
+    #[test]
+    fn parse_commit_log_empty() {
+        let output = "";
+        let commits = parse_commit_log(output);
+
+        assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn commit_serializes_camel_case() {
+        let commit = Commit {
+            short_id: "abc1234".to_string(),
+            message: "Test commit".to_string(),
+        };
+
+        let json = serde_json::to_string(&commit).unwrap();
+        // Should use camelCase for TypeScript compatibility
+        assert!(json.contains("shortId"));
+        assert!(json.contains("\"abc1234\""));
+        assert!(json.contains("Test commit"));
     }
 
     // Note: Full integration tests for list_changed_files, get_file_diff, etc.

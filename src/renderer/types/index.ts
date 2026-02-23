@@ -199,6 +199,13 @@ export interface ChangedFilesResult {
   is_default_branch: boolean
 }
 
+// --- Commits ---
+
+export interface Commit {
+  shortId: string
+  message: string
+}
+
 // --- Merge ---
 
 export interface MergeResult {

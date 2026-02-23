@@ -24,6 +24,7 @@ interface Config {
   leftPaneWidth: number
   rightPaneWidth: number
   changesHeight: number
+  rightPaneTab: "changes" | "commits"
   editorCommand: string
   terminalCommand: string
   claudeModels?: AgentModel[]
@@ -56,6 +57,7 @@ const DEFAULT_CONFIG: Config = {
   leftPaneWidth: 250,
   rightPaneWidth: 300,
   changesHeight: 250,
+  rightPaneTab: "changes" as const,
   editorCommand: "code",
   terminalCommand: "open -a iTerm",
   enabledAgents: ALL_AGENTS,
@@ -126,6 +128,7 @@ class ConfigStore {
   @observable leftPaneWidth: number = DEFAULT_CONFIG.leftPaneWidth
   @observable rightPaneWidth: number = DEFAULT_CONFIG.rightPaneWidth
   @observable changesHeight: number = DEFAULT_CONFIG.changesHeight
+  @observable rightPaneTab: "changes" | "commits" = DEFAULT_CONFIG.rightPaneTab
   @observable editorCommand: string = DEFAULT_CONFIG.editorCommand
   @observable terminalCommand: string = DEFAULT_CONFIG.terminalCommand
   @observable claudeModels: AgentModel[] = DEFAULT_CLAUDE_MODELS
@@ -227,6 +230,7 @@ class ConfigStore {
         this.leftPaneWidth = parsed.leftPaneWidth ?? DEFAULT_CONFIG.leftPaneWidth
         this.rightPaneWidth = parsed.rightPaneWidth ?? DEFAULT_CONFIG.rightPaneWidth
         this.changesHeight = parsed.changesHeight ?? DEFAULT_CONFIG.changesHeight
+        this.rightPaneTab = parsed.rightPaneTab ?? DEFAULT_CONFIG.rightPaneTab
         this.editorCommand = parsed.editorCommand ?? DEFAULT_CONFIG.editorCommand
         this.terminalCommand = parsed.terminalCommand ?? DEFAULT_CONFIG.terminalCommand
         if (Array.isArray(parsed.claudeModels) && parsed.claudeModels.length > 0) {
@@ -292,6 +296,7 @@ class ConfigStore {
         leftPaneWidth: this.leftPaneWidth,
         rightPaneWidth: this.rightPaneWidth,
         changesHeight: this.changesHeight,
+        rightPaneTab: this.rightPaneTab,
         editorCommand: this.editorCommand,
         terminalCommand: this.terminalCommand,
         claudeModels: this.claudeModels,
@@ -339,6 +344,11 @@ class ConfigStore {
 
   @action setChangesHeight(height: number) {
     this.changesHeight = height
+    this.save()
+  }
+
+  @action setRightPaneTab(tab: "changes" | "commits") {
+    this.rightPaneTab = tab
     this.save()
   }
 

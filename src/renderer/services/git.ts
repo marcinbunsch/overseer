@@ -1,6 +1,6 @@
 import { backend } from "../backend"
 import { configStore } from "../stores/ConfigStore"
-import type { ChangedFilesResult, MergeResult } from "../types"
+import type { ChangedFile, ChangedFilesResult, Commit, MergeResult } from "../types"
 
 export interface WorkspaceInfo {
   path: string
@@ -69,6 +69,28 @@ class GitService {
     fileStatus: string
   ): Promise<string> {
     return backend.invoke<string>("get_uncommitted_diff", { workspacePath, filePath, fileStatus })
+  }
+
+  async listCommits(workspacePath: string): Promise<Commit[]> {
+    return backend.invoke<Commit[]>("list_commits", { workspacePath })
+  }
+
+  async listCommitFiles(workspacePath: string, commitSha: string): Promise<ChangedFile[]> {
+    return backend.invoke<ChangedFile[]>("list_commit_files", { workspacePath, commitSha })
+  }
+
+  async getCommitDiff(
+    workspacePath: string,
+    commitSha: string,
+    filePath: string,
+    fileStatus: string
+  ): Promise<string> {
+    return backend.invoke<string>("get_commit_diff", {
+      workspacePath,
+      commitSha,
+      filePath,
+      fileStatus,
+    })
   }
 
   async getPrStatus(workspacePath: string, branch: string): Promise<PrStatus | null> {

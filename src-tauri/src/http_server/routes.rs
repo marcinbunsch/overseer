@@ -51,9 +51,12 @@ pub async fn invoke_handler(
         // =====================================================================
         "list_workspaces" => dispatch_list_workspaces(request.args).await,
         "list_changed_files" => dispatch_list_changed_files(request.args).await,
+        "list_commits" => dispatch_list_commits(request.args).await,
+        "list_commit_files" => dispatch_list_commit_files(request.args).await,
         "is_git_repo" => dispatch_is_git_repo(request.args).await,
         "get_file_diff" => dispatch_get_file_diff(request.args).await,
         "get_uncommitted_diff" => dispatch_get_uncommitted_diff(request.args).await,
+        "get_commit_diff" => dispatch_get_commit_diff(request.args).await,
         "add_workspace" => dispatch_add_workspace(request.args).await,
         "archive_workspace" => dispatch_archive_workspace(request.args).await,
         "check_merge" => dispatch_check_merge(request.args).await,
@@ -447,6 +450,172 @@ async fn dispatch_get_uncommitted_diff(
 
     let path = PathBuf::from(workspace_path);
     match overseer_core::git::get_uncommitted_diff(&path, file_path, file_status).await {
+        Ok(diff) => (
+            StatusCode::OK,
+            Json(InvokeResponse {
+                success: true,
+                data: Some(serde_json::json!(diff)),
+                error: None,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(e.to_string()),
+            }),
+        ),
+    }
+}
+
+async fn dispatch_list_commits(args: serde_json::Value) -> (StatusCode, Json<InvokeResponse>) {
+    let workspace_path = match args.get("workspacePath").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: workspacePath".to_string()),
+                }),
+            );
+        }
+    };
+
+    let path = PathBuf::from(workspace_path);
+    match overseer_core::git::list_commits_on_branch(&path).await {
+        Ok(commits) => (
+            StatusCode::OK,
+            Json(InvokeResponse {
+                success: true,
+                data: Some(serde_json::to_value(commits).unwrap_or_default()),
+                error: None,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(e.to_string()),
+            }),
+        ),
+    }
+}
+
+async fn dispatch_list_commit_files(
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let workspace_path = match args.get("workspacePath").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: workspacePath".to_string()),
+                }),
+            );
+        }
+    };
+
+    let commit_sha = match args.get("commitSha").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: commitSha".to_string()),
+                }),
+            );
+        }
+    };
+
+    let path = PathBuf::from(workspace_path);
+    match overseer_core::git::list_commit_files(&path, commit_sha).await {
+        Ok(files) => (
+            StatusCode::OK,
+            Json(InvokeResponse {
+                success: true,
+                data: Some(serde_json::to_value(files).unwrap_or_default()),
+                error: None,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(e.to_string()),
+            }),
+        ),
+    }
+}
+
+async fn dispatch_get_commit_diff(args: serde_json::Value) -> (StatusCode, Json<InvokeResponse>) {
+    let workspace_path = match args.get("workspacePath").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: workspacePath".to_string()),
+                }),
+            );
+        }
+    };
+
+    let commit_sha = match args.get("commitSha").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: commitSha".to_string()),
+                }),
+            );
+        }
+    };
+
+    let file_path = match args.get("filePath").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: filePath".to_string()),
+                }),
+            );
+        }
+    };
+
+    let file_status = match args.get("fileStatus").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: fileStatus".to_string()),
+                }),
+            );
+        }
+    };
+
+    let path = PathBuf::from(workspace_path);
+    match overseer_core::git::get_commit_diff(&path, commit_sha, file_path, file_status).await {
         Ok(diff) => (
             StatusCode::OK,
             Json(InvokeResponse {
