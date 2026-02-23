@@ -65,11 +65,7 @@ pub fn open_log_file(log_dir: Option<&str>, log_id: &str) -> LogHandle {
     let file = log_dir.and_then(|dir| {
         let path = Path::new(dir).join(format!("{}.log", log_id));
         std::fs::create_dir_all(dir).ok()?;
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .ok()
+        OpenOptions::new().create(true).append(true).open(path).ok()
     });
     Arc::new(Mutex::new(file))
 }

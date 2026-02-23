@@ -237,10 +237,7 @@ pub fn load_project_registry(state: State<PersistenceConfig>) -> Result<ProjectR
 
 /// Add or update a project and save.
 #[tauri::command]
-pub fn upsert_project(
-    state: State<PersistenceConfig>,
-    project: Project,
-) -> Result<(), String> {
+pub fn upsert_project(state: State<PersistenceConfig>, project: Project) -> Result<(), String> {
     let dir = state.get_config_dir()?;
     let mut registry = persistence::load_project_registry(&dir).map_err(|e| e.to_string())?;
     persistence::upsert_project(&mut registry, project);
@@ -302,7 +299,10 @@ pub fn load_json_config(
 
 /// Check if a config file exists.
 #[tauri::command]
-pub fn config_file_exists(state: State<PersistenceConfig>, filename: String) -> Result<bool, String> {
+pub fn config_file_exists(
+    state: State<PersistenceConfig>,
+    filename: String,
+) -> Result<bool, String> {
     let dir = state.get_config_dir()?;
     Ok(dir.join(&filename).exists())
 }

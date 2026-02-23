@@ -297,10 +297,7 @@ mod tests {
 
             match parsed {
                 AgentEvent::UserMessage {
-                    id,
-                    content,
-                    meta,
-                    ..
+                    id, content, meta, ..
                 } => {
                     assert_eq!(id, "user-1");
                     assert_eq!(content, "Hello");

@@ -211,13 +211,7 @@ impl CodexAgentManager {
                         event_bus.emit(&format!("codex:stderr:{}", sid), &line);
                     }
                     ProcessEvent::Exit(exit) => {
-                        flush_and_emit(
-                            &parser_arc,
-                            &chat_sessions,
-                            &event_bus,
-                            &sid,
-                            &process_arc,
-                        );
+                        flush_and_emit(&parser_arc, &chat_sessions, &event_bus, &sid, &process_arc);
                         event_bus.emit(&format!("codex:close:{}", sid), &exit);
                         break;
                     }
@@ -225,13 +219,7 @@ impl CodexAgentManager {
             }
 
             // Channel closed without Exit event - emit close anyway
-            flush_and_emit(
-                &parser_arc,
-                &chat_sessions,
-                &event_bus,
-                &sid,
-                &process_arc,
-            );
+            flush_and_emit(&parser_arc, &chat_sessions, &event_bus, &sid, &process_arc);
             event_bus.emit(
                 &format!("codex:close:{}", sid),
                 &AgentExit {

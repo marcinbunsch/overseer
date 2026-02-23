@@ -259,12 +259,8 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_build_login_shell_command_handles_special_chars() {
-        let result = build_login_shell_command(
-            "/path/to/binary",
-            &["--key=$VALUE".to_string()],
-            None,
-            None,
-        );
+        let result =
+            build_login_shell_command("/path/to/binary", &["--key=$VALUE".to_string()], None, None);
         assert!(result.is_ok());
     }
 

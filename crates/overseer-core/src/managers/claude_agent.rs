@@ -204,12 +204,7 @@ impl ClaudeAgentManager {
                                 &log_file,
                             );
 
-                            persist_and_emit(
-                                &chat_sessions,
-                                &event_bus,
-                                &conv_id,
-                                event_to_emit,
-                            );
+                            persist_and_emit(&chat_sessions, &event_bus, &conv_id, event_to_emit);
                         }
                     }
                     ProcessEvent::Stderr(line) => {

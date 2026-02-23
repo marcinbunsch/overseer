@@ -357,10 +357,16 @@ pub fn run() {
             context_state.0.set_config_dir(config_dir.clone());
 
             // Set up the config directory for approvals persistence
-            context_state.0.approval_manager.set_config_dir(config_dir.clone());
+            context_state
+                .0
+                .approval_manager
+                .set_config_dir(config_dir.clone());
 
             // Set up the config directory for chat session persistence
-            context_state.0.chat_sessions.set_config_dir(config_dir.clone());
+            context_state
+                .0
+                .chat_sessions
+                .set_config_dir(config_dir.clone());
 
             // Set up the config directory for general persistence
             let persistence_config = app.state::<persistence::PersistenceConfig>();

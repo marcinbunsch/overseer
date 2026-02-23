@@ -3,8 +3,8 @@
 //! This module provides thin async wrappers around `overseer_core::git` functions.
 //! Since the core functions are already async, these wrappers simply call them directly.
 
-use overseer_core::shell::build_login_shell_command;
 use ignore::WalkBuilder;
+use overseer_core::shell::build_login_shell_command;
 use serde::Serialize;
 use std::path::Path;
 
@@ -185,9 +185,7 @@ pub async fn get_pr_status(
     let mut cmd =
         build_login_shell_command("gh", &args, Some(&workspace_path), agent_shell.as_deref())?;
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run gh: {e}"))?;
+    let output = cmd.output().map_err(|e| format!("Failed to run gh: {e}"))?;
 
     if !output.status.success() {
         return Ok(None);

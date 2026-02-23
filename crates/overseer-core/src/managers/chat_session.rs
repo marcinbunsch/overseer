@@ -17,8 +17,8 @@ use crate::persistence::chat_jsonl::{
     count_events, load_chat_events as load_chat_events_jsonl,
     load_chat_events_since_seq as load_events_since_seq_jsonl,
     load_chat_events_with_seq as load_events_with_seq_jsonl,
-    load_chat_metadata as load_chat_metadata_jsonl,
-    save_chat_metadata as save_chat_metadata_jsonl, serialize_event_for_storage, SeqEvent,
+    load_chat_metadata as load_chat_metadata_jsonl, save_chat_metadata as save_chat_metadata_jsonl,
+    serialize_event_for_storage, SeqEvent,
 };
 use crate::persistence::types::ChatMetadata;
 
@@ -299,5 +299,654 @@ impl ChatSession {
         self.last_flush = Instant::now();
 
         Ok(())
+    }
+}
+
+// ============================================================================
+// TESTS
+// ============================================================================
+//
+// The #[cfg(test)] attribute tells Rust to only compile this module when
+// running `cargo test`. This keeps test code out of production builds.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{sample_chat_metadata, sample_user_message, TestChatDir};
+
+    // ------------------------------------------------------------------------
+    // Path Validation Tests (Security Critical)
+    // ------------------------------------------------------------------------
+    //
+    // These tests verify that `validate_path_component` blocks path traversal
+    // attacks. A malicious project_name like "../../../etc" could let an
+    // attacker read/write files outside the chat directory.
+
+    #[test]
+    fn validate_path_component_rejects_empty() {
+        // Empty strings would create invalid paths like "/chats//workspace"
+        let result = ChatSessionManager::validate_path_component("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn validate_path_component_rejects_dot_dot() {
+        // ".." is the classic path traversal attack - go up a directory
+        let result = ChatSessionManager::validate_path_component("..");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_path_component_rejects_absolute_path() {
+        // Absolute paths like "/etc/passwd" would bypass the chat directory
+        let result = ChatSessionManager::validate_path_component("/foo");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_path_component_rejects_slash() {
+        // Slashes would create nested paths: "foo/bar" -> ".../foo/bar/..."
+        let result = ChatSessionManager::validate_path_component("foo/bar");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_path_component_accepts_normal_name() {
+        // Normal directory names should work
+        let result = ChatSessionManager::validate_path_component("my-project");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_path_component_accepts_hyphen_underscore() {
+        // Hyphens and underscores are common in project names
+        let result = ChatSessionManager::validate_path_component("my_project-1");
+        assert!(result.is_ok());
+    }
+
+    // ------------------------------------------------------------------------
+    // Session Lifecycle Tests
+    // ------------------------------------------------------------------------
+    //
+    // These tests verify session registration, unregistration, and the
+    // interactions between them. Sessions are the core abstraction for
+    // tracking active chats.
+
+    #[test]
+    fn register_session_creates_metadata_file() {
+        // TestChatDir creates a temp directory that auto-deletes when dropped.
+        // This is a common Rust pattern for test cleanup - use RAII (Resource
+        // Acquisition Is Initialization) to tie cleanup to scope exit.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+
+        // Register should succeed and create the metadata file
+        let result = manager.register_session(
+            "chat-123".to_string(),
+            "test-project".to_string(),
+            "test-workspace".to_string(),
+            metadata,
+        );
+        assert!(result.is_ok());
+
+        // Verify metadata file exists on disk
+        let metadata_path = test_dir
+            .path()
+            .join("chats/test-project/test-workspace/chat-123.meta.json");
+        assert!(metadata_path.exists(), "Metadata file should be created");
+    }
+
+    #[test]
+    fn register_session_with_mismatched_id_fails() {
+        // The metadata.id must match the chat_id parameter - this prevents
+        // accidentally saving metadata to the wrong file.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("different-id");
+
+        let result = manager.register_session(
+            "chat-123".to_string(), // Different from metadata.id!
+            "test-project".to_string(),
+            "test-workspace".to_string(),
+            metadata,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not match"));
+    }
+
+    #[test]
+    fn register_session_twice_is_idempotent() {
+        // Double-registering the same session shouldn't error - this can
+        // happen if the UI reconnects or reloads.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+
+        // First registration
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata.clone(),
+            )
+            .unwrap();
+
+        // Second registration - should succeed (idempotent)
+        let result = manager.register_session(
+            "chat-123".to_string(),
+            "test-project".to_string(),
+            "test-workspace".to_string(),
+            metadata,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unregister_session_flushes_pending_events() {
+        // When a session is unregistered (user closes chat), we must flush
+        // any buffered events to disk to avoid data loss.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Append an event (won't auto-flush because we're under MAX_PENDING_EVENTS)
+        let event = sample_user_message("Hello!");
+        manager.append_event("chat-123", event).unwrap();
+
+        // Unregister should flush to disk
+        manager.unregister_session("chat-123").unwrap();
+
+        // Verify event was persisted
+        let events = manager
+            .load_events("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn unregister_nonexistent_session_returns_ok() {
+        // Unregistering an unknown session shouldn't error - makes cleanup
+        // code simpler (no need to check if session exists first).
+        let manager = ChatSessionManager::new();
+
+        let result = manager.unregister_session("unknown-session");
+        assert!(result.is_ok());
+    }
+
+    // ------------------------------------------------------------------------
+    // Event Appending Tests
+    // ------------------------------------------------------------------------
+    //
+    // Events are appended to sessions and buffered in memory until flushed.
+    // Each event gets a sequence number (1-indexed line number in the JSONL).
+
+    #[test]
+    fn append_event_to_registered_session() {
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Append should succeed for registered sessions
+        let event = sample_user_message("Hello!");
+        let result = manager.append_event("chat-123", event);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn append_event_to_unregistered_session_fails() {
+        // Can't append to sessions we don't know about - forces explicit
+        // registration which ensures metadata is saved first.
+        let manager = ChatSessionManager::new();
+
+        let event = sample_user_message("Hello!");
+        let result = manager.append_event("unknown-chat", event);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not registered"));
+    }
+
+    #[test]
+    fn append_event_returns_sequential_seq_numbers() {
+        // Sequence numbers start at 1 and increment for each event.
+        // These correspond to line numbers in the JSONL file.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Each append should return incrementing seq numbers
+        let seq1 = manager
+            .append_event_with_seq("chat-123", sample_user_message("First"))
+            .unwrap();
+        let seq2 = manager
+            .append_event_with_seq("chat-123", sample_user_message("Second"))
+            .unwrap();
+        let seq3 = manager
+            .append_event_with_seq("chat-123", sample_user_message("Third"))
+            .unwrap();
+
+        assert_eq!(seq1, 1);
+        assert_eq!(seq2, 2);
+        assert_eq!(seq3, 3);
+    }
+
+    #[test]
+    fn append_event_seq_starts_from_existing_count() {
+        // When resuming a session, seq should continue from where we left off.
+        // This test writes events, re-registers, and verifies seq continues.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+
+        // First session: append 3 events and flush
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata.clone(),
+            )
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("One"))
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("Two"))
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("Three"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap(); // Flushes to disk
+
+        // Re-register the same session (simulates app restart)
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Next seq should be 4 (continuing from the 3 existing events)
+        let seq = manager
+            .append_event_with_seq("chat-123", sample_user_message("Four"))
+            .unwrap();
+        assert_eq!(seq, 4);
+    }
+
+    // ------------------------------------------------------------------------
+    // Flush Behavior Tests
+    // ------------------------------------------------------------------------
+    //
+    // Events are buffered in memory for performance and flushed to disk when:
+    // 1. MAX_PENDING_EVENTS (10) is reached (count-based trigger)
+    // 2. FLUSH_INTERVAL (2s) has passed (time-based trigger - not tested)
+    // 3. Session is unregistered (explicit flush)
+
+    #[test]
+    fn flush_triggers_at_max_pending_events() {
+        // After 10 events, the buffer should auto-flush to disk.
+        // We verify this by checking the JSONL file exists after 10 appends.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        let jsonl_path = test_dir
+            .path()
+            .join("chats/test-project/test-workspace/chat-123.jsonl");
+
+        // Append 9 events - should NOT trigger flush yet
+        for i in 0..9 {
+            manager
+                .append_event("chat-123", sample_user_message(&format!("Message {}", i)))
+                .unwrap();
+        }
+        assert!(!jsonl_path.exists(), "Should not flush before 10 events");
+
+        // 10th event should trigger flush
+        manager
+            .append_event("chat-123", sample_user_message("Message 10"))
+            .unwrap();
+        assert!(jsonl_path.exists(), "Should flush at 10 events");
+    }
+
+    #[test]
+    fn flush_creates_file_on_first_write() {
+        // The JSONL file is created lazily - only when we actually flush.
+        // This avoids creating empty files for sessions with no events.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        let jsonl_path = test_dir
+            .path()
+            .join("chats/test-project/test-workspace/chat-123.jsonl");
+
+        // Before any events, no JSONL file
+        assert!(!jsonl_path.exists());
+
+        // Append and flush
+        manager
+            .append_event("chat-123", sample_user_message("Hello"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap();
+
+        // Now the file should exist
+        assert!(jsonl_path.exists());
+    }
+
+    #[test]
+    fn flush_appends_to_existing_file() {
+        // Multiple flushes should append, not overwrite.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata.clone(),
+            )
+            .unwrap();
+
+        // First batch
+        manager
+            .append_event("chat-123", sample_user_message("First"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap();
+
+        // Re-register and add more
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("Second"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap();
+
+        // Should have 2 events total
+        let events = manager
+            .load_events("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(events.len(), 2);
+    }
+
+    // ------------------------------------------------------------------------
+    // Loading Events Tests
+    // ------------------------------------------------------------------------
+    //
+    // These tests verify that events can be persisted and loaded back
+    // correctly (round-trip testing).
+
+    #[test]
+    fn load_events_returns_persisted_events() {
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Add events and flush
+        manager
+            .append_event("chat-123", sample_user_message("Hello"))
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("World"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap();
+
+        // Load and verify
+        let events = manager
+            .load_events("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(events.len(), 2);
+
+        // Verify event content by matching on the enum variant
+        // In Rust, we use `if let` or `match` to destructure enums
+        if let AgentEvent::UserMessage { content, .. } = &events[0] {
+            assert_eq!(content, "Hello");
+        } else {
+            panic!("Expected UserMessage event");
+        }
+    }
+
+    #[test]
+    fn load_events_with_seq_returns_seq_numbers() {
+        // load_events_with_seq returns SeqEvent which includes the line number
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        manager
+            .append_event("chat-123", sample_user_message("First"))
+            .unwrap();
+        manager
+            .append_event("chat-123", sample_user_message("Second"))
+            .unwrap();
+        manager.unregister_session("chat-123").unwrap();
+
+        // Load with seq numbers
+        let seq_events = manager
+            .load_events_with_seq("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(seq_events.len(), 2);
+        assert_eq!(seq_events[0].seq, 1);
+        assert_eq!(seq_events[1].seq, 2);
+    }
+
+    #[test]
+    fn load_events_since_seq_filters_correctly() {
+        // load_events_since_seq is used for incremental sync - only get new events
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Add 5 events
+        for i in 1..=5 {
+            manager
+                .append_event("chat-123", sample_user_message(&format!("Message {}", i)))
+                .unwrap();
+        }
+        manager.unregister_session("chat-123").unwrap();
+
+        // Load events since seq 3 (should get events 4 and 5)
+        let events = manager
+            .load_events_since_seq("test-project", "test-workspace", "chat-123", 3)
+            .unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].seq, 4);
+        assert_eq!(events[1].seq, 5);
+    }
+
+    #[test]
+    fn load_metadata_returns_saved_metadata() {
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        // Load metadata back
+        let loaded = manager
+            .load_metadata("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(loaded.id, "chat-123");
+    }
+
+    // ------------------------------------------------------------------------
+    // Edge Cases Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn add_user_message_generates_uuid_and_timestamp() {
+        // add_user_message is a convenience method that generates the UUID
+        // and timestamp automatically. Verify these fields are populated.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-123");
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                metadata,
+            )
+            .unwrap();
+
+        let event = manager
+            .add_user_message("chat-123", "Hello!".to_string(), None)
+            .unwrap();
+
+        // Destructure the event to verify fields
+        if let AgentEvent::UserMessage { id, timestamp, .. } = event {
+            // UUID should be 36 chars (8-4-4-4-12 with dashes)
+            assert_eq!(id.len(), 36);
+            // Timestamp should be recent (within last minute)
+            let now = Utc::now();
+            let diff = now.signed_duration_since(timestamp);
+            assert!(diff.num_seconds() < 60);
+        } else {
+            panic!("Expected UserMessage event");
+        }
+    }
+
+    #[test]
+    fn config_dir_not_set_returns_error() {
+        // If config_dir isn't set, operations that need it should fail
+        // with a clear error message.
+        let manager = ChatSessionManager::new();
+        // Don't call set_config_dir
+
+        let result = manager.load_events("project", "workspace", "chat-123");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not set"));
+    }
+
+    #[test]
+    fn save_metadata_without_session_works() {
+        // save_metadata is a standalone operation - doesn't require
+        // the session to be registered. Useful for updating metadata
+        // like title after the fact.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        let metadata = sample_chat_metadata("chat-456");
+
+        // Save without registering session first
+        let result = manager.save_metadata("test-project", "test-workspace", metadata);
+        assert!(result.is_ok());
+
+        // Should be loadable
+        let loaded = manager
+            .load_metadata("test-project", "test-workspace", "chat-456")
+            .unwrap();
+        assert_eq!(loaded.id, "chat-456");
     }
 }

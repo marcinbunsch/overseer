@@ -82,7 +82,10 @@ impl HttpSharedState {
     ///
     /// * `context` - Reference to existing OverseerContext (will be Arc::cloned)
     /// * `auth_token` - Optional bearer token; if Some, all requests must authenticate
-    pub fn from_context_with_auth(context: &Arc<OverseerContext>, auth_token: Option<String>) -> Self {
+    pub fn from_context_with_auth(
+        context: &Arc<OverseerContext>,
+        auth_token: Option<String>,
+    ) -> Self {
         Self {
             context: Arc::clone(context),
             auth_token,

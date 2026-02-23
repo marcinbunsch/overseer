@@ -14,7 +14,10 @@ pub fn agent_stdin(
     conversation_id: String,
     data: String,
 ) -> Result<(), String> {
-    context_state.0.claude_agents.write_stdin(&conversation_id, &data)
+    context_state
+        .0
+        .claude_agents
+        .write_stdin(&conversation_id, &data)
 }
 
 /// Send a message to a Claude conversation.

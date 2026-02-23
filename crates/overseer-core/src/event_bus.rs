@@ -141,7 +141,10 @@ mod tests {
 
         #[test]
         fn serialization_roundtrip() {
-            let event = BroadcastEvent::new("agent:event:abc123", json!({"kind": "text", "text": "Hello"}));
+            let event = BroadcastEvent::new(
+                "agent:event:abc123",
+                json!({"kind": "text", "text": "Hello"}),
+            );
             let json = serde_json::to_string(&event).unwrap();
             let parsed: BroadcastEvent = serde_json::from_str(&json).unwrap();
 
@@ -331,7 +334,9 @@ mod tests {
             // With broadcast channels, slow receivers get a Lagged error
             // when they miss events. The next recv() after lag gives the
             // most recent event available.
-            assert!(result.is_ok() || matches!(result, Err(broadcast::error::RecvError::Lagged(_))));
+            assert!(
+                result.is_ok() || matches!(result, Err(broadcast::error::RecvError::Lagged(_)))
+            );
         }
     }
 }
