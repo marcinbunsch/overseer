@@ -18,6 +18,7 @@ import { AgentQuestionPanel } from "./AgentQuestionPanel"
 import { ChatTabs } from "./ChatTabs"
 import { NewChatScreen } from "./NewChatScreen"
 import { QueuedMessagesPanel } from "./QueuedMessagesPanel"
+import { SaveChatButton } from "./SaveChatButton"
 
 interface ChatWindowProps {
   workspace: Workspace
@@ -196,6 +197,7 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           )}
+          {workspaceStore.activeChat && <SaveChatButton chat={workspaceStore.activeChat.chat} />}
           <button
             onClick={() => {
               externalService.openInEditor(workspace.path)
