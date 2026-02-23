@@ -940,8 +940,7 @@ mod tests {
         let metadata = sample_chat_metadata("chat-456");
 
         // Save without registering session first
-        let result =
-            manager.save_metadata("test-project", "test-workspace", metadata);
+        let result = manager.save_metadata("test-project", "test-workspace", metadata);
         assert!(result.is_ok());
 
         // Should be loadable
