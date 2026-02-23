@@ -56,7 +56,10 @@ pub fn pty_resize(
 
 /// Kill a PTY.
 #[tauri::command]
-pub fn pty_kill(context_state: tauri::State<OverseerContextState>, id: String) -> Result<(), String> {
+pub fn pty_kill(
+    context_state: tauri::State<OverseerContextState>,
+    id: String,
+) -> Result<(), String> {
     context_state.0.pty_manager.kill(&id);
     Ok(())
 }

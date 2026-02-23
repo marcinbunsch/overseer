@@ -178,7 +178,10 @@ pub fn start(
             // The auth middleware runs on every request to these routes
             let protected_routes = Router::new()
                 // REST API: POST /api/invoke/{command} - dispatches to Tauri commands
-                .route("/api/invoke/{command}", axum::routing::post(routes::invoke_handler))
+                .route(
+                    "/api/invoke/{command}",
+                    axum::routing::post(routes::invoke_handler),
+                )
                 // WebSocket: GET /ws/events - real-time event streaming
                 .route("/ws/events", get(websocket::ws_handler))
                 // Apply auth middleware to all routes above
@@ -209,11 +212,9 @@ pub fn start(
                 // Serve static files with SPA fallback:
                 // - Known files (*.js, *.css, etc.) are served directly
                 // - Unknown paths fall back to index.html (for client-side routing)
-                let serve_dir = ServeDir::new(dir)
-                    .not_found_service(tower_http::services::ServeFile::new(format!(
-                        "{}/index.html",
-                        dir
-                    )));
+                let serve_dir = ServeDir::new(dir).not_found_service(
+                    tower_http::services::ServeFile::new(format!("{}/index.html", dir)),
+                );
                 app = app.fallback_service(serve_dir);
             } else {
                 log::info!("HTTP server: no static directory configured");

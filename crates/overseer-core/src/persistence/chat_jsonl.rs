@@ -99,10 +99,7 @@ pub fn serialize_event_for_storage(event: &AgentEvent) -> Result<String, ChatJso
             | AgentEvent::PlanApproval { .. }
     ) {
         if let serde_json::Value::Object(map) = &mut value {
-            map.insert(
-                "is_processed".to_string(),
-                serde_json::Value::Bool(true),
-            );
+            map.insert("is_processed".to_string(), serde_json::Value::Bool(true));
         }
     }
 

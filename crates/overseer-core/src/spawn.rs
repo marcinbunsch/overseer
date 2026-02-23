@@ -7,8 +7,27 @@
 //! - Writing to stdin
 //! - Monitoring process exit
 //!
-//! The output is provided via channels, allowing any interface (Tauri, SSH, Web)
-//! to receive events and forward them appropriately.
+//! # Architecture
+//!
+//! The spawning system uses traits for dependency injection:
+//!
+//! ```text
+//! ┌──────────────────┐     ┌─────────────────────┐
+//! │  Agent Managers  │────▶│   ProcessSpawner    │ (trait)
+//! └──────────────────┘     └─────────────────────┘
+//!                                    ▲
+//!                     ┌──────────────┴──────────────┐
+//!                     │                             │
+//!          ┌────────────────────┐     ┌─────────────────────┐
+//!          │DefaultProcessSpawner│     │ MockProcessSpawner  │
+//!          │ (real processes)    │     │ (for tests)         │
+//!          └────────────────────┘     └─────────────────────┘
+//! ```
+//!
+//! In production, use `DefaultProcessSpawner`. In tests, inject a `MockProcessSpawner`
+//! to control what events the "process" emits without spawning real processes.
+//!
+//! # Agent-Specific Configurations
 //!
 //! Agent-specific spawn configurations are in their respective modules:
 //! - [`crate::agents::claude::ClaudeConfig`]
@@ -88,6 +107,115 @@ impl SpawnConfig {
     pub fn no_stdin(mut self) -> Self {
         self.uses_stdin = false;
         self
+    }
+}
+
+// ============================================================================
+// PROCESS SPAWNER TRAIT
+// ============================================================================
+//
+// This trait abstracts process creation, allowing tests to inject fake
+// processes instead of spawning real OS processes.
+
+/// Trait for spawning agent processes.
+///
+/// This abstraction allows managers to work with different process implementations:
+/// - `DefaultProcessSpawner`: Spawns real OS processes via `AgentProcess::spawn`
+/// - `MockProcessSpawner`: Returns fake processes for testing (in test_support.rs)
+///
+/// # Thread Safety
+///
+/// Implementations must be `Send + Sync` because spawners may be shared across threads.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // Production: use default spawner
+/// let spawner = DefaultProcessSpawner::new();
+///
+/// // Tests: use mock spawner
+/// let mock_spawner = MockProcessSpawner::new();
+/// mock_spawner.set_next_process(fake_process);
+/// ```
+pub trait ProcessSpawner: Send + Sync {
+    /// Spawn a new agent process.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Configuration for the process
+    ///
+    /// # Returns
+    ///
+    /// A boxed `AgentProcessHandle` for interacting with the spawned process,
+    /// along with the event receiver for receiving process events.
+    fn spawn(
+        &self,
+        config: SpawnConfig,
+    ) -> Result<(Box<dyn AgentProcessHandle>, Receiver<ProcessEvent>), String>;
+}
+
+/// Trait for interacting with a spawned agent process.
+///
+/// This trait provides a common interface for both real processes (`AgentProcess`)
+/// and fake processes used in testing.
+///
+/// # Thread Safety
+///
+/// Implementations must be `Send` because process handles may be moved between
+/// threads. Note that `Sync` is not required - the handle should be owned by
+/// a single thread at a time (typically the manager's event processing thread).
+pub trait AgentProcessHandle: Send {
+    /// Write data to the process stdin.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The line to write (newline is added automatically)
+    fn write_stdin(&self, data: &str) -> Result<(), String>;
+
+    /// Check if the process is still running.
+    fn is_running(&self) -> bool;
+
+    /// Stop the process gracefully.
+    ///
+    /// On Unix, this sends SIGINT first, then kills after a timeout.
+    /// On other platforms, this kills immediately.
+    fn stop(&self);
+
+    /// Kill the process immediately.
+    fn kill(&self);
+}
+
+/// Default process spawner that uses `AgentProcess::spawn`.
+///
+/// This is the production implementation that spawns real OS processes.
+pub struct DefaultProcessSpawner;
+
+impl DefaultProcessSpawner {
+    /// Create a new default process spawner.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for DefaultProcessSpawner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ProcessSpawner for DefaultProcessSpawner {
+    fn spawn(
+        &self,
+        config: SpawnConfig,
+    ) -> Result<(Box<dyn AgentProcessHandle>, Receiver<ProcessEvent>), String> {
+        let mut process = AgentProcess::spawn(config)?;
+
+        // Take the receiver out so we can return it separately
+        let receiver = process
+            .take_receiver()
+            .ok_or_else(|| "Failed to take event receiver".to_string())?;
+
+        Ok((Box::new(process), receiver))
     }
 }
 
@@ -309,6 +437,26 @@ impl AgentProcess {
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.kill();
         }
+    }
+}
+
+// Implement AgentProcessHandle for AgentProcess so it can be used
+// through the trait interface.
+impl AgentProcessHandle for AgentProcess {
+    fn write_stdin(&self, data: &str) -> Result<(), String> {
+        AgentProcess::write_stdin(self, data)
+    }
+
+    fn is_running(&self) -> bool {
+        AgentProcess::is_running(self)
+    }
+
+    fn stop(&self) {
+        AgentProcess::stop(self)
+    }
+
+    fn kill(&self) {
+        AgentProcess::kill(self)
     }
 }
 

@@ -44,7 +44,10 @@ pub fn copilot_stdin(
     server_id: String,
     data: String,
 ) -> Result<(), String> {
-    context_state.0.copilot_agents.write_stdin(&server_id, &data)
+    context_state
+        .0
+        .copilot_agents
+        .write_stdin(&server_id, &data)
 }
 
 /// Stop a running copilot server.
