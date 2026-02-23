@@ -15,6 +15,7 @@ import type {
 import { getAgentService } from "../services/agentRegistry"
 import { ChatStore, type ChatStoreContext } from "./ChatStore"
 import { ChangedFilesStore } from "./ChangedFilesStore"
+import { CommitsStore } from "./CommitsStore"
 import { configStore } from "./ConfigStore"
 import { getAgentDisplayName } from "../utils/agentDisplayName"
 import { toastStore } from "./ToastStore"
@@ -82,6 +83,9 @@ export class WorkspaceStore {
 
   // Cached ChangedFilesStore - created lazily
   private _changedFilesStore: ChangedFilesStore | null = null
+
+  // Cached CommitsStore - created lazily
+  private _commitsStore: CommitsStore | null = null
 
   constructor(workspace: Workspace, projectName: string, initPrompt?: string) {
     this.id = workspace.id
@@ -230,6 +234,17 @@ export class WorkspaceStore {
       this._changedFilesStore = new ChangedFilesStore(this.path, this.id)
     }
     return this._changedFilesStore
+  }
+
+  /**
+   * Get or create the CommitsStore for this workspace.
+   * The store is cached and reused across workspace switches.
+   */
+  getCommitsStore(): CommitsStore {
+    if (!this._commitsStore) {
+      this._commitsStore = new CommitsStore(this.path)
+    }
+    return this._commitsStore
   }
 
   async getChatLogPath(chatId: string): Promise<string | null> {
@@ -818,5 +833,7 @@ export class WorkspaceStore {
     this._chats = []
     this._changedFilesStore?.dispose()
     this._changedFilesStore = null
+    this._commitsStore?.dispose()
+    this._commitsStore = null
   }
 }

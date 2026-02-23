@@ -1,9 +1,13 @@
 import { observer } from "mobx-react-lite"
 import { useCallback, useRef } from "react"
+import classNames from "classnames"
 import { TerminalPane } from "../terminal/TerminalPane"
 import { ChangedFilesPane } from "../changes/ChangedFilesPane"
+import { CommitsPane } from "../changes/CommitsPane"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { configStore } from "../../stores/ConfigStore"
+
+type RightPaneTab = "changes" | "commits"
 
 function HorizontalDragHandle({
   onDrag,
@@ -58,6 +62,7 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
   const project = projectRegistry.selectedProject
   const isGitRepo = project?.isGitRepo ?? true
   const changesHeight = useRef(configStore.changesHeight)
+  const selectedTab = configStore.rightPaneTab as RightPaneTab
 
   const handleDrag = useCallback((delta: number, isStart: boolean) => {
     if (isStart) changesHeight.current = configStore.changesHeight
@@ -70,16 +75,39 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
     configStore.setChangesHeight(changesHeight.current)
   }, [])
 
+  const handleTabChange = useCallback((tab: RightPaneTab) => {
+    configStore.setRightPaneTab(tab)
+  }, [])
+
   return (
     <div
       className="flex h-full flex-col border-l border-ovr-border-subtle bg-ovr-bg-panel"
       style={{ width, minWidth: 200 }}
     >
-      {/* Changes section (top) - only shown for git repos */}
+      {/* Changes/Commits section (top) - only shown for git repos */}
       {isGitRepo && (
         <>
-          <div className="flex items-center border-b border-ovr-border-subtle px-3 py-2">
-            <span className="text-xs font-semibold text-ovr-text-muted">CHANGES</span>
+          {/* Tab bar */}
+          <div className="flex items-center gap-1 border-b border-ovr-border-subtle px-3 py-2">
+            <button
+              onClick={() => handleTabChange("changes")}
+              className={classNames("cursor-pointer text-xs font-semibold transition-colors", {
+                "text-ovr-text-muted": selectedTab === "changes",
+                "text-ovr-text-dim hover:text-ovr-text-muted": selectedTab !== "changes",
+              })}
+            >
+              CHANGES
+            </button>
+            <span className="text-ovr-text-dim">|</span>
+            <button
+              onClick={() => handleTabChange("commits")}
+              className={classNames("cursor-pointer text-xs font-semibold transition-colors", {
+                "text-ovr-text-muted": selectedTab === "commits",
+                "text-ovr-text-dim hover:text-ovr-text-muted": selectedTab !== "commits",
+              })}
+            >
+              COMMITS
+            </button>
           </div>
           <div
             className="flex flex-col overflow-hidden"
@@ -91,7 +119,11 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
                   Workspace initializing...
                 </div>
               ) : workspace ? (
-                <ChangedFilesPane workspacePath={workspace.path} />
+                selectedTab === "changes" ? (
+                  <ChangedFilesPane workspacePath={workspace.path} />
+                ) : (
+                  <CommitsPane workspacePath={workspace.path} />
+                )
               ) : (
                 <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
                   No workspace selected

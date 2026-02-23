@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::path::Path;
 
 // Re-export types from overseer-core for use by Tauri commands
-pub use overseer_core::git::{ChangedFilesResult, MergeResult, WorkspaceInfo};
+pub use overseer_core::git::{ChangedFile, ChangedFilesResult, Commit, MergeResult, WorkspaceInfo};
 
 // ============================================================================
 // ASYNC WRAPPERS
@@ -111,6 +111,41 @@ pub async fn get_uncommitted_diff(
 ) -> Result<String, String> {
     let path = std::path::PathBuf::from(&workspace_path);
     overseer_core::git::get_uncommitted_diff(&path, &file_path, &file_status)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List commits on this branch vs the default branch.
+#[tauri::command]
+pub async fn list_commits(workspace_path: String) -> Result<Vec<Commit>, String> {
+    let path = std::path::PathBuf::from(&workspace_path);
+    overseer_core::git::list_commits_on_branch(&path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List files changed in a specific commit.
+#[tauri::command]
+pub async fn list_commit_files(
+    workspace_path: String,
+    commit_sha: String,
+) -> Result<Vec<ChangedFile>, String> {
+    let path = std::path::PathBuf::from(&workspace_path);
+    overseer_core::git::list_commit_files(&path, &commit_sha)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get the diff for a specific file in a specific commit.
+#[tauri::command]
+pub async fn get_commit_diff(
+    workspace_path: String,
+    commit_sha: String,
+    file_path: String,
+    file_status: String,
+) -> Result<String, String> {
+    let path = std::path::PathBuf::from(&workspace_path);
+    overseer_core::git::get_commit_diff(&path, &commit_sha, &file_path, &file_status)
         .await
         .map_err(|e| e.to_string())
 }
