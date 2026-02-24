@@ -311,6 +311,67 @@ describe("SettingsDialog Agents tab - Claude permission mode", () => {
   })
 })
 
+describe("SettingsDialog Agents tab - Claude usage indicator", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    configStore.setAgentEnabled("claude", true)
+    configStore.showClaudeUsageIndicator = false
+  })
+
+  it("displays usage indicator toggle in Claude section", () => {
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+    goToTab("agents")
+
+    expect(screen.getByText("Show Usage Indicator")).toBeInTheDocument()
+    expect(screen.getByTestId("claude-usage-indicator-toggle")).toBeInTheDocument()
+  })
+
+  it("shows warning text about API terms", () => {
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+    goToTab("agents")
+
+    expect(
+      screen.getByText(/Uses your Claude OAuth token to query usage limits/)
+    ).toBeInTheDocument()
+    expect(screen.getByText(/May violate API terms/)).toBeInTheDocument()
+  })
+
+  it("calls setShowClaudeUsageIndicator when toggled on", () => {
+    const setSpy = vi.spyOn(configStore, "setShowClaudeUsageIndicator")
+
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+    goToTab("agents")
+
+    const toggle = screen.getByTestId("claude-usage-indicator-toggle")
+    fireEvent.click(toggle)
+
+    expect(setSpy).toHaveBeenCalledWith(true)
+  })
+
+  it("calls setShowClaudeUsageIndicator when toggled off", () => {
+    configStore.showClaudeUsageIndicator = true
+    const setSpy = vi.spyOn(configStore, "setShowClaudeUsageIndicator")
+
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+    goToTab("agents")
+
+    const toggle = screen.getByTestId("claude-usage-indicator-toggle")
+    fireEvent.click(toggle)
+
+    expect(setSpy).toHaveBeenCalledWith(false)
+  })
+
+  it("reflects current state of showClaudeUsageIndicator setting", () => {
+    configStore.showClaudeUsageIndicator = true
+
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+    goToTab("agents")
+
+    const toggle = screen.getByTestId("claude-usage-indicator-toggle")
+    expect(toggle).toHaveAttribute("data-state", "checked")
+  })
+})
+
 describe("SettingsDialog Advanced tab", () => {
   beforeEach(() => {
     vi.clearAllMocks()
