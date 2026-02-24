@@ -458,3 +458,359 @@ fn check_auto_approval(
         _ => event,
     }
 }
+
+// ============================================================================
+// TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ------------------------------------------------------------------------
+    // Approval Response Building Tests
+    // ------------------------------------------------------------------------
+    //
+    // build_approval_response creates the JSON structure that Claude CLI
+    // expects when we approve a tool use request. Getting this format wrong
+    // would break auto-approval entirely.
+
+    #[test]
+    fn build_approval_response_has_correct_structure() {
+        // The response must be a "control_response" with nested structure
+        let input = serde_json::json!({"command": "ls -la"});
+        let response = build_approval_response("req-123", &input);
+
+        // Parse back to verify structure
+        let parsed: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        // Check top-level type
+        assert_eq!(parsed["type"], "control_response");
+
+        // Check nested response structure
+        assert_eq!(parsed["response"]["subtype"], "success");
+        assert_eq!(parsed["response"]["request_id"], "req-123");
+        assert_eq!(parsed["response"]["response"]["behavior"], "allow");
+    }
+
+    #[test]
+    fn build_approval_response_includes_request_id() {
+        let input = serde_json::json!({});
+        let response = build_approval_response("my-unique-id-456", &input);
+
+        let parsed: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(parsed["response"]["request_id"], "my-unique-id-456");
+    }
+
+    #[test]
+    fn build_approval_response_includes_input_in_updated_input() {
+        // The input is echoed back in updatedInput so Claude knows we
+        // didn't modify what it's trying to do
+        let input = serde_json::json!({
+            "command": "git status",
+            "working_dir": "/home/user/project"
+        });
+        let response = build_approval_response("req-1", &input);
+
+        let parsed: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let updated = &parsed["response"]["response"]["updatedInput"];
+
+        assert_eq!(updated["command"], "git status");
+        assert_eq!(updated["working_dir"], "/home/user/project");
+    }
+
+    // ------------------------------------------------------------------------
+    // Manager Operations Tests
+    // ------------------------------------------------------------------------
+    //
+    // These test the basic manager methods without spawning real processes.
+
+    #[test]
+    fn new_creates_empty_manager() {
+        let manager = ClaudeAgentManager::new();
+
+        // No processes should be running initially
+        assert!(manager.list_running().is_empty());
+    }
+
+    #[test]
+    fn is_running_returns_false_for_unknown_id() {
+        let manager = ClaudeAgentManager::new();
+
+        // Unknown conversation should not be running
+        assert!(!manager.is_running("unknown-conversation"));
+    }
+
+    #[test]
+    fn list_running_returns_empty_initially() {
+        let manager = ClaudeAgentManager::new();
+
+        let running = manager.list_running();
+        assert!(running.is_empty());
+    }
+
+    #[test]
+    fn stop_nonexistent_process_is_noop() {
+        // Stopping a non-existent process shouldn't panic or error
+        let manager = ClaudeAgentManager::new();
+
+        // This should not panic
+        manager.stop("nonexistent-conversation");
+    }
+
+    #[test]
+    fn write_stdin_to_nonexistent_process_fails() {
+        let manager = ClaudeAgentManager::new();
+
+        let result = manager.write_stdin("nonexistent", "hello");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No process"));
+    }
+
+    // ------------------------------------------------------------------------
+    // Auto-Approval Logic Tests (Security Critical)
+    // ------------------------------------------------------------------------
+    //
+    // These tests verify the check_auto_approval function which decides
+    // whether to automatically approve tool use requests. Getting this wrong
+    // could either:
+    // 1. Block legitimate operations (bad UX)
+    // 2. Auto-approve dangerous operations (security risk)
+
+    /// Helper to create a ToolApproval event for testing.
+    ///
+    /// Creates a minimal ToolApproval with the given parameters.
+    /// `display_input` is a String (not Option) - it's the human-readable
+    /// representation of what the tool is doing.
+    fn make_tool_approval(
+        request_id: &str,
+        name: &str,
+        prefixes: Option<Vec<String>>,
+    ) -> AgentEvent {
+        AgentEvent::ToolApproval {
+            request_id: request_id.to_string(),
+            name: name.to_string(),
+            input: serde_json::json!({"command": "test"}),
+            display_input: "test command".to_string(), // String, not Option
+            prefixes,
+            auto_approved: false,
+            is_processed: None,
+        }
+    }
+
+    /// Helper to set up approval manager with specific approvals.
+    ///
+    /// Returns an Arc<ProjectApprovalManager> configured with the given
+    /// tool/prefix pairs. Also returns the TestChatDir to keep it alive
+    /// (Rust drops it when it goes out of scope, which deletes the temp dir).
+    ///
+    /// Approvals are specified as:
+    /// - ("ToolName", "") - approve entire tool (e.g., "Read", "Write")
+    /// - ("Bash", "git") - approve prefix for Bash commands
+    fn setup_approval_manager_with_approvals(
+        approvals: Vec<(&str, &str)>,
+    ) -> (Arc<ProjectApprovalManager>, crate::test_support::TestChatDir) {
+        use crate::test_support::TestChatDir;
+
+        let test_dir = TestChatDir::new();
+        let manager = ProjectApprovalManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+
+        // Use add_approval to set up each approval
+        for (tool, prefix) in approvals {
+            if prefix.is_empty() || prefix == "*" {
+                // Approve the entire tool
+                let _ = manager.add_approval("test-project", tool, false);
+            } else {
+                // Approve a command prefix
+                let _ = manager.add_approval("test-project", prefix, true);
+            }
+        }
+
+        // Return TestChatDir to keep temp directory alive
+        (Arc::new(manager), test_dir)
+    }
+
+    #[test]
+    fn check_auto_approval_with_matching_tool_approves() {
+        // When the tool+prefix matches an approval rule, should auto-approve.
+        // We approve the prefix "git status" and test with that exact prefix.
+        let (approval_manager, _temp_dir) =
+            setup_approval_manager_with_approvals(vec![("Bash", "git status")]);
+
+        // Create a ToolApproval event with matching prefix
+        let event = make_tool_approval("req-1", "Bash", Some(vec!["git status".to_string()]));
+
+        // No real process - just testing the logic
+        let process_arc: Arc<Mutex<Option<AgentProcess>>> = Arc::new(Mutex::new(None));
+        let log_file: LogHandle = Arc::new(Mutex::new(None));
+
+        let result = check_auto_approval(
+            &approval_manager,
+            "test-project",
+            event,
+            &process_arc,
+            &log_file,
+        );
+
+        // Should return event with auto_approved = true
+        if let AgentEvent::ToolApproval { auto_approved, .. } = result {
+            assert!(auto_approved, "Should be auto-approved");
+        } else {
+            panic!("Expected ToolApproval event");
+        }
+    }
+
+    #[test]
+    fn check_auto_approval_with_no_match_passes_through() {
+        // When there's no matching rule, event should pass through unchanged
+        let (approval_manager, _temp_dir) =
+            setup_approval_manager_with_approvals(vec![("Bash", "git")]);
+
+        // Event with non-matching prefix
+        let event = make_tool_approval("req-1", "Bash", Some(vec!["rm".to_string()]));
+
+        let process_arc: Arc<Mutex<Option<AgentProcess>>> = Arc::new(Mutex::new(None));
+        let log_file: LogHandle = Arc::new(Mutex::new(None));
+
+        let result = check_auto_approval(
+            &approval_manager,
+            "test-project",
+            event,
+            &process_arc,
+            &log_file,
+        );
+
+        // Should NOT be auto-approved
+        if let AgentEvent::ToolApproval { auto_approved, .. } = result {
+            assert!(!auto_approved, "Should NOT be auto-approved");
+        } else {
+            panic!("Expected ToolApproval event");
+        }
+    }
+
+    #[test]
+    fn check_auto_approval_non_tool_approval_passes_through() {
+        // Non-ToolApproval events should pass through completely unchanged
+        let (approval_manager, _temp_dir) = setup_approval_manager_with_approvals(vec![]);
+
+        // A Text event, not ToolApproval
+        // Note: AgentEvent::Text uses field name `text`, not `content`
+        let event = AgentEvent::Text {
+            text: "Hello world".to_string(),
+        };
+
+        let process_arc: Arc<Mutex<Option<AgentProcess>>> = Arc::new(Mutex::new(None));
+        let log_file: LogHandle = Arc::new(Mutex::new(None));
+
+        let result = check_auto_approval(
+            &approval_manager,
+            "test-project",
+            event.clone(),
+            &process_arc,
+            &log_file,
+        );
+
+        // Should be the exact same event
+        if let AgentEvent::Text { text } = result {
+            assert_eq!(text, "Hello world");
+        } else {
+            panic!("Expected Text event to pass through unchanged");
+        }
+    }
+
+    #[test]
+    fn check_auto_approval_sets_auto_approved_flag() {
+        // Verify the auto_approved flag is properly set to true.
+        // We approve the "Read" tool entirely (empty prefix = tool approval).
+        let (approval_manager, _temp_dir) =
+            setup_approval_manager_with_approvals(vec![("Read", "")]); // Tool approval
+
+        // Read tool with empty prefixes - should match tool approval
+        let event = make_tool_approval("req-1", "Read", None);
+
+        let process_arc: Arc<Mutex<Option<AgentProcess>>> = Arc::new(Mutex::new(None));
+        let log_file: LogHandle = Arc::new(Mutex::new(None));
+
+        let result = check_auto_approval(
+            &approval_manager,
+            "test-project",
+            event,
+            &process_arc,
+            &log_file,
+        );
+
+        // Destructure and check the flag
+        match result {
+            AgentEvent::ToolApproval {
+                auto_approved,
+                request_id,
+                name,
+                ..
+            } => {
+                assert!(auto_approved);
+                assert_eq!(request_id, "req-1");
+                assert_eq!(name, "Read");
+            }
+            _ => panic!("Expected ToolApproval"),
+        }
+    }
+
+    #[test]
+    fn check_auto_approval_with_empty_prefixes_and_tool_approval() {
+        // When prefixes is empty/None, only tool-level approval works.
+        // Approve the "Bash" tool entirely.
+        let (approval_manager, _temp_dir) =
+            setup_approval_manager_with_approvals(vec![("Bash", "")]); // Tool approval
+
+        // Event with no prefixes
+        let event = make_tool_approval("req-1", "Bash", None);
+
+        let process_arc: Arc<Mutex<Option<AgentProcess>>> = Arc::new(Mutex::new(None));
+        let log_file: LogHandle = Arc::new(Mutex::new(None));
+
+        let result = check_auto_approval(
+            &approval_manager,
+            "test-project",
+            event,
+            &process_arc,
+            &log_file,
+        );
+
+        // Tool is approved, so should auto-approve
+        if let AgentEvent::ToolApproval { auto_approved, .. } = result {
+            assert!(auto_approved, "Tool approval should work with empty prefixes");
+        } else {
+            panic!("Expected ToolApproval event");
+        }
+    }
+
+    #[test]
+    fn check_auto_approval_with_empty_prefixes_no_tool_approval() {
+        // When prefixes is empty and no tool approval, should NOT auto-approve.
+        // Only approve a prefix, not the tool itself.
+        let (approval_manager, _temp_dir) =
+            setup_approval_manager_with_approvals(vec![("Bash", "git status")]); // Prefix only
+
+        // Event with no prefixes - can't match the prefix approval
+        let event = make_tool_approval("req-1", "Bash", None);
+
+        let process_arc: Arc<Mutex<Option<AgentProcess>>> = Arc::new(Mutex::new(None));
+        let log_file: LogHandle = Arc::new(Mutex::new(None));
+
+        let result = check_auto_approval(
+            &approval_manager,
+            "test-project",
+            event,
+            &process_arc,
+            &log_file,
+        );
+
+        // No tool approval and no prefixes to match - should NOT auto-approve
+        if let AgentEvent::ToolApproval { auto_approved, .. } = result {
+            assert!(!auto_approved, "Should NOT auto-approve without matching prefixes");
+        } else {
+            panic!("Expected ToolApproval event");
+        }
+    }
+}
