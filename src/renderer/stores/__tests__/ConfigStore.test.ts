@@ -627,6 +627,118 @@ describe("ConfigStore", () => {
     })
   })
 
+  describe("showClaudeUsageIndicator", () => {
+    it("defaults to false when not in config", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.showClaudeUsageIndicator).toBe(false)
+    })
+
+    it("loads showClaudeUsageIndicator from config", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({
+            claudePath: "claude",
+            showClaudeUsageIndicator: true,
+          })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.showClaudeUsageIndicator).toBe(true)
+    })
+
+    it("saves config when showClaudeUsageIndicator is changed", async () => {
+      let savedConfig: Record<string, unknown> | null = null
+      mockInvoke((cmd: string, args?: unknown) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        if (cmd === "save_json_config") {
+          savedConfig = (args as { content: Record<string, unknown> }).content
+          return Promise.resolve(undefined)
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.showClaudeUsageIndicator).toBe(false)
+
+      configStore.setShowClaudeUsageIndicator(true)
+
+      expect(configStore.showClaudeUsageIndicator).toBe(true)
+      await vi.waitFor(() => {
+        expect(savedConfig).not.toBeNull()
+      })
+
+      expect(savedConfig!.showClaudeUsageIndicator).toBe(true)
+    })
+
+    it("saves config when showClaudeUsageIndicator is toggled off", async () => {
+      let savedConfig: Record<string, unknown> | null = null
+      mockInvoke((cmd: string, args?: unknown) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({
+            claudePath: "claude",
+            showClaudeUsageIndicator: true,
+          })
+        }
+        if (cmd === "save_json_config") {
+          savedConfig = (args as { content: Record<string, unknown> }).content
+          return Promise.resolve(undefined)
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.showClaudeUsageIndicator).toBe(true)
+
+      configStore.setShowClaudeUsageIndicator(false)
+
+      expect(configStore.showClaudeUsageIndicator).toBe(false)
+      await vi.waitFor(() => {
+        expect(savedConfig).not.toBeNull()
+      })
+
+      expect(savedConfig!.showClaudeUsageIndicator).toBe(false)
+    })
+  })
+
   describe("defaultAgent", () => {
     it("defaults to claude", async () => {
       mockInvoke((cmd: string) => {
