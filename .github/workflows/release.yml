@@ -85,29 +85,29 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg-aarch64
-          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          path: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
 
       - name: Upload DMG (x86_64)
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg-x86_64
-          path: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          path: target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
 
       - name: Upload updater bundle (aarch64)
         uses: actions/upload-artifact@v4
         with:
           name: macos-updater-aarch64
           path: |
-            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz
-            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz.sig
+            target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz
+            target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz.sig
 
       - name: Upload updater bundle (x86_64)
         uses: actions/upload-artifact@v4
         with:
           name: macos-updater-x86_64
           path: |
-            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.tar.gz
-            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.tar.gz.sig
+            target/x86_64-apple-darwin/release/bundle/macos/*.tar.gz
+            target/x86_64-apple-darwin/release/bundle/macos/*.tar.gz.sig
 
   build-linux:
     needs: ci
@@ -155,21 +155,21 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-appimage
-          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          path: target/release/bundle/appimage/*.AppImage
 
       - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
           name: linux-deb
-          path: src-tauri/target/release/bundle/deb/*.deb
+          path: target/release/bundle/deb/*.deb
 
       - name: Upload updater bundle
         uses: actions/upload-artifact@v4
         with:
           name: linux-updater
           path: |
-            src-tauri/target/release/bundle/appimage/*.AppImage
-            src-tauri/target/release/bundle/appimage/*.AppImage.sig
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/appimage/*.AppImage.sig
 
   create-release:
     needs: [build-mac, build-linux]
