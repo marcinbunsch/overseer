@@ -95,7 +95,7 @@ export const PierreDiffView = observer(function PierreDiffView({
   const showCommentBox = notesStore?.hasPendingNote && pendingForThisFile !== null
 
   return (
-    <div className="pierre-diff-container flex flex-col">
+    <div className="pierre-diff-container flex min-w-0 flex-col">
       {/* View mode toggle */}
       <div className="flex items-center justify-end gap-1 border-b border-ovr-border-subtle bg-ovr-bg-panel px-3 py-1.5">
         <span className="mr-2 text-xs text-ovr-text-muted">View:</span>
@@ -122,7 +122,7 @@ export const PierreDiffView = observer(function PierreDiffView({
       </div>
 
       {/* Diff content */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto">
         {patch ? (
           <PatchDiff patch={patch} options={options} selectedLines={selectedLines} />
         ) : oldFile && newFile ? (
