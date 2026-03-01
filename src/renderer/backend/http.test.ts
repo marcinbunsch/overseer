@@ -24,6 +24,17 @@ class MockWebSocket {
 
   send(data: string): void {
     this.sentMessages.push(data)
+    // Auto-respond to ping with pong
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed.type === "ping") {
+        setTimeout(() => {
+          this.onmessage?.({ data: JSON.stringify({ type: "pong" }) })
+        }, 5)
+      }
+    } catch {
+      // Not JSON, ignore
+    }
   }
 
   close(): void {
@@ -693,6 +704,181 @@ describe("HttpBackend WebSocket subscription messages", () => {
     expect(subscriptions).toContain("pattern:one:*")
     expect(subscriptions).toContain("pattern:two:*")
     expect(subscriptions).toContain("pattern:three:*")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PING/PONG VERIFICATION TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("HttpBackend ping/pong verification", () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as typeof fetch
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    globalThis.WebSocket = originalWebSocket
+  })
+
+  it("sends ping immediately after WebSocket opens", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    backend.listen("test:event", vi.fn()).catch(() => {})
+
+    // Wait for WebSocket to open (10ms) but before pong (15ms total)
+    await new Promise((r) => setTimeout(r, 12))
+
+    const ws = (backend as unknown as { ws: MockWebSocket }).ws
+    const pingMsg = ws.sentMessages.find((m) => m.includes('"type":"ping"'))
+    expect(pingMsg).toBeDefined()
+    expect(JSON.parse(pingMsg!)).toEqual({ type: "ping" })
+  })
+
+  it("stays in connecting state until pong is received", async () => {
+    // Create a WebSocket that doesn't auto-respond to ping
+    class NoAutoPongWebSocket extends MockWebSocket {
+      send(data: string): void {
+        this.sentMessages.push(data)
+        // Don't auto-respond to ping
+      }
+    }
+
+    globalThis.WebSocket = NoAutoPongWebSocket as unknown as typeof WebSocket
+
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    backend.listen("test:event", vi.fn()).catch(() => {})
+
+    // Wait for WebSocket to open
+    await new Promise((r) => setTimeout(r, 15))
+
+    // Should still be connecting since no pong received
+    expect(backend.connectionState).toBe("connecting")
+
+    // Now simulate receiving pong
+    const ws = (backend as unknown as { ws: NoAutoPongWebSocket }).ws
+    ws.receiveMessage({ type: "pong" })
+
+    // Small delay for state update
+    await new Promise((r) => setTimeout(r, 5))
+
+    expect(backend.connectionState).toBe("connected")
+  })
+
+  it("sends subscriptions only after pong is received", async () => {
+    // Create a WebSocket that doesn't auto-respond to ping
+    class NoAutoPongWebSocket extends MockWebSocket {
+      send(data: string): void {
+        this.sentMessages.push(data)
+        // Don't auto-respond to ping
+      }
+    }
+
+    globalThis.WebSocket = NoAutoPongWebSocket as unknown as typeof WebSocket
+
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    backend.listen("test:event:*", vi.fn()).catch(() => {})
+
+    // Wait for WebSocket to open
+    await new Promise((r) => setTimeout(r, 15))
+
+    const ws = (backend as unknown as { ws: NoAutoPongWebSocket }).ws
+
+    // Should have sent ping but not subscribe yet
+    expect(ws.sentMessages.some((m) => m.includes('"type":"ping"'))).toBe(true)
+    expect(ws.sentMessages.some((m) => m.includes('"type":"subscribe"'))).toBe(false)
+
+    // Now simulate receiving pong
+    ws.receiveMessage({ type: "pong" })
+
+    // Small delay for subscription to be sent
+    await new Promise((r) => setTimeout(r, 5))
+
+    // Now subscribe should have been sent
+    expect(ws.sentMessages.some((m) => m.includes('"type":"subscribe"'))).toBe(true)
+    const subscribeMsg = ws.sentMessages.find((m) => m.includes('"type":"subscribe"'))
+    expect(JSON.parse(subscribeMsg!)).toEqual({ type: "subscribe", pattern: "test:event:*" })
+  })
+
+  it("resolves listen promise only after pong is received", async () => {
+    // Create a WebSocket that doesn't auto-respond to ping
+    class NoAutoPongWebSocket extends MockWebSocket {
+      send(data: string): void {
+        this.sentMessages.push(data)
+        // Don't auto-respond to ping
+      }
+    }
+
+    globalThis.WebSocket = NoAutoPongWebSocket as unknown as typeof WebSocket
+
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    let listenResolved = false
+    const listenPromise = backend.listen("test:event", vi.fn()).then(() => {
+      listenResolved = true
+    })
+
+    // Wait for WebSocket to open
+    await new Promise((r) => setTimeout(r, 15))
+
+    // listen() should not have resolved yet
+    expect(listenResolved).toBe(false)
+
+    // Simulate receiving pong
+    const ws = (backend as unknown as { ws: NoAutoPongWebSocket }).ws
+    ws.receiveMessage({ type: "pong" })
+
+    // Now wait for the promise
+    await listenPromise
+    expect(listenResolved).toBe(true)
+  })
+
+  it("notifies reconnect handlers only after pong on reconnect", async () => {
+    const { createHttpBackend } = await import("./http")
+    const backend = createHttpBackend("http://localhost:3000")
+
+    // Initial connection
+    await backend.listen("test:event", vi.fn())
+    await new Promise((r) => setTimeout(r, 20))
+
+    const reconnectCallback = vi.fn()
+    backend.onReconnect(reconnectCallback)
+
+    // Close connection
+    const ws1 = (backend as unknown as { ws: MockWebSocket }).ws
+    ws1.close()
+
+    // Create a WebSocket that doesn't auto-respond to ping for reconnect
+    class NoAutoPongWebSocket extends MockWebSocket {
+      send(data: string): void {
+        this.sentMessages.push(data)
+        // Don't auto-respond to ping
+      }
+    }
+    globalThis.WebSocket = NoAutoPongWebSocket as unknown as typeof WebSocket
+
+    // Trigger reconnect
+    backend.listen("another:event", vi.fn()).catch(() => {})
+    await new Promise((r) => setTimeout(r, 15))
+
+    // Reconnect callback should NOT have been called yet
+    expect(reconnectCallback).not.toHaveBeenCalled()
+
+    // Simulate receiving pong
+    const ws2 = (backend as unknown as { ws: NoAutoPongWebSocket }).ws
+    ws2.receiveMessage({ type: "pong" })
+    await new Promise((r) => setTimeout(r, 5))
+
+    // Now reconnect callback should have been called
+    expect(reconnectCallback).toHaveBeenCalled()
   })
 })
 

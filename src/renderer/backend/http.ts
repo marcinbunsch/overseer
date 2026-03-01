@@ -29,6 +29,11 @@ interface WsEvent {
   payload: unknown
 }
 
+/** Pong response from server */
+interface PongResponse {
+  type: "pong"
+}
+
 /**
  * HTTP backend that communicates with the Overseer HTTP server.
  *
@@ -361,31 +366,49 @@ class HttpBackend implements Backend {
         const wsUrl = this.authToken ? `${this.wsUrl}?token=${this.authToken}` : this.wsUrl
         this.ws = new WebSocket(wsUrl)
 
+        // Track whether we've received pong for this connection attempt
+        let pongReceived = false
+        const isReconnect = this.hasConnectedBefore
+
         this.ws.onopen = () => {
-          clearTimeout(connectionTimeout)
-          this.wsConnecting = false
-          this.setConnectionState("connected")
-          const isReconnect = this.hasConnectedBefore
-          this.hasConnectedBefore = true
-          console.log(`[HttpBackend] WebSocket ${isReconnect ? "reconnected" : "connected"}`)
-
-          // Resubscribe to all patterns
-          for (const pattern of this.subscriptions.keys()) {
-            this.sendWsMessage({ type: "subscribe", pattern })
-          }
-
-          // Notify reconnection handlers so they can catch up on missed events
-          if (isReconnect) {
-            this.notifyReconnect()
-          }
-
-          resolve()
+          // WebSocket is open but not yet verified - send ping to confirm
+          console.log(`[HttpBackend] WebSocket opened, sending ping...`)
+          this.ws?.send(JSON.stringify({ type: "ping" }))
         }
 
         this.ws.onmessage = (event) => {
           try {
-            const data: WsEvent = JSON.parse(event.data)
-            this.handleWsEvent(data)
+            const data = JSON.parse(event.data)
+
+            // Check for pong response
+            if ((data as PongResponse).type === "pong") {
+              if (!pongReceived) {
+                pongReceived = true
+                clearTimeout(connectionTimeout)
+                this.wsConnecting = false
+                this.setConnectionState("connected")
+                this.hasConnectedBefore = true
+                console.log(
+                  `[HttpBackend] WebSocket ${isReconnect ? "reconnected" : "connected"} (pong received)`
+                )
+
+                // Resubscribe to all patterns
+                for (const pattern of this.subscriptions.keys()) {
+                  this.sendWsMessage({ type: "subscribe", pattern })
+                }
+
+                // Notify reconnection handlers so they can catch up on missed events
+                if (isReconnect) {
+                  this.notifyReconnect()
+                }
+
+                resolve()
+              }
+              return
+            }
+
+            // Handle regular events
+            this.handleWsEvent(data as WsEvent)
           } catch (e) {
             console.error("[HttpBackend] Failed to parse WebSocket message:", e)
           }
