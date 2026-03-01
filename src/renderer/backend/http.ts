@@ -318,7 +318,8 @@ class HttpBackend implements Backend {
   }
 
   private async ensureWsConnected(): Promise<void> {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    // Only return early if we're truly connected (pong verified)
+    if (this._connectionState === "connected" && this.ws?.readyState === WebSocket.OPEN) {
       return
     }
 
@@ -331,7 +332,8 @@ class HttpBackend implements Backend {
         }, 10000)
 
         const check = setInterval(() => {
-          if (this.ws?.readyState === WebSocket.OPEN) {
+          // Check for actual connected state (pong verified), not just WebSocket.OPEN
+          if (this._connectionState === "connected") {
             clearInterval(check)
             clearTimeout(timeout)
             resolve()
@@ -416,10 +418,15 @@ class HttpBackend implements Backend {
 
         this.ws.onclose = () => {
           clearTimeout(connectionTimeout)
+          const wasConnecting = this.wsConnecting
           this.wsConnecting = false
           this.setConnectionState("disconnected")
           console.log("[HttpBackend] WebSocket disconnected")
           this.scheduleReconnect()
+          // Reject promise if we closed before pong was received
+          if (!pongReceived && wasConnecting) {
+            reject(new Error("WebSocket closed before connection verified"))
+          }
         }
 
         this.ws.onerror = (error) => {
@@ -428,7 +435,9 @@ class HttpBackend implements Backend {
           this.setConnectionState("disconnected")
           console.error("[HttpBackend] WebSocket error:", error)
           this.scheduleReconnect()
-          reject(error)
+          if (!pongReceived) {
+            reject(error)
+          }
         }
       } catch (e) {
         clearTimeout(connectionTimeout)
