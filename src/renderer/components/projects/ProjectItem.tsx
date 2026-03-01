@@ -13,11 +13,31 @@ interface ProjectItemProps {
   project: ProjectStore
 }
 
+// localStorage key for project expanded state
+const getExpandedKey = (projectId: string) => `overseer_project_expanded_${projectId}`
+
 export const ProjectItem = observer(function ProjectItem({ project }: ProjectItemProps) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(() => {
+    try {
+      const stored = localStorage.getItem(getExpandedKey(project.id))
+      // Default to true if no value stored
+      return stored === null ? true : stored === "true"
+    } catch {
+      return true
+    }
+  })
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const isSelected = projectRegistry.selectedProjectId === project.id
+
+  // Persist expanded state to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(getExpandedKey(project.id), String(expanded))
+    } catch {
+      // localStorage might not be available
+    }
+  }, [expanded, project.id])
 
   // Listen for keyboard shortcut to trigger new workspace dialog
   useEffect(() => {
