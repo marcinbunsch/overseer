@@ -71,6 +71,34 @@ class GitService {
     return backend.invoke<string>("get_uncommitted_diff", { workspacePath, filePath, fileStatus })
   }
 
+  async getSubmoduleFileDiff(
+    workspacePath: string,
+    submodulePath: string,
+    filePath: string,
+    fileStatus: string
+  ): Promise<string> {
+    return backend.invoke<string>("get_submodule_file_diff", {
+      workspacePath,
+      submodulePath,
+      filePath,
+      fileStatus,
+    })
+  }
+
+  async getSubmoduleUncommittedDiff(
+    workspacePath: string,
+    submodulePath: string,
+    filePath: string,
+    fileStatus: string
+  ): Promise<string> {
+    return backend.invoke<string>("get_submodule_uncommitted_diff", {
+      workspacePath,
+      submodulePath,
+      filePath,
+      fileStatus,
+    })
+  }
+
   async listCommits(workspacePath: string): Promise<Commit[]> {
     return backend.invoke<Commit[]>("list_commits", { workspacePath })
   }

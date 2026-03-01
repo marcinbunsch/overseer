@@ -59,8 +59,9 @@ use tokio::process::Command;
 // Re-export commonly used items
 pub use branch::{delete_branch, rename_branch};
 pub use diff::{
-    get_commit_diff, get_file_diff, get_uncommitted_diff, list_changed_files, list_commit_files,
-    list_commits_on_branch, parse_diff_name_status, ChangedFile, ChangedFilesResult, Commit,
+    get_commit_diff, get_file_diff, get_submodule_file_diff, get_submodule_uncommitted_diff,
+    get_uncommitted_diff, list_changed_files, list_commit_files, list_commits_on_branch,
+    parse_diff_name_status, ChangedFile, ChangedFilesResult, Commit, SubmoduleResult,
 };
 pub use merge::{check_merge, merge_into_main, MergeResult};
 pub use worktree::{

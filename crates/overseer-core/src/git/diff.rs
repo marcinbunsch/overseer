@@ -77,6 +77,51 @@ pub struct ChangedFilesResult {
 
     /// Whether the workspace is on the default branch (main/master)
     pub is_default_branch: bool,
+
+    /// Submodules with changes
+    pub submodules: Vec<SubmoduleResult>,
+}
+
+/// A submodule with its changed files.
+///
+/// Contains the submodule's path, initialization status, and any changed files
+/// within the submodule (both committed and uncommitted).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmoduleResult {
+    /// Name of the submodule (from .gitmodules)
+    pub name: String,
+
+    /// Path to the submodule (relative to workspace root)
+    pub path: String,
+
+    /// Whether the submodule is initialized (has been cloned)
+    pub is_initialized: bool,
+
+    /// Files changed inside the submodule (committed changes)
+    pub files: Vec<ChangedFile>,
+
+    /// Uncommitted changes inside the submodule
+    pub uncommitted: Vec<ChangedFile>,
+
+    /// Nested submodules (for recursive support)
+    pub submodules: Vec<SubmoduleResult>,
+}
+
+impl SubmoduleResult {
+    /// Returns true if this submodule or any nested submodule has changes.
+    pub fn has_changes(&self) -> bool {
+        !self.files.is_empty()
+            || !self.uncommitted.is_empty()
+            || self.submodules.iter().any(|s| s.has_changes())
+    }
+
+    /// Returns the total count of changed files, including nested submodules.
+    pub fn total_file_count(&self) -> usize {
+        self.files.len()
+            + self.uncommitted.len()
+            + self.submodules.iter().map(|s| s.total_file_count()).sum::<usize>()
+    }
 }
 
 // ============================================================================
@@ -117,6 +162,135 @@ pub fn parse_diff_name_status(stdout: &str) -> Vec<ChangedFile> {
     files
 }
 
+/// Parse the output of `git config --file .gitmodules --get-regexp path`.
+///
+/// The format is:
+/// ```text
+/// submodule.name1.path path/to/submodule1
+/// submodule.name2.path path/to/submodule2
+/// ```
+///
+/// # Returns
+///
+/// Vector of (name, path) tuples.
+pub fn parse_submodules(stdout: &str) -> Vec<(String, String)> {
+    let mut submodules = Vec::new();
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Format: "submodule.<name>.path <path>"
+        // Split by whitespace to separate key from value
+        let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
+        if parts.len() != 2 {
+            continue;
+        }
+
+        let key = parts[0]; // "submodule.<name>.path"
+        let path = parts[1].trim();
+
+        // Extract name from "submodule.<name>.path"
+        if let Some(name) = key
+            .strip_prefix("submodule.")
+            .and_then(|s| s.strip_suffix(".path"))
+        {
+            submodules.push((name.to_string(), path.to_string()));
+        }
+    }
+
+    submodules
+}
+
+// ============================================================================
+// SUBMODULE OPERATIONS
+// ============================================================================
+
+/// List submodules in a workspace.
+///
+/// Returns a list of (name, path) tuples from .gitmodules.
+/// Returns an empty list if no submodules exist or .gitmodules is not present.
+async fn list_submodules(workspace_path: &Path) -> Vec<(String, String)> {
+    // Check if .gitmodules exists
+    let gitmodules_path = workspace_path.join(".gitmodules");
+    if !gitmodules_path.exists() {
+        return Vec::new();
+    }
+
+    let output = run_git(
+        &["config", "--file", ".gitmodules", "--get-regexp", "path"],
+        workspace_path,
+    )
+    .await;
+
+    match output {
+        Ok(result) if result.success => {
+            parse_submodules(&String::from_utf8_lossy(&result.stdout))
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Check if a submodule is initialized (cloned).
+///
+/// A submodule is initialized if its directory exists and contains a .git file/folder.
+fn is_submodule_initialized(workspace_path: &Path, submodule_path: &str) -> bool {
+    let full_path = workspace_path.join(submodule_path);
+    let git_path = full_path.join(".git");
+
+    // .git can be a file (worktree) or directory (regular clone)
+    full_path.exists() && git_path.exists()
+}
+
+/// Get changed files inside a specific submodule.
+///
+/// Recursively calls list_changed_files on the submodule directory.
+/// Uses Box::pin to handle async recursion (Rust requires this for recursive async fns).
+fn list_submodule_changes(
+    workspace_path: std::path::PathBuf,
+    name: String,
+    submodule_path: String,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = SubmoduleResult> + Send>> {
+    Box::pin(async move {
+        let is_initialized = is_submodule_initialized(&workspace_path, &submodule_path);
+
+        if !is_initialized {
+            return SubmoduleResult {
+                name,
+                path: submodule_path,
+                is_initialized: false,
+                files: Vec::new(),
+                uncommitted: Vec::new(),
+                submodules: Vec::new(),
+            };
+        }
+
+        let full_submodule_path = workspace_path.join(&submodule_path);
+
+        // Get changes inside the submodule (recursive call handles nested submodules)
+        match list_changed_files_internal(&full_submodule_path).await {
+            Ok(result) => SubmoduleResult {
+                name,
+                path: submodule_path,
+                is_initialized: true,
+                files: result.files,
+                uncommitted: result.uncommitted,
+                submodules: result.submodules,
+            },
+            Err(_) => SubmoduleResult {
+                name,
+                path: submodule_path,
+                is_initialized: true,
+                files: Vec::new(),
+                uncommitted: Vec::new(),
+                submodules: Vec::new(),
+            },
+        }
+    })
+}
+
 // ============================================================================
 // LISTING CHANGED FILES
 // ============================================================================
@@ -136,6 +310,7 @@ pub fn parse_diff_name_status(stdout: &str) -> Vec<ChangedFile> {
 /// - `files`: Changes committed to this branch vs default branch
 /// - `uncommitted`: Staged, unstaged, and untracked changes
 /// - `is_default_branch`: Whether on main/master
+/// - `submodules`: Changes inside submodules
 ///
 /// # Branch Detection
 ///
@@ -149,6 +324,13 @@ pub fn parse_diff_name_status(stdout: &str) -> Vec<ChangedFile> {
 /// - Uncommitted changes are sorted with tracked changes first, then
 ///   untracked files, both groups sorted alphabetically
 pub async fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesResult, GitError> {
+    list_changed_files_internal(workspace_path).await
+}
+
+/// Internal implementation of list_changed_files.
+///
+/// This is separated to allow recursive calls for submodules.
+async fn list_changed_files_internal(workspace_path: &Path) -> Result<ChangedFilesResult, GitError> {
     let mut files: Vec<ChangedFile> = Vec::new();
     let mut uncommitted: Vec<ChangedFile> = Vec::new();
 
@@ -158,11 +340,23 @@ pub async fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesRes
     let is_default_branch =
         current_branch == "main" || current_branch == "master" || current_branch == "HEAD";
 
+    // === Get list of submodules ===
+    let submodule_list = list_submodules(workspace_path).await;
+    let submodule_paths: std::collections::HashSet<&str> =
+        submodule_list.iter().map(|(_, p)| p.as_str()).collect();
+
     // === Uncommitted changes (staged + unstaged against HEAD) ===
     let uncommitted_output = run_git(&["diff", "--name-status", "HEAD"], workspace_path).await?;
-    uncommitted.extend(parse_diff_name_status(&String::from_utf8_lossy(
+    let all_uncommitted = parse_diff_name_status(&String::from_utf8_lossy(
         &uncommitted_output.stdout,
-    )));
+    ));
+
+    // Filter out submodule entries
+    uncommitted.extend(
+        all_uncommitted
+            .into_iter()
+            .filter(|f| !submodule_paths.contains(f.path.as_str())),
+    );
 
     // Include untracked files in uncommitted
     let untracked = run_git(
@@ -174,7 +368,7 @@ pub async fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesRes
     let untracked_stdout = String::from_utf8_lossy(&untracked.stdout);
     for line in untracked_stdout.lines() {
         let trimmed = line.trim();
-        if !trimmed.is_empty() {
+        if !trimmed.is_empty() && !submodule_paths.contains(trimmed) {
             uncommitted.push(ChangedFile {
                 status: "?".to_string(),
                 path: trimmed.to_string(),
@@ -208,12 +402,29 @@ pub async fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesRes
             )
             .await?;
 
-            files.extend(parse_diff_name_status(&String::from_utf8_lossy(
-                &output.stdout,
-            )));
+            let all_files = parse_diff_name_status(&String::from_utf8_lossy(&output.stdout));
+
+            // Filter out submodule entries
+            files.extend(
+                all_files
+                    .into_iter()
+                    .filter(|f| !submodule_paths.contains(f.path.as_str())),
+            );
 
             // Sort branch changes alphabetically
             files.sort_by(|a, b| a.path.cmp(&b.path));
+        }
+    }
+
+    // === Submodule changes ===
+    let mut submodules = Vec::new();
+    for (name, path) in submodule_list {
+        let sub_result: SubmoduleResult =
+            list_submodule_changes(workspace_path.to_path_buf(), name, path).await;
+
+        // Only include submodules that have changes
+        if sub_result.has_changes() {
+            submodules.push(sub_result);
         }
     }
 
@@ -221,6 +432,7 @@ pub async fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesRes
         files,
         uncommitted,
         is_default_branch,
+        submodules,
     })
 }
 
@@ -333,6 +545,58 @@ pub async fn get_uncommitted_diff(
     let output = run_git(&["diff", "HEAD", "--", file_path], workspace_path).await?;
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+// ============================================================================
+// SUBMODULE DIFFS
+// ============================================================================
+
+/// Get the diff for a file inside a submodule (branch changes).
+///
+/// This is equivalent to `get_file_diff` but for files within a submodule.
+///
+/// # Arguments
+///
+/// * `workspace_path` - Path to the main workspace
+/// * `submodule_path` - Path to the submodule (relative to workspace root)
+/// * `file_path` - Path to the file (relative to submodule root)
+/// * `file_status` - Status code from [`ChangedFile::status`]
+///
+/// # Returns
+///
+/// The diff output as a string in unified diff format.
+pub async fn get_submodule_file_diff(
+    workspace_path: &Path,
+    submodule_path: &str,
+    file_path: &str,
+    file_status: &str,
+) -> Result<String, GitError> {
+    let full_submodule_path = workspace_path.join(submodule_path);
+    get_file_diff(&full_submodule_path, file_path, file_status).await
+}
+
+/// Get the diff for uncommitted changes to a file inside a submodule.
+///
+/// This is equivalent to `get_uncommitted_diff` but for files within a submodule.
+///
+/// # Arguments
+///
+/// * `workspace_path` - Path to the main workspace
+/// * `submodule_path` - Path to the submodule (relative to workspace root)
+/// * `file_path` - Path to the file (relative to submodule root)
+/// * `file_status` - Status code from [`ChangedFile::status`]
+///
+/// # Returns
+///
+/// The diff output as a string in unified diff format.
+pub async fn get_submodule_uncommitted_diff(
+    workspace_path: &Path,
+    submodule_path: &str,
+    file_path: &str,
+    file_status: &str,
+) -> Result<String, GitError> {
+    let full_submodule_path = workspace_path.join(submodule_path);
+    get_uncommitted_diff(&full_submodule_path, file_path, file_status).await
 }
 
 // ============================================================================
@@ -586,11 +850,13 @@ mod tests {
             files: vec![],
             uncommitted: vec![],
             is_default_branch: true,
+            submodules: vec![],
         };
 
         let json = serde_json::to_string(&result).unwrap();
         // Should use camelCase for TypeScript compatibility
         assert!(json.contains("isDefaultBranch"));
+        assert!(json.contains("submodules"));
     }
 
     // ------------------------------------------------------------------------
@@ -682,6 +948,184 @@ mod tests {
         assert!(json.contains("shortId"));
         assert!(json.contains("\"abc1234\""));
         assert!(json.contains("Test commit"));
+    }
+
+    // ------------------------------------------------------------------------
+    // Submodule Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn parse_submodules_basic() {
+        let output = "submodule.lib-core.path lib/core\nsubmodule.lib-utils.path lib/utils";
+        let submodules = parse_submodules(output);
+
+        assert_eq!(submodules.len(), 2);
+
+        assert_eq!(submodules[0].0, "lib-core");
+        assert_eq!(submodules[0].1, "lib/core");
+
+        assert_eq!(submodules[1].0, "lib-utils");
+        assert_eq!(submodules[1].1, "lib/utils");
+    }
+
+    #[test]
+    fn parse_submodules_with_dots_in_name() {
+        // Submodule names can contain dots
+        let output = "submodule.my.sub.module.path vendor/my-module";
+        let submodules = parse_submodules(output);
+
+        assert_eq!(submodules.len(), 1);
+        assert_eq!(submodules[0].0, "my.sub.module");
+        assert_eq!(submodules[0].1, "vendor/my-module");
+    }
+
+    #[test]
+    fn parse_submodules_empty() {
+        let output = "";
+        let submodules = parse_submodules(output);
+
+        assert!(submodules.is_empty());
+    }
+
+    #[test]
+    fn parse_submodules_with_whitespace() {
+        let output = "  submodule.test.path   path/to/test  \n";
+        let submodules = parse_submodules(output);
+
+        assert_eq!(submodules.len(), 1);
+        assert_eq!(submodules[0].0, "test");
+        assert_eq!(submodules[0].1, "path/to/test");
+    }
+
+    #[test]
+    fn submodule_result_serializes_camel_case() {
+        let result = SubmoduleResult {
+            name: "test-module".to_string(),
+            path: "lib/test".to_string(),
+            is_initialized: true,
+            files: vec![],
+            uncommitted: vec![],
+            submodules: vec![],
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        // Should use camelCase for TypeScript compatibility
+        assert!(json.contains("isInitialized"));
+        assert!(json.contains("\"name\":\"test-module\""));
+        assert!(json.contains("\"path\":\"lib/test\""));
+    }
+
+    #[test]
+    fn submodule_has_changes_empty() {
+        let result = SubmoduleResult {
+            name: "test".to_string(),
+            path: "lib/test".to_string(),
+            is_initialized: true,
+            files: vec![],
+            uncommitted: vec![],
+            submodules: vec![],
+        };
+
+        assert!(!result.has_changes());
+    }
+
+    #[test]
+    fn submodule_has_changes_with_files() {
+        let result = SubmoduleResult {
+            name: "test".to_string(),
+            path: "lib/test".to_string(),
+            is_initialized: true,
+            files: vec![ChangedFile {
+                status: "M".to_string(),
+                path: "src/lib.rs".to_string(),
+            }],
+            uncommitted: vec![],
+            submodules: vec![],
+        };
+
+        assert!(result.has_changes());
+    }
+
+    #[test]
+    fn submodule_has_changes_with_uncommitted() {
+        let result = SubmoduleResult {
+            name: "test".to_string(),
+            path: "lib/test".to_string(),
+            is_initialized: true,
+            files: vec![],
+            uncommitted: vec![ChangedFile {
+                status: "A".to_string(),
+                path: "new.rs".to_string(),
+            }],
+            submodules: vec![],
+        };
+
+        assert!(result.has_changes());
+    }
+
+    #[test]
+    fn submodule_has_changes_nested() {
+        let nested = SubmoduleResult {
+            name: "nested".to_string(),
+            path: "lib/nested".to_string(),
+            is_initialized: true,
+            files: vec![ChangedFile {
+                status: "M".to_string(),
+                path: "src/lib.rs".to_string(),
+            }],
+            uncommitted: vec![],
+            submodules: vec![],
+        };
+
+        let result = SubmoduleResult {
+            name: "parent".to_string(),
+            path: "lib/parent".to_string(),
+            is_initialized: true,
+            files: vec![],
+            uncommitted: vec![],
+            submodules: vec![nested],
+        };
+
+        assert!(result.has_changes());
+    }
+
+    #[test]
+    fn submodule_total_file_count() {
+        let nested = SubmoduleResult {
+            name: "nested".to_string(),
+            path: "lib/nested".to_string(),
+            is_initialized: true,
+            files: vec![ChangedFile {
+                status: "M".to_string(),
+                path: "src/lib.rs".to_string(),
+            }],
+            uncommitted: vec![ChangedFile {
+                status: "A".to_string(),
+                path: "new.rs".to_string(),
+            }],
+            submodules: vec![],
+        };
+
+        let result = SubmoduleResult {
+            name: "parent".to_string(),
+            path: "lib/parent".to_string(),
+            is_initialized: true,
+            files: vec![
+                ChangedFile {
+                    status: "M".to_string(),
+                    path: "a.rs".to_string(),
+                },
+                ChangedFile {
+                    status: "M".to_string(),
+                    path: "b.rs".to_string(),
+                },
+            ],
+            uncommitted: vec![],
+            submodules: vec![nested],
+        };
+
+        // 2 (parent files) + 2 (nested files + uncommitted)
+        assert_eq!(result.total_file_count(), 4);
     }
 
     // Note: Full integration tests for list_changed_files, get_file_diff, etc.

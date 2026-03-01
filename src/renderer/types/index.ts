@@ -191,12 +191,32 @@ export interface ChangedFile {
   path: string
   /** True if this is an uncommitted change (staged/unstaged vs HEAD) */
   isUncommitted?: boolean
+  /** Path to the containing submodule, if this file is inside one */
+  submodulePath?: string
+}
+
+/** A submodule with its changed files */
+export interface SubmoduleResult {
+  /** Name of the submodule (from .gitmodules) */
+  name: string
+  /** Path to the submodule (relative to workspace root) */
+  path: string
+  /** Whether the submodule is initialized (has been cloned) */
+  isInitialized: boolean
+  /** Files changed inside the submodule (committed changes) */
+  files: ChangedFile[]
+  /** Uncommitted changes inside the submodule */
+  uncommitted: ChangedFile[]
+  /** Nested submodules (for recursive support) */
+  submodules: SubmoduleResult[]
 }
 
 export interface ChangedFilesResult {
   files: ChangedFile[]
   uncommitted: ChangedFile[]
   is_default_branch: boolean
+  /** Submodules with changes */
+  submodules: SubmoduleResult[]
 }
 
 // --- Commits ---

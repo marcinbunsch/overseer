@@ -4,7 +4,7 @@ import { gitService, type PrStatus } from "../services/git"
 import { projectRegistry } from "./ProjectRegistry"
 import { toastStore } from "./ToastStore"
 import { eventBus } from "../utils/eventBus"
-import type { ChangedFile } from "../types"
+import type { ChangedFile, SubmoduleResult } from "../types"
 
 /**
  * Store for managing changed files pane state.
@@ -15,6 +15,8 @@ export class ChangedFilesStore {
   @observable files: ChangedFile[] = []
   /** Uncommitted changes (staged + unstaged vs HEAD) */
   @observable uncommitted: ChangedFile[] = []
+  /** Submodules with changes */
+  @observable submodules: SubmoduleResult[] = []
   @observable isDefaultBranch = false
   @observable loading = false
   @observable error: string | null = null
@@ -60,6 +62,7 @@ export class ChangedFilesStore {
         // Mark uncommitted files with the flag
         this.uncommitted = result.uncommitted.map((f) => ({ ...f, isUncommitted: true }))
         this.files = result.files
+        this.submodules = result.submodules ?? []
         this.isDefaultBranch = result.is_default_branch
         this.lastLoadTime = Date.now()
       })
@@ -271,10 +274,23 @@ export class ChangedFilesStore {
     this.showMergeConfirm = show
   }
 
-  /** Total count of all changed files (uncommitted + branch changes) */
+  /** Total count of all changed files (uncommitted + branch changes + submodules) */
   @computed
   get totalFileCount(): number {
-    return this.uncommitted.length + this.files.length
+    return this.uncommitted.length + this.files.length + this.submoduleTotalCount
+  }
+
+  /** Total count of files in all submodules (recursive) */
+  @computed
+  get submoduleTotalCount(): number {
+    const countSubmoduleFiles = (sub: SubmoduleResult): number => {
+      return (
+        sub.files.length +
+        sub.uncommitted.length +
+        sub.submodules.reduce((acc, nested) => acc + countSubmoduleFiles(nested), 0)
+      )
+    }
+    return this.submodules.reduce((acc, sub) => acc + countSubmoduleFiles(sub), 0)
   }
 
   /** All files combined for DiffDialog navigation */
