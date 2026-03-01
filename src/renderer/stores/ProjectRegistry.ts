@@ -7,6 +7,7 @@ import type { WorkspaceStore, WorkspaceStatus } from "./WorkspaceStore"
 import { toastStore } from "./ToastStore"
 import { workspaceHistoryStore } from "./WorkspaceHistoryStore"
 import { backend } from "../backend"
+import { restoreFromUrl } from "../utils/urlState"
 
 class ProjectRegistry {
   @observable private _projects: Project[] = []
@@ -545,6 +546,26 @@ class ProjectRegistry {
       runInAction(() => {
         this._projects = registry.projects
       })
+
+      // Restore selection state from URL params (e.g., after mobile reload)
+      const { chatId } = restoreFromUrl()
+
+      // If we restored a workspace and have a chat ID to restore,
+      // wait for the workspace to load and then select the chat
+      if (chatId && this.selectedWorkspaceStore) {
+        this.selectedWorkspaceStore.load().then(() => {
+          runInAction(() => {
+            const store = this.selectedWorkspaceStore
+            if (store) {
+              // Check if the chat exists
+              const chat = store.allChats.find((c) => c.id === chatId)
+              if (chat) {
+                store.activeChatId = chatId
+              }
+            }
+          })
+        })
+      }
     } catch (err) {
       console.error("Failed to load projects:", err)
     }
