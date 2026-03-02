@@ -1,5 +1,5 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
-import { gitService } from "../services/git"
+import { GitService } from "../services/git"
 import type { ChangedFile } from "../types"
 
 type DiffStatus = "loading" | "error" | "done"
@@ -16,11 +16,13 @@ export class DiffViewStore {
 
   private cache = new Map<string, string>()
   private workspacePath: string
+  private gitService: GitService
 
-  constructor(workspacePath: string, initialFile: ChangedFile) {
+  constructor(workspacePath: string, initialFile: ChangedFile, gitService: GitService) {
     makeObservable(this)
     this.workspacePath = workspacePath
     this.selectedFile = initialFile
+    this.gitService = gitService
   }
 
   @action
@@ -47,13 +49,13 @@ export class DiffViewStore {
       if (file.submodulePath) {
         // File is inside a submodule - use submodule diff commands
         result = file.isUncommitted
-          ? await gitService.getSubmoduleUncommittedDiff(
+          ? await this.gitService.getSubmoduleUncommittedDiff(
               this.workspacePath,
               file.submodulePath,
               file.path,
               file.status
             )
-          : await gitService.getSubmoduleFileDiff(
+          : await this.gitService.getSubmoduleFileDiff(
               this.workspacePath,
               file.submodulePath,
               file.path,
@@ -62,8 +64,8 @@ export class DiffViewStore {
       } else {
         // Regular file - use standard diff commands
         result = file.isUncommitted
-          ? await gitService.getUncommittedDiff(this.workspacePath, file.path, file.status)
-          : await gitService.getFileDiff(this.workspacePath, file.path, file.status)
+          ? await this.gitService.getUncommittedDiff(this.workspacePath, file.path, file.status)
+          : await this.gitService.getFileDiff(this.workspacePath, file.path, file.status)
       }
 
       runInAction(() => {
@@ -103,7 +105,8 @@ export class DiffViewStore {
  */
 export function createDiffViewStore(
   workspacePath: string,
-  initialFile: ChangedFile
+  initialFile: ChangedFile,
+  gitService: GitService
 ): DiffViewStore {
-  return new DiffViewStore(workspacePath, initialFile)
+  return new DiffViewStore(workspacePath, initialFile, gitService)
 }

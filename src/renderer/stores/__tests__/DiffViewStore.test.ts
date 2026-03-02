@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { DiffViewStore, createDiffViewStore } from "../DiffViewStore"
 import type { ChangedFile } from "../../types"
 
-// Mock gitService
-vi.mock("../../services/git", () => ({
-  gitService: {
-    getFileDiff: vi.fn(),
-    getUncommittedDiff: vi.fn(),
-  },
-}))
+// Create a mock GitService instance
+const mockGitService = {
+  getFileDiff: vi.fn(),
+  getUncommittedDiff: vi.fn(),
+  getSubmoduleFileDiff: vi.fn(),
+  getSubmoduleUncommittedDiff: vi.fn(),
+}
 
 describe("DiffViewStore", () => {
   const mockFile: ChangedFile = { path: "src/foo.ts", status: "M" }
@@ -23,10 +23,15 @@ describe("DiffViewStore", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Reset mock git service
+    mockGitService.getFileDiff = vi.fn()
+    mockGitService.getUncommittedDiff = vi.fn()
+    mockGitService.getSubmoduleFileDiff = vi.fn()
+    mockGitService.getSubmoduleUncommittedDiff = vi.fn()
   })
 
   it("initializes with the given file and loading status", () => {
-    const store = new DiffViewStore(workspacePath, mockFile)
+    const store = new DiffViewStore(workspacePath, mockFile, mockGitService as never)
 
     expect(store.selectedFile).toEqual(mockFile)
     expect(store.status).toBe("loading")
@@ -35,25 +40,28 @@ describe("DiffViewStore", () => {
   })
 
   it("fileName returns the file name from path", () => {
-    const store = new DiffViewStore(workspacePath, mockFile)
+    const store = new DiffViewStore(workspacePath, mockFile, mockGitService as never)
 
     expect(store.fileName).toBe("foo.ts")
   })
 
   it("fileName handles paths without slashes", () => {
-    const store = new DiffViewStore(workspacePath, { path: "file.txt", status: "M" })
+    const store = new DiffViewStore(
+      workspacePath,
+      { path: "file.txt", status: "M" },
+      mockGitService as never
+    )
 
     expect(store.fileName).toBe("file.txt")
   })
 
   it("fetchDiff fetches and caches diff on success", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.getFileDiff).mockResolvedValue("diff content here")
+    vi.mocked(mockGitService.getFileDiff).mockResolvedValue("diff content here")
 
-    const store = new DiffViewStore(workspacePath, mockFile)
+    const store = new DiffViewStore(workspacePath, mockFile, mockGitService as never)
     await store.fetchDiff(mockFile)
 
-    expect(gitService.getFileDiff).toHaveBeenCalledWith(
+    expect(mockGitService.getFileDiff).toHaveBeenCalledWith(
       workspacePath,
       mockFile.path,
       mockFile.status
@@ -64,22 +72,20 @@ describe("DiffViewStore", () => {
   })
 
   it("fetchDiff uses cache on second call", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.getFileDiff).mockResolvedValue("cached diff")
+    vi.mocked(mockGitService.getFileDiff).mockResolvedValue("cached diff")
 
-    const store = new DiffViewStore(workspacePath, mockFile)
+    const store = new DiffViewStore(workspacePath, mockFile, mockGitService as never)
     await store.fetchDiff(mockFile)
     await store.fetchDiff(mockFile)
 
-    expect(gitService.getFileDiff).toHaveBeenCalledTimes(1)
+    expect(mockGitService.getFileDiff).toHaveBeenCalledTimes(1)
     expect(store.diff).toBe("cached diff")
   })
 
   it("fetchDiff sets error status on failure", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.getFileDiff).mockRejectedValue(new Error("Failed to get diff"))
+    vi.mocked(mockGitService.getFileDiff).mockRejectedValue(new Error("Failed to get diff"))
 
-    const store = new DiffViewStore(workspacePath, mockFile)
+    const store = new DiffViewStore(workspacePath, mockFile, mockGitService as never)
     await store.fetchDiff(mockFile)
 
     expect(store.status).toBe("error")
@@ -88,10 +94,9 @@ describe("DiffViewStore", () => {
   })
 
   it("selectFile updates selectedFile and fetches diff", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.getFileDiff).mockResolvedValue("new diff")
+    vi.mocked(mockGitService.getFileDiff).mockResolvedValue("new diff")
 
-    const store = new DiffViewStore(workspacePath, mockFile)
+    const store = new DiffViewStore(workspacePath, mockFile, mockGitService as never)
     store.selectFile(mockFile2)
 
     expect(store.selectedFile).toEqual(mockFile2)
@@ -101,7 +106,7 @@ describe("DiffViewStore", () => {
       expect(store.status).toBe("done")
     })
 
-    expect(gitService.getFileDiff).toHaveBeenCalledWith(
+    expect(mockGitService.getFileDiff).toHaveBeenCalledWith(
       workspacePath,
       mockFile2.path,
       mockFile2.status
@@ -109,10 +114,9 @@ describe("DiffViewStore", () => {
   })
 
   it("reset clears state and cache", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.getFileDiff).mockResolvedValue("some diff")
+    vi.mocked(mockGitService.getFileDiff).mockResolvedValue("some diff")
 
-    const store = new DiffViewStore(workspacePath, mockFile)
+    const store = new DiffViewStore(workspacePath, mockFile, mockGitService as never)
     await store.fetchDiff(mockFile)
 
     expect(store.status).toBe("done")
@@ -126,11 +130,11 @@ describe("DiffViewStore", () => {
 
     // Cache should be cleared - next fetch should call the service again
     await store.fetchDiff(mockFile)
-    expect(gitService.getFileDiff).toHaveBeenCalledTimes(2)
+    expect(mockGitService.getFileDiff).toHaveBeenCalledTimes(2)
   })
 
   it("createDiffViewStore factory creates a store instance", () => {
-    const store = createDiffViewStore(workspacePath, mockFile)
+    const store = createDiffViewStore(workspacePath, mockFile, mockGitService as never)
 
     expect(store).toBeInstanceOf(DiffViewStore)
     expect(store.selectedFile).toEqual(mockFile)
@@ -138,42 +142,39 @@ describe("DiffViewStore", () => {
 
   describe("uncommitted changes", () => {
     it("uses getUncommittedDiff for uncommitted files", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.getUncommittedDiff).mockResolvedValue("uncommitted diff content")
+      vi.mocked(mockGitService.getUncommittedDiff).mockResolvedValue("uncommitted diff content")
 
-      const store = new DiffViewStore(workspacePath, mockUncommittedFile)
+      const store = new DiffViewStore(workspacePath, mockUncommittedFile, mockGitService as never)
       await store.fetchDiff(mockUncommittedFile)
 
-      expect(gitService.getUncommittedDiff).toHaveBeenCalledWith(
+      expect(mockGitService.getUncommittedDiff).toHaveBeenCalledWith(
         workspacePath,
         mockUncommittedFile.path,
         mockUncommittedFile.status
       )
-      expect(gitService.getFileDiff).not.toHaveBeenCalled()
+      expect(mockGitService.getFileDiff).not.toHaveBeenCalled()
       expect(store.status).toBe("done")
       expect(store.diff).toBe("uncommitted diff content")
     })
 
     it("uses getFileDiff for branch files (not uncommitted)", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.getFileDiff).mockResolvedValue("branch diff content")
+      vi.mocked(mockGitService.getFileDiff).mockResolvedValue("branch diff content")
 
-      const store = new DiffViewStore(workspacePath, mockFile)
+      const store = new DiffViewStore(workspacePath, mockFile, mockGitService as never)
       await store.fetchDiff(mockFile)
 
-      expect(gitService.getFileDiff).toHaveBeenCalledWith(
+      expect(mockGitService.getFileDiff).toHaveBeenCalledWith(
         workspacePath,
         mockFile.path,
         mockFile.status
       )
-      expect(gitService.getUncommittedDiff).not.toHaveBeenCalled()
+      expect(mockGitService.getUncommittedDiff).not.toHaveBeenCalled()
       expect(store.diff).toBe("branch diff content")
     })
 
     it("uses separate cache keys for uncommitted vs branch changes", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.getFileDiff).mockResolvedValue("branch diff")
-      vi.mocked(gitService.getUncommittedDiff).mockResolvedValue("uncommitted diff")
+      vi.mocked(mockGitService.getFileDiff).mockResolvedValue("branch diff")
+      vi.mocked(mockGitService.getUncommittedDiff).mockResolvedValue("uncommitted diff")
 
       // Create a file that exists in both uncommitted and branch (same path, different isUncommitted)
       const branchFile: ChangedFile = { path: "src/shared.ts", status: "M" }
@@ -183,7 +184,7 @@ describe("DiffViewStore", () => {
         isUncommitted: true,
       }
 
-      const store = new DiffViewStore(workspacePath, branchFile)
+      const store = new DiffViewStore(workspacePath, branchFile, mockGitService as never)
 
       // Fetch branch version
       await store.fetchDiff(branchFile)
@@ -194,31 +195,29 @@ describe("DiffViewStore", () => {
       expect(store.diff).toBe("uncommitted diff")
 
       // Both methods should have been called once
-      expect(gitService.getFileDiff).toHaveBeenCalledTimes(1)
-      expect(gitService.getUncommittedDiff).toHaveBeenCalledTimes(1)
+      expect(mockGitService.getFileDiff).toHaveBeenCalledTimes(1)
+      expect(mockGitService.getUncommittedDiff).toHaveBeenCalledTimes(1)
     })
 
     it("caches uncommitted diffs separately", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.getUncommittedDiff).mockResolvedValue("cached uncommitted diff")
+      vi.mocked(mockGitService.getUncommittedDiff).mockResolvedValue("cached uncommitted diff")
 
-      const store = new DiffViewStore(workspacePath, mockUncommittedFile)
+      const store = new DiffViewStore(workspacePath, mockUncommittedFile, mockGitService as never)
       await store.fetchDiff(mockUncommittedFile)
       await store.fetchDiff(mockUncommittedFile)
 
       // Should only call once due to caching
-      expect(gitService.getUncommittedDiff).toHaveBeenCalledTimes(1)
+      expect(mockGitService.getUncommittedDiff).toHaveBeenCalledTimes(1)
       expect(store.diff).toBe("cached uncommitted diff")
     })
 
     it("handles untracked files with isUncommitted flag", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.getUncommittedDiff).mockResolvedValue("new file content")
+      vi.mocked(mockGitService.getUncommittedDiff).mockResolvedValue("new file content")
 
-      const store = new DiffViewStore(workspacePath, mockUntrackedFile)
+      const store = new DiffViewStore(workspacePath, mockUntrackedFile, mockGitService as never)
       await store.fetchDiff(mockUntrackedFile)
 
-      expect(gitService.getUncommittedDiff).toHaveBeenCalledWith(
+      expect(mockGitService.getUncommittedDiff).toHaveBeenCalledWith(
         workspacePath,
         mockUntrackedFile.path,
         "?"
@@ -227,12 +226,11 @@ describe("DiffViewStore", () => {
     })
 
     it("handles errors when fetching uncommitted diff", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.getUncommittedDiff).mockRejectedValue(
+      vi.mocked(mockGitService.getUncommittedDiff).mockRejectedValue(
         new Error("Failed to get uncommitted diff")
       )
 
-      const store = new DiffViewStore(workspacePath, mockUncommittedFile)
+      const store = new DiffViewStore(workspacePath, mockUncommittedFile, mockGitService as never)
       await store.fetchDiff(mockUncommittedFile)
 
       expect(store.status).toBe("error")

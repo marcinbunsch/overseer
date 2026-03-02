@@ -1,4 +1,5 @@
-import { backend } from "../backend"
+import { backend as defaultBackend } from "../backend"
+import type { Backend } from "../backend/types"
 import { configStore } from "../stores/ConfigStore"
 import type { ChangedFile, ChangedFilesResult, Commit, MergeResult } from "../types"
 
@@ -14,22 +15,33 @@ export interface PrStatus {
   is_draft: boolean
 }
 
-class GitService {
+/**
+ * GitService wraps git operations via the backend.
+ * Can be instantiated with a specific backend for remote projects,
+ * or use the default Tauri backend for local projects.
+ */
+export class GitService {
+  private backend: Backend
+
+  constructor(backend: Backend = defaultBackend) {
+    this.backend = backend
+  }
+
   async listWorkspaces(repoPath: string): Promise<WorkspaceInfo[]> {
-    return backend.invoke<WorkspaceInfo[]>("list_workspaces", { repoPath })
+    return this.backend.invoke<WorkspaceInfo[]>("list_workspaces", { repoPath })
   }
 
   async addWorkspace(repoPath: string, branch: string): Promise<string> {
-    return backend.invoke<string>("add_workspace", { repoPath, branch })
+    return this.backend.invoke<string>("add_workspace", { repoPath, branch })
   }
 
   async archiveWorkspace(repoPath: string, workspacePath: string): Promise<void> {
-    return backend.invoke<void>("archive_workspace", { repoPath, workspacePath })
+    return this.backend.invoke<void>("archive_workspace", { repoPath, workspacePath })
   }
 
   async listChangedFiles(workspacePath: string): Promise<ChangedFilesResult> {
     try {
-      return await backend.invoke<ChangedFilesResult>("list_changed_files", { workspacePath })
+      return await this.backend.invoke<ChangedFilesResult>("list_changed_files", { workspacePath })
     } catch (err) {
       console.error("[Git listChangedFiles error] Debug info:", {
         error: err,
@@ -40,27 +52,27 @@ class GitService {
   }
 
   async listFiles(workspacePath: string): Promise<string[]> {
-    return backend.invoke<string[]>("list_files", { workspacePath })
+    return this.backend.invoke<string[]>("list_files", { workspacePath })
   }
 
   async checkMerge(workspacePath: string): Promise<MergeResult> {
-    return backend.invoke<MergeResult>("check_merge", { workspacePath })
+    return this.backend.invoke<MergeResult>("check_merge", { workspacePath })
   }
 
   async mergeIntoMain(workspacePath: string): Promise<MergeResult> {
-    return backend.invoke<MergeResult>("merge_into_main", { workspacePath })
+    return this.backend.invoke<MergeResult>("merge_into_main", { workspacePath })
   }
 
   async renameBranch(workspacePath: string, newName: string): Promise<void> {
-    return backend.invoke<void>("rename_branch", { workspacePath, newName })
+    return this.backend.invoke<void>("rename_branch", { workspacePath, newName })
   }
 
   async deleteBranch(repoPath: string, branchName: string): Promise<void> {
-    return backend.invoke<void>("delete_branch", { repoPath, branchName })
+    return this.backend.invoke<void>("delete_branch", { repoPath, branchName })
   }
 
   async getFileDiff(workspacePath: string, filePath: string, fileStatus: string): Promise<string> {
-    return backend.invoke<string>("get_file_diff", { workspacePath, filePath, fileStatus })
+    return this.backend.invoke<string>("get_file_diff", { workspacePath, filePath, fileStatus })
   }
 
   async getUncommittedDiff(
@@ -68,7 +80,11 @@ class GitService {
     filePath: string,
     fileStatus: string
   ): Promise<string> {
-    return backend.invoke<string>("get_uncommitted_diff", { workspacePath, filePath, fileStatus })
+    return this.backend.invoke<string>("get_uncommitted_diff", {
+      workspacePath,
+      filePath,
+      fileStatus,
+    })
   }
 
   async getSubmoduleFileDiff(
@@ -77,7 +93,7 @@ class GitService {
     filePath: string,
     fileStatus: string
   ): Promise<string> {
-    return backend.invoke<string>("get_submodule_file_diff", {
+    return this.backend.invoke<string>("get_submodule_file_diff", {
       workspacePath,
       submodulePath,
       filePath,
@@ -91,7 +107,7 @@ class GitService {
     filePath: string,
     fileStatus: string
   ): Promise<string> {
-    return backend.invoke<string>("get_submodule_uncommitted_diff", {
+    return this.backend.invoke<string>("get_submodule_uncommitted_diff", {
       workspacePath,
       submodulePath,
       filePath,
@@ -100,11 +116,11 @@ class GitService {
   }
 
   async listCommits(workspacePath: string): Promise<Commit[]> {
-    return backend.invoke<Commit[]>("list_commits", { workspacePath })
+    return this.backend.invoke<Commit[]>("list_commits", { workspacePath })
   }
 
   async listCommitFiles(workspacePath: string, commitSha: string): Promise<ChangedFile[]> {
-    return backend.invoke<ChangedFile[]>("list_commit_files", { workspacePath, commitSha })
+    return this.backend.invoke<ChangedFile[]>("list_commit_files", { workspacePath, commitSha })
   }
 
   async getCommitDiff(
@@ -113,7 +129,7 @@ class GitService {
     filePath: string,
     fileStatus: string
   ): Promise<string> {
-    return backend.invoke<string>("get_commit_diff", {
+    return this.backend.invoke<string>("get_commit_diff", {
       workspacePath,
       commitSha,
       filePath,
@@ -122,7 +138,7 @@ class GitService {
   }
 
   async getPrStatus(workspacePath: string, branch: string): Promise<PrStatus | null> {
-    return backend.invoke<PrStatus | null>("get_pr_status", {
+    return this.backend.invoke<PrStatus | null>("get_pr_status", {
       workspacePath,
       branch,
       agentShell: configStore.agentShell || null,
@@ -130,7 +146,7 @@ class GitService {
   }
 
   async isGitRepo(path: string): Promise<boolean> {
-    return backend.invoke<boolean>("is_git_repo", { path })
+    return this.backend.invoke<boolean>("is_git_repo", { path })
   }
 }
 

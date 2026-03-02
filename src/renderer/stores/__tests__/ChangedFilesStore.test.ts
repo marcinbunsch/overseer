@@ -5,16 +5,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { ChangedFilesStore } from "../ChangedFilesStore"
 import type { ChangedFile } from "../../types"
 
-// Mock dependencies
-vi.mock("../../services/git", () => ({
-  gitService: {
-    listChangedFiles: vi.fn(),
-    getPrStatus: vi.fn(),
-    checkMerge: vi.fn(),
-    mergeIntoMain: vi.fn(),
-    deleteBranch: vi.fn(),
-  },
-}))
+// Create a mock GitService instance
+const mockGitService = {
+  listChangedFiles: vi.fn(),
+  getPrStatus: vi.fn(),
+  checkMerge: vi.fn(),
+  mergeIntoMain: vi.fn(),
+  deleteBranch: vi.fn(),
+}
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
@@ -79,13 +77,19 @@ describe("ChangedFilesStore", () => {
     // Reset mock workspace store
     mockWorkspaceStore.sendMessage = vi.fn()
     mockWorkspaceStore.activeChats = []
+    // Reset mock git service
+    mockGitService.listChangedFiles = vi.fn()
+    mockGitService.getPrStatus = vi.fn()
+    mockGitService.checkMerge = vi.fn()
+    mockGitService.mergeIntoMain = vi.fn()
+    mockGitService.deleteBranch = vi.fn()
     // Set up projectRegistry with the mock workspace store
     const { projectRegistry } = await import("../ProjectRegistry")
     vi.mocked(projectRegistry).selectedWorkspaceStore = mockWorkspaceStore as never
   })
 
   it("initializes with empty state", () => {
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
 
     expect(store.files).toEqual([])
     expect(store.uncommitted).toEqual([])
@@ -101,23 +105,22 @@ describe("ChangedFilesStore", () => {
   })
 
   it("refresh fetches changed files and updates state", async () => {
-    const { gitService } = await import("../../services/git")
     const mockBranchFiles: ChangedFile[] = [
       { path: "src/foo.ts", status: "M" },
       { path: "src/bar.ts", status: "A" },
     ]
     const mockUncommittedFiles: ChangedFile[] = [{ path: "src/new.ts", status: "?" }]
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: mockBranchFiles,
       uncommitted: mockUncommittedFiles,
       is_default_branch: false,
       submodules: [],
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.refresh()
 
-    expect(gitService.listChangedFiles).toHaveBeenCalledWith(workspacePath)
+    expect(mockGitService.listChangedFiles).toHaveBeenCalledWith(workspacePath)
     expect(store.files).toEqual(mockBranchFiles)
     // Uncommitted files should have isUncommitted flag set
     expect(store.uncommitted).toEqual([{ path: "src/new.ts", status: "?", isUncommitted: true }])
@@ -127,10 +130,9 @@ describe("ChangedFilesStore", () => {
   })
 
   it("refresh sets error on failure", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.listChangedFiles).mockRejectedValue(new Error("Git error"))
+    vi.mocked(mockGitService.listChangedFiles).mockRejectedValue(new Error("Git error"))
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.refresh()
 
     expect(store.error).toBe("Git error")
@@ -139,22 +141,21 @@ describe("ChangedFilesStore", () => {
   })
 
   it("refresh sets isDefaultBranch correctly", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: [],
       uncommitted: [],
       is_default_branch: true,
       submodules: [],
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.refresh()
 
     expect(store.isDefaultBranch).toBe(true)
   })
 
   it("setDiffFile updates diffFile", () => {
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     const file: ChangedFile = { path: "test.ts", status: "M" }
 
     store.setDiffFile(file)
@@ -165,7 +166,7 @@ describe("ChangedFilesStore", () => {
   })
 
   it("openReview sets diffFile to first uncommitted file", () => {
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     const uncommittedFile: ChangedFile = {
       path: "uncommitted.ts",
       status: "M",
@@ -182,7 +183,7 @@ describe("ChangedFilesStore", () => {
   })
 
   it("openReview falls back to first branch file when no uncommitted", () => {
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     const branchFile: ChangedFile = { path: "branch.ts", status: "A" }
 
     store["uncommitted"] = []
@@ -193,7 +194,7 @@ describe("ChangedFilesStore", () => {
   })
 
   it("openReview does nothing when no files", () => {
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
 
     store["uncommitted"] = []
     store["files"] = []
@@ -203,7 +204,7 @@ describe("ChangedFilesStore", () => {
   })
 
   it("setShowMergeConfirm updates showMergeConfirm", () => {
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
 
     store.setShowMergeConfirm(true)
     expect(store.showMergeConfirm).toBe(true)
@@ -213,14 +214,13 @@ describe("ChangedFilesStore", () => {
   })
 
   it("checkMerge shows merge confirm on success", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.checkMerge).mockResolvedValue({
+    vi.mocked(mockGitService.checkMerge).mockResolvedValue({
       success: true,
       conflicts: [],
       message: "",
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.checkMerge()
 
     expect(store.showMergeConfirm).toBe(true)
@@ -228,20 +228,19 @@ describe("ChangedFilesStore", () => {
   })
 
   it("checkMerge sends message on conflicts", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.checkMerge).mockResolvedValue({
+    vi.mocked(mockGitService.checkMerge).mockResolvedValue({
       success: false,
       conflicts: ["file1.ts", "file2.ts"],
       message: "",
     })
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: [],
       uncommitted: [],
       is_default_branch: false,
       submodules: [],
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.checkMerge()
 
     expect(mockWorkspaceStore.sendMessage).toHaveBeenCalledWith(
@@ -251,35 +250,33 @@ describe("ChangedFilesStore", () => {
   })
 
   it("checkMerge sets error on failure message", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.checkMerge).mockResolvedValue({
+    vi.mocked(mockGitService.checkMerge).mockResolvedValue({
       success: false,
       conflicts: [],
       message: "Branch not found",
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.checkMerge()
 
     expect(store.error).toBe("Branch not found")
   })
 
   it("merge shows toast and refreshes on success", async () => {
-    const { gitService } = await import("../../services/git")
     const { toastStore } = await import("../ToastStore")
-    vi.mocked(gitService.mergeIntoMain).mockResolvedValue({
+    vi.mocked(mockGitService.mergeIntoMain).mockResolvedValue({
       success: true,
       conflicts: [],
       message: "",
     })
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: [],
       uncommitted: [],
       is_default_branch: false,
       submodules: [],
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     store.showMergeConfirm = true
 
     await store.merge(false, false)
@@ -290,49 +287,46 @@ describe("ChangedFilesStore", () => {
   })
 
   it("merge archives workspace when archiveAfter is true", async () => {
-    const { gitService } = await import("../../services/git")
     const { projectRegistry } = await import("../ProjectRegistry")
-    vi.mocked(gitService.mergeIntoMain).mockResolvedValue({
+    vi.mocked(mockGitService.mergeIntoMain).mockResolvedValue({
       success: true,
       conflicts: [],
       message: "",
     })
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: [],
       uncommitted: [],
       is_default_branch: false,
       submodules: [],
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.merge(true, false)
 
     expect(projectRegistry.archiveWorkspace).toHaveBeenCalledWith(workspaceId)
   })
 
   it("merge shows 'workspace archived' toast when archiving", async () => {
-    const { gitService } = await import("../../services/git")
     const { toastStore } = await import("../ToastStore")
-    vi.mocked(gitService.mergeIntoMain).mockResolvedValue({
+    vi.mocked(mockGitService.mergeIntoMain).mockResolvedValue({
       success: true,
       conflicts: [],
       message: "",
     })
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: [],
       uncommitted: [],
       is_default_branch: false,
       submodules: [],
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.merge(true, false)
 
     expect(toastStore.show).toHaveBeenCalledWith("Branch merged and workspace archived")
   })
 
   it("merge deletes branch when deleteBranch is true and archive succeeds", async () => {
-    const { gitService } = await import("../../services/git")
     const { projectRegistry } = await import("../ProjectRegistry")
     const { toastStore } = await import("../ToastStore")
 
@@ -340,95 +334,92 @@ describe("ChangedFilesStore", () => {
     vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
     vi.mocked(projectRegistry).selectedProject = { id: "repo-1", path: "/repo/path" } as never
 
-    vi.mocked(gitService.mergeIntoMain).mockResolvedValue({
+    vi.mocked(mockGitService.mergeIntoMain).mockResolvedValue({
       success: true,
       conflicts: [],
       message: "",
     })
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: [],
       uncommitted: [],
       is_default_branch: false,
       submodules: [],
     })
-    vi.mocked(gitService.deleteBranch).mockResolvedValue(undefined)
+    vi.mocked(mockGitService.deleteBranch).mockResolvedValue(undefined)
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.merge(true, true)
 
-    expect(gitService.deleteBranch).toHaveBeenCalledWith("/repo/path", "feature-branch")
+    expect(mockGitService.deleteBranch).toHaveBeenCalledWith("/repo/path", "feature-branch")
     expect(toastStore.show).toHaveBeenCalledWith(
       "Branch merged, workspace archived, and branch deleted"
     )
   })
 
   it("merge does not delete branch when deleteBranch is false", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.mergeIntoMain).mockResolvedValue({
+    vi.mocked(mockGitService.mergeIntoMain).mockResolvedValue({
       success: true,
       conflicts: [],
       message: "",
     })
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: [],
       uncommitted: [],
       is_default_branch: false,
       submodules: [],
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.merge(true, false)
 
-    expect(gitService.deleteBranch).not.toHaveBeenCalled()
+    expect(mockGitService.deleteBranch).not.toHaveBeenCalled()
   })
 
   it("merge switches to main workspace after successful merge", async () => {
-    const { gitService } = await import("../../services/git")
     const { projectRegistry } = await import("../ProjectRegistry")
 
     vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
     vi.mocked(projectRegistry).selectedProject = { id: "repo-1", path: "/repo/path" } as never
 
-    vi.mocked(gitService.mergeIntoMain).mockResolvedValue({
+    vi.mocked(mockGitService.mergeIntoMain).mockResolvedValue({
       success: true,
       conflicts: [],
       message: "",
     })
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: [],
       uncommitted: [],
       is_default_branch: false,
       submodules: [],
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.merge(false, false)
 
     expect(projectRegistry.switchToMainWorkspace).toHaveBeenCalledWith("repo-1")
   })
 
   it("merge still succeeds if branch deletion fails", async () => {
-    const { gitService } = await import("../../services/git")
     const { projectRegistry } = await import("../ProjectRegistry")
     const { toastStore } = await import("../ToastStore")
 
     vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
     vi.mocked(projectRegistry).selectedProject = { id: "repo-1", path: "/repo/path" } as never
 
-    vi.mocked(gitService.mergeIntoMain).mockResolvedValue({
+    vi.mocked(mockGitService.mergeIntoMain).mockResolvedValue({
       success: true,
       conflicts: [],
       message: "",
     })
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: [],
       uncommitted: [],
       is_default_branch: false,
       submodules: [],
     })
-    vi.mocked(gitService.deleteBranch).mockRejectedValue(new Error("Branch not merged"))
+    vi.mocked(mockGitService.deleteBranch).mockRejectedValue(new Error("Branch not merged"))
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.merge(true, true)
 
     // Should still show archive success even if branch deletion fails
@@ -438,15 +429,14 @@ describe("ChangedFilesStore", () => {
   })
 
   it("onRunningCountChange triggers refresh when count drops to 0", async () => {
-    const { gitService } = await import("../../services/git")
-    vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
       files: [],
       uncommitted: [],
       is_default_branch: false,
       submodules: [],
     })
 
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
 
     // Simulate chat finishing: was 1, now 0
     store.onRunningCountChange(1)
@@ -455,27 +445,25 @@ describe("ChangedFilesStore", () => {
     // Wait for the delayed refresh
     await vi.waitFor(
       () => {
-        expect(gitService.listChangedFiles).toHaveBeenCalled()
+        expect(mockGitService.listChangedFiles).toHaveBeenCalled()
       },
       { timeout: 600 }
     )
   })
 
   it("onRunningCountChange does not refresh when count stays at 0", async () => {
-    const { gitService } = await import("../../services/git")
-
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
 
     store.onRunningCountChange(0)
     store.onRunningCountChange(0)
 
     // Short wait to ensure no refresh happens
     await new Promise((r) => setTimeout(r, 100))
-    expect(gitService.listChangedFiles).not.toHaveBeenCalled()
+    expect(mockGitService.listChangedFiles).not.toHaveBeenCalled()
   })
 
   it("dispose clears unlisteners", async () => {
-    const store = new ChangedFilesStore(workspacePath, workspaceId)
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
 
     // Simulate having listeners
     const mockUnlisten = vi.fn()
@@ -491,8 +479,7 @@ describe("ChangedFilesStore", () => {
 
   describe("computed properties", () => {
     it("totalFileCount returns sum of uncommitted and branch files", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [
           { path: "src/a.ts", status: "M" },
           { path: "src/b.ts", status: "A" },
@@ -506,21 +493,20 @@ describe("ChangedFilesStore", () => {
         submodules: [],
       })
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       await store.refresh()
 
       expect(store.totalFileCount).toBe(5)
     })
 
     it("totalFileCount returns 0 when no files", () => {
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
 
       expect(store.totalFileCount).toBe(0)
     })
 
     it("allFiles combines uncommitted and branch files in order", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [
           { path: "src/branch-a.ts", status: "M" },
           { path: "src/branch-b.ts", status: "A" },
@@ -533,7 +519,7 @@ describe("ChangedFilesStore", () => {
         submodules: [],
       })
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       await store.refresh()
 
       expect(store.allFiles).toHaveLength(4)
@@ -550,14 +536,13 @@ describe("ChangedFilesStore", () => {
     })
 
     it("allFiles returns empty array when no files", () => {
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
 
       expect(store.allFiles).toEqual([])
     })
 
     it("uncommitted files have isUncommitted flag set to true", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [],
         uncommitted: [
           { path: "src/new.ts", status: "M" },
@@ -567,7 +552,7 @@ describe("ChangedFilesStore", () => {
         submodules: [],
       })
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       await store.refresh()
 
       expect(store.uncommitted).toHaveLength(2)
@@ -578,52 +563,49 @@ describe("ChangedFilesStore", () => {
 
   describe("overseer action event listeners", () => {
     it("activate subscribes to overseer:open_pr event", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [],
         uncommitted: [],
         is_default_branch: false,
         submodules: [],
       })
-      vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
+      vi.mocked(mockGitService.getPrStatus).mockResolvedValue(null)
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       store.activate()
 
       expect(eventBus.on).toHaveBeenCalledWith("overseer:open_pr", expect.any(Function))
     })
 
     it("activate subscribes to overseer:merge_branch event", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [],
         uncommitted: [],
         is_default_branch: false,
         submodules: [],
       })
-      vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
+      vi.mocked(mockGitService.getPrStatus).mockResolvedValue(null)
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       store.activate()
 
       expect(eventBus.on).toHaveBeenCalledWith("overseer:merge_branch", expect.any(Function))
     })
 
     it("overseer:open_pr event triggers createPR", async () => {
-      const { gitService } = await import("../../services/git")
       const { projectRegistry } = await import("../ProjectRegistry")
 
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [],
         uncommitted: [],
         is_default_branch: false,
         submodules: [],
       })
-      vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
+      vi.mocked(mockGitService.getPrStatus).mockResolvedValue(null)
       vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
       vi.mocked(projectRegistry).selectedProject = { id: "repo-1", prPrompt: null } as never
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       store.activate()
 
       // Emit the event via mock
@@ -637,21 +619,20 @@ describe("ChangedFilesStore", () => {
     })
 
     it("overseer:merge_branch event triggers checkMerge", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [],
         uncommitted: [],
         is_default_branch: false,
         submodules: [],
       })
-      vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
-      vi.mocked(gitService.checkMerge).mockResolvedValue({
+      vi.mocked(mockGitService.getPrStatus).mockResolvedValue(null)
+      vi.mocked(mockGitService.checkMerge).mockResolvedValue({
         success: true,
         conflicts: [],
         message: "",
       })
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       store.activate()
 
       // Emit the event
@@ -659,21 +640,20 @@ describe("ChangedFilesStore", () => {
 
       // Wait for checkMerge to be called
       await vi.waitFor(() => {
-        expect(gitService.checkMerge).toHaveBeenCalledWith(workspacePath)
+        expect(mockGitService.checkMerge).toHaveBeenCalledWith(workspacePath)
       })
     })
 
     it("dispose unsubscribes from overseer events", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [],
         uncommitted: [],
         is_default_branch: false,
         submodules: [],
       })
-      vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
+      vi.mocked(mockGitService.getPrStatus).mockResolvedValue(null)
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       store.activate()
 
       // Verify subscriptions exist
@@ -688,25 +668,24 @@ describe("ChangedFilesStore", () => {
     })
 
     it("events are not processed after dispose", async () => {
-      const { gitService } = await import("../../services/git")
       const { projectRegistry } = await import("../ProjectRegistry")
 
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [],
         uncommitted: [],
         is_default_branch: false,
         submodules: [],
       })
-      vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
+      vi.mocked(mockGitService.getPrStatus).mockResolvedValue(null)
       vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       store.activate()
       store.dispose()
 
       // Clear mocks after dispose
       mockWorkspaceStore.sendMessage.mockClear()
-      vi.mocked(gitService.checkMerge).mockClear()
+      vi.mocked(mockGitService.checkMerge).mockClear()
 
       // Try to emit events - they should not be processed
       eventBus.emit("overseer:open_pr", { title: "My PR" })
@@ -714,27 +693,26 @@ describe("ChangedFilesStore", () => {
 
       // Nothing should have been called
       expect(mockWorkspaceStore.sendMessage).not.toHaveBeenCalled()
-      expect(gitService.checkMerge).not.toHaveBeenCalled()
+      expect(mockGitService.checkMerge).not.toHaveBeenCalled()
     })
 
     it("createPR includes repo prPrompt when available", async () => {
-      const { gitService } = await import("../../services/git")
       const { projectRegistry } = await import("../ProjectRegistry")
 
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [],
         uncommitted: [],
         is_default_branch: false,
         submodules: [],
       })
-      vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
+      vi.mocked(mockGitService.getPrStatus).mockResolvedValue(null)
       vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
       vi.mocked(projectRegistry).selectedProject = {
         id: "repo-1",
         prPrompt: "Always include a test plan",
       } as never
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       store.activate()
 
       eventBus.emit("overseer:open_pr", { title: "My PR" })
@@ -746,21 +724,20 @@ describe("ChangedFilesStore", () => {
     })
 
     it("checkMerge shows merge confirm dialog on success", async () => {
-      const { gitService } = await import("../../services/git")
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [],
         uncommitted: [],
         is_default_branch: false,
         submodules: [],
       })
-      vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
-      vi.mocked(gitService.checkMerge).mockResolvedValue({
+      vi.mocked(mockGitService.getPrStatus).mockResolvedValue(null)
+      vi.mocked(mockGitService.checkMerge).mockResolvedValue({
         success: true,
         conflicts: [],
         message: "",
       })
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       store.activate()
 
       eventBus.emit("overseer:merge_branch", { into: "main" })
@@ -771,22 +748,20 @@ describe("ChangedFilesStore", () => {
     })
 
     it("checkMerge sends conflict message when conflicts exist", async () => {
-      const { gitService } = await import("../../services/git")
-
-      vi.mocked(gitService.listChangedFiles).mockResolvedValue({
+      vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
         files: [],
         uncommitted: [],
         is_default_branch: false,
         submodules: [],
       })
-      vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
-      vi.mocked(gitService.checkMerge).mockResolvedValue({
+      vi.mocked(mockGitService.getPrStatus).mockResolvedValue(null)
+      vi.mocked(mockGitService.checkMerge).mockResolvedValue({
         success: false,
         conflicts: ["file1.ts", "file2.ts"],
         message: "",
       })
 
-      const store = new ChangedFilesStore(workspacePath, workspaceId)
+      const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
       store.activate()
 
       // Clear any previous calls from activate

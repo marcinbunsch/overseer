@@ -29,10 +29,9 @@ vi.mock("../../../stores/SessionStore", () => ({
   },
 }))
 
-// Mock the git service
-vi.mock("../../../services/git", () => ({
-  gitService: {
-    getDiff: vi.fn().mockResolvedValue(`diff --git a/test.ts b/test.ts
+// Create mock GitService
+const mockGitService = {
+  getDiff: vi.fn().mockResolvedValue(`diff --git a/test.ts b/test.ts
 --- a/test.ts
 +++ b/test.ts
 @@ -1,3 +1,3 @@
@@ -40,7 +39,7 @@ vi.mock("../../../services/git", () => ({
 -const b = 2
 +const b = 3
  const c = 4`),
-    getFileDiff: vi.fn().mockResolvedValue(`diff --git a/test.ts b/test.ts
+  getFileDiff: vi.fn().mockResolvedValue(`diff --git a/test.ts b/test.ts
 --- a/test.ts
 +++ b/test.ts
 @@ -1,3 +1,3 @@
@@ -48,7 +47,7 @@ vi.mock("../../../services/git", () => ({
 -const b = 2
 +const b = 3
  const c = 4`),
-    getUncommittedDiff: vi.fn().mockResolvedValue(`diff --git a/test.ts b/test.ts
+  getUncommittedDiff: vi.fn().mockResolvedValue(`diff --git a/test.ts b/test.ts
 --- a/test.ts
 +++ b/test.ts
 @@ -1,3 +1,3 @@
@@ -56,6 +55,16 @@ vi.mock("../../../services/git", () => ({
 -const b = 2
 +const b = 3
  const c = 4`),
+  getSubmoduleFileDiff: vi.fn(),
+  getSubmoduleUncommittedDiff: vi.fn(),
+}
+
+// Mock the ProjectRegistry to provide workspace store with getGitService
+vi.mock("../../../stores/ProjectRegistry", () => ({
+  projectRegistry: {
+    selectedWorkspaceStore: {
+      getGitService: () => mockGitService,
+    },
   },
 }))
 

@@ -1,6 +1,6 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
 import { backend, type Unsubscribe } from "../backend"
-import { gitService } from "../services/git"
+import { GitService } from "../services/git"
 import { projectRegistry } from "./ProjectRegistry"
 import type { Commit } from "../types"
 
@@ -17,6 +17,7 @@ export class CommitsStore {
   @observable diffCommit: Commit | null = null
 
   private workspacePath: string
+  private gitService: GitService
   private unlisteners: Unsubscribe[] = []
   private prevRunningCount = 0
   private isActive = false
@@ -25,9 +26,10 @@ export class CommitsStore {
   // How long to consider data "fresh" and skip refresh (in ms)
   private static readonly STALE_THRESHOLD = 5000 // 5 seconds
 
-  constructor(workspacePath: string) {
+  constructor(workspacePath: string, gitService: GitService) {
     makeObservable(this)
     this.workspacePath = workspacePath
+    this.gitService = gitService
   }
 
   @action
@@ -36,7 +38,7 @@ export class CommitsStore {
     this.error = null
 
     try {
-      const result = await gitService.listCommits(this.workspacePath)
+      const result = await this.gitService.listCommits(this.workspacePath)
       runInAction(() => {
         this.commits = result
         this.lastLoadTime = Date.now()

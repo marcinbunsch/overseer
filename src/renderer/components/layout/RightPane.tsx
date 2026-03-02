@@ -115,11 +115,7 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
             style={{ height: configStore.changesHeight, minHeight: 80 }}
           >
             <div className="min-h-0 flex-1 overflow-hidden">
-              {isRemote ? (
-                <div className="flex h-full items-center justify-center text-sm text-ovr-text-dim">
-                  Not available for remote projects
-                </div>
-              ) : workspace?.isCreating ? (
+              {workspace?.isCreating ? (
                 <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
                   Workspace initializing...
                 </div>

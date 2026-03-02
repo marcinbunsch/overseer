@@ -13,6 +13,7 @@ import type {
   Workspace,
 } from "../types"
 import type { Backend } from "../backend/types"
+import { GitService } from "../services/git"
 import { getAgentService } from "../services/agentRegistry"
 import { ChatStore, type ChatStoreContext } from "./ChatStore"
 import { ChangedFilesStore } from "./ChangedFilesStore"
@@ -84,6 +85,9 @@ export class WorkspaceStore {
 
   // Backend to use for this workspace (Tauri for local, HTTP for remote)
   readonly backend: Backend
+
+  // Cached GitService - created lazily with workspace's backend
+  private _gitService: GitService | null = null
 
   // Cached ChangedFilesStore - created lazily
   private _changedFilesStore: ChangedFilesStore | null = null
@@ -231,12 +235,23 @@ export class WorkspaceStore {
   }
 
   /**
+   * Get or create the GitService for this workspace.
+   * Uses the workspace's backend (Tauri for local, HTTP for remote).
+   */
+  getGitService(): GitService {
+    if (!this._gitService) {
+      this._gitService = new GitService(this.backend)
+    }
+    return this._gitService
+  }
+
+  /**
    * Get or create the ChangedFilesStore for this workspace.
    * The store is cached and reused across workspace switches.
    */
   getChangedFilesStore(): ChangedFilesStore {
     if (!this._changedFilesStore) {
-      this._changedFilesStore = new ChangedFilesStore(this.path, this.id)
+      this._changedFilesStore = new ChangedFilesStore(this.path, this.id, this.getGitService())
     }
     return this._changedFilesStore
   }
@@ -247,7 +262,7 @@ export class WorkspaceStore {
    */
   getCommitsStore(): CommitsStore {
     if (!this._commitsStore) {
-      this._commitsStore = new CommitsStore(this.path)
+      this._commitsStore = new CommitsStore(this.path, this.getGitService())
     }
     return this._commitsStore
   }

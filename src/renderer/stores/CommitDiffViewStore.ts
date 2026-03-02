@@ -1,5 +1,5 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
-import { gitService } from "../services/git"
+import { GitService } from "../services/git"
 import type { ChangedFile, Commit } from "../types"
 
 type DiffStatus = "loading" | "error" | "done"
@@ -22,11 +22,13 @@ export class CommitDiffViewStore {
   private cache = new Map<string, string>()
   private workspacePath: string
   private commit: Commit
+  private gitService: GitService
 
-  constructor(workspacePath: string, commit: Commit) {
+  constructor(workspacePath: string, commit: Commit, gitService: GitService) {
     makeObservable(this)
     this.workspacePath = workspacePath
     this.commit = commit
+    this.gitService = gitService
     // Initialize with a placeholder file until we load the list
     this.selectedFile = { status: "M", path: "" }
   }
@@ -37,7 +39,7 @@ export class CommitDiffViewStore {
     this.filesError = null
 
     try {
-      const files = await gitService.listCommitFiles(this.workspacePath, this.commit.shortId)
+      const files = await this.gitService.listCommitFiles(this.workspacePath, this.commit.shortId)
       runInAction(() => {
         this.files = files
         this.filesLoading = false
@@ -69,7 +71,7 @@ export class CommitDiffViewStore {
     this.errorMessage = null
 
     try {
-      const result = await gitService.getCommitDiff(
+      const result = await this.gitService.getCommitDiff(
         this.workspacePath,
         this.commit.shortId,
         file.path,
@@ -115,7 +117,8 @@ export class CommitDiffViewStore {
  */
 export function createCommitDiffViewStore(
   workspacePath: string,
-  commit: Commit
+  commit: Commit,
+  gitService: GitService
 ): CommitDiffViewStore {
-  return new CommitDiffViewStore(workspacePath, commit)
+  return new CommitDiffViewStore(workspacePath, commit, gitService)
 }

@@ -45,9 +45,10 @@ export const DiffDialog = observer(function DiffDialog({
 
   // Create store instances for this dialog
   const notesStore = useMemo(() => createDiffNotesStore(), [])
+  const gitService = projectRegistry.selectedWorkspaceStore?.getGitService()
   const diffStore = useMemo(
-    () => createDiffViewStore(workspacePath, initialFile),
-    [workspacePath, initialFile]
+    () => (gitService ? createDiffViewStore(workspacePath, initialFile, gitService) : null),
+    [workspacePath, initialFile, gitService]
   )
 
   // Set up the submit callback to send to chat
@@ -63,7 +64,7 @@ export const DiffDialog = observer(function DiffDialog({
   useEffect(() => {
     if (!open) {
       notesStore.reset()
-      diffStore.reset()
+      diffStore?.reset()
     }
   }, [open, notesStore, diffStore])
 
@@ -72,7 +73,7 @@ export const DiffDialog = observer(function DiffDialog({
       e.preventDefault()
       if (fetchedRef.current === initialFile.path) return
       fetchedRef.current = initialFile.path
-      diffStore.selectFile(initialFile)
+      diffStore?.selectFile(initialFile)
     },
     [initialFile, diffStore]
   )
@@ -86,7 +87,7 @@ export const DiffDialog = observer(function DiffDialog({
         return
       }
       notesStore.discardPending()
-      diffStore.selectFile(file)
+      diffStore?.selectFile(file)
     },
     [diffStore, notesStore]
   )
@@ -94,7 +95,7 @@ export const DiffDialog = observer(function DiffDialog({
   const handleConfirmDiscard = useCallback(() => {
     if (pendingFile) {
       notesStore.discardPending()
-      diffStore.selectFile(pendingFile)
+      diffStore?.selectFile(pendingFile)
       setPendingFile(null)
     } else {
       // ESC pressed without pending file - just discard
@@ -116,7 +117,7 @@ export const DiffDialog = observer(function DiffDialog({
           return
         }
         fetchedRef.current = null
-        diffStore.reset()
+        diffStore?.reset()
         notesStore.reset()
       }
       onOpenChange(nextOpen)
@@ -139,7 +140,7 @@ export const DiffDialog = observer(function DiffDialog({
     }
     notesStore.reset()
     fetchedRef.current = null
-    diffStore.reset()
+    diffStore?.reset()
     onOpenChange(false)
   }, [notesStore, diffStore, onOpenChange])
 
@@ -160,7 +161,7 @@ export const DiffDialog = observer(function DiffDialog({
     (note: DiffNote) => {
       // Switch to the file containing the note if different
       const targetFile = [...uncommittedFiles, ...branchFiles].find((f) => f.path === note.filePath)
-      if (targetFile && targetFile.path !== diffStore.selectedFile.path) {
+      if (targetFile && diffStore && targetFile.path !== diffStore.selectedFile.path) {
         diffStore.selectFile(targetFile)
       }
       // Load the note for editing
@@ -204,7 +205,7 @@ export const DiffDialog = observer(function DiffDialog({
   )
 
   useEffect(() => {
-    if (!open) return
+    if (!open || !diffStore) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLTextAreaElement) return
       const idx = allFiles.findIndex((f) => f.path === diffStore.selectedFile.path)
@@ -222,7 +223,10 @@ export const DiffDialog = observer(function DiffDialog({
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [open, allFiles, diffStore.selectedFile.path, handleSelectFile, workspacePath])
+  }, [open, allFiles, diffStore, handleSelectFile, workspacePath])
+
+  // Don't render if gitService is not available (e.g., remote project without git support)
+  if (!diffStore) return null
 
   return (
     <AlertDialog.Root open={open} onOpenChange={handleOpenChange}>

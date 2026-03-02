@@ -1,6 +1,6 @@
 import { observable, action, computed, makeObservable, runInAction } from "mobx"
 import { backend, type Unsubscribe } from "../backend"
-import { gitService, type PrStatus } from "../services/git"
+import { GitService, type PrStatus } from "../services/git"
 import { projectRegistry } from "./ProjectRegistry"
 import { toastStore } from "./ToastStore"
 import { eventBus } from "../utils/eventBus"
@@ -29,6 +29,7 @@ export class ChangedFilesStore {
 
   private workspacePath: string
   private workspaceId: string
+  private gitService: GitService
   private unlisteners: Unsubscribe[] = []
   private eventBusUnsubscribers: (() => void)[] = []
   private prevRunningCount = 0
@@ -39,10 +40,11 @@ export class ChangedFilesStore {
   // How long to consider data "fresh" and skip refresh (in ms)
   private static readonly STALE_THRESHOLD = 5000 // 5 seconds
 
-  constructor(workspacePath: string, workspaceId: string) {
+  constructor(workspacePath: string, workspaceId: string, gitService: GitService) {
     makeObservable(this)
     this.workspacePath = workspacePath
     this.workspaceId = workspaceId
+    this.gitService = gitService
 
     // Initialize PR status from stored workspace data
     const wt = projectRegistry.selectedWorkspace
@@ -57,7 +59,7 @@ export class ChangedFilesStore {
     this.error = null
 
     try {
-      const result = await gitService.listChangedFiles(this.workspacePath)
+      const result = await this.gitService.listChangedFiles(this.workspacePath)
       runInAction(() => {
         // Mark uncommitted files with the flag
         this.uncommitted = result.uncommitted.map((f) => ({ ...f, isUncommitted: true }))
@@ -111,7 +113,7 @@ export class ChangedFilesStore {
 
     this.prLoading = true
     try {
-      const status = await gitService.getPrStatus(this.workspacePath, workspace.branch)
+      const status = await this.gitService.getPrStatus(this.workspacePath, workspace.branch)
       // Ignore result if store was disposed while waiting
       if (this.disposed) return
       runInAction(() => {
@@ -141,7 +143,7 @@ export class ChangedFilesStore {
     this.error = null
 
     try {
-      const result = await gitService.checkMerge(this.workspacePath)
+      const result = await this.gitService.checkMerge(this.workspacePath)
       runInAction(() => {
         if (result.success) {
           this.showMergeConfirm = true
@@ -179,7 +181,7 @@ export class ChangedFilesStore {
     const projectPath = project?.path
 
     try {
-      const result = await gitService.mergeIntoMain(this.workspacePath)
+      const result = await this.gitService.mergeIntoMain(this.workspacePath)
       if (result.success) {
         let toastMessage = "Branch merged successfully"
 
@@ -190,7 +192,7 @@ export class ChangedFilesStore {
           // Delete branch after successful archive
           if (deleteBranch && branchName && projectPath) {
             try {
-              await gitService.deleteBranch(projectPath, branchName)
+              await this.gitService.deleteBranch(projectPath, branchName)
               toastMessage = "Branch merged, workspace archived, and branch deleted"
             } catch {
               // Branch deletion failed but merge and archive succeeded
