@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { runInAction } from "mobx"
 import type { Chat } from "../../types"
 import { ChatStore, type ChatStoreContext } from "../ChatStore"
+import { backend } from "../../backend"
 
 // Mock agent services via agentRegistry
 const mockAgentService = {
@@ -60,6 +61,7 @@ function createTestContext(overrides?: TestContextOverrides): ChatStoreContext {
     renameChat: overrides?.renameChat ?? vi.fn(),
     isWorkspaceSelected: overrides?.isWorkspaceSelected ?? (() => true),
     refreshChangedFiles: overrides?.refreshChangedFiles ?? vi.fn(),
+    getBackend: overrides?.getBackend ?? (() => backend),
   }
 }
 

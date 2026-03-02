@@ -1,6 +1,6 @@
 import { observer } from "mobx-react-lite"
 import { useState, useEffect } from "react"
-import { Ellipsis } from "lucide-react"
+import { Ellipsis, Globe } from "lucide-react"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { toastStore } from "../../stores/ToastStore"
 import type { ProjectStore } from "../../stores/ProjectStore"
@@ -80,6 +80,11 @@ export const ProjectItem = observer(function ProjectItem({ project }: ProjectIte
             {expanded ? "▼" : "▶"}
           </button>
           <span className="flex-1 truncate font-medium">{project.name}</span>
+          {project.isRemote && (
+            <span title={`Remote: ${project.remoteServerUrl}`}>
+              <Globe className="size-3 shrink-0 text-ovr-text-dim" />
+            </span>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation()

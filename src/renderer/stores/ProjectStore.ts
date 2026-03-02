@@ -1,7 +1,9 @@
 import { observable, computed, action, makeObservable, runInAction } from "mobx"
 import type { Project, Workspace } from "../types"
+import type { Backend } from "../backend/types"
 import { WorkspaceStore, type WorkspaceStatus } from "./WorkspaceStore"
 import { backend } from "../backend"
+import { getBackendForProject } from "../backend/factory"
 
 /**
  * ProjectStore wraps a single Project object with MobX observability and computed properties.
@@ -41,6 +43,10 @@ export class ProjectStore {
   @observable
   allowMergeToMain?: boolean
 
+  /** If set, this project is from a remote Overseer server */
+  @observable
+  remoteServerUrl?: string
+
   // --- Approval storage (shared across all workspaces in this project) ---
 
   @observable
@@ -67,7 +73,24 @@ export class ProjectStore {
     this.workspaceFilter = project.workspaceFilter
     this.useGithub = project.useGithub
     this.allowMergeToMain = project.allowMergeToMain
+    this.remoteServerUrl = project.remoteServerUrl
     makeObservable(this)
+  }
+
+  /**
+   * Get the appropriate backend for this project.
+   * Local projects use Tauri, remote projects use their server's HTTP backend.
+   */
+  get backend(): Backend {
+    return getBackendForProject(this.remoteServerUrl)
+  }
+
+  /**
+   * Whether this project is from a remote server.
+   */
+  @computed
+  get isRemote(): boolean {
+    return !!this.remoteServerUrl
   }
 
   /**
@@ -152,12 +175,12 @@ export class ProjectStore {
     // If workspace is still being created, don't cache the store
     // because the path will be updated once the git worktree is ready
     if (!workspace.path) {
-      return new WorkspaceStore(workspace, this.name, this.initPrompt)
+      return new WorkspaceStore(workspace, this.name, this.initPrompt, this.backend)
     }
 
     let store = this._workspaceStoreCache.get(workspace.id)
     if (!store) {
-      store = new WorkspaceStore(workspace, this.name, this.initPrompt)
+      store = new WorkspaceStore(workspace, this.name, this.initPrompt, this.backend)
       this._workspaceStoreCache.set(workspace.id, store)
     }
     return store

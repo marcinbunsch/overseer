@@ -2,6 +2,7 @@ import { observable, action, makeObservable, runInAction } from "mobx"
 import type { AgentModel, AgentType } from "../types"
 import { listOpencodeModels } from "../services/opencode"
 import { backend } from "../backend"
+import { remoteServerStore, type RemoteServerConfig } from "./RemoteServerStore"
 
 export type ClaudePermissionMode = "default" | "acceptEdits" | "bypassPermissions"
 export type CodexApprovalPolicy = "untrusted" | "full-auto"
@@ -45,6 +46,7 @@ interface Config {
   animationsEnabled?: boolean
   showClaudeUsageIndicator?: boolean
   httpServer?: HttpServerConfig
+  remoteServers?: RemoteServerConfig[]
 }
 
 const ALL_AGENTS: AgentType[] = ["claude", "codex", "copilot", "gemini", "opencode"]
@@ -273,7 +275,16 @@ class ConfigStore {
           this.httpServerEnableAuth = parsed.httpServer.enableAuth ?? true
           this.httpServerAutoStart = parsed.httpServer.autoStart ?? false
         }
+        // Remote servers
+        if (Array.isArray(parsed.remoteServers)) {
+          remoteServerStore.initFromConfig(parsed.remoteServers)
+        }
         this.loaded = true
+      })
+
+      // Auto-connect to remote servers after config is loaded
+      remoteServerStore.autoConnectServers().catch((err) => {
+        console.error("Failed to auto-connect to remote servers:", err)
       })
     } catch (err) {
       console.error("Failed to load config, falling back to bare 'claude':", err)
@@ -326,6 +337,7 @@ class ConfigStore {
           enableAuth: this.httpServerEnableAuth,
           autoStart: this.httpServerAutoStart,
         },
+        remoteServers: remoteServerStore.getConfigs(),
       }
       await backend.invoke("save_json_config", {
         filename: "config.json",
@@ -509,6 +521,14 @@ class ConfigStore {
     if (config.port !== undefined) this.httpServerPort = config.port
     if (config.enableAuth !== undefined) this.httpServerEnableAuth = config.enableAuth
     if (config.autoStart !== undefined) this.httpServerAutoStart = config.autoStart
+    this.save()
+  }
+
+  /**
+   * Save remote servers config.
+   * Called when remote servers are added/removed/updated.
+   */
+  saveRemoteServers(): void {
     this.save()
   }
 }

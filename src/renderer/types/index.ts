@@ -13,6 +13,8 @@ export interface Project {
   useGithub?: boolean
   /** Whether to show the Merge button for workspaces (default: true) */
   allowMergeToMain?: boolean
+  /** If set, this project is from a remote Overseer server at this URL */
+  remoteServerUrl?: string
 }
 
 export interface Workspace {
@@ -27,6 +29,8 @@ export interface Workspace {
   prNumber?: number
   prUrl?: string
   prState?: "OPEN" | "MERGED" | "CLOSED"
+  /** If set, this workspace is from a remote Overseer server (inherited from project) */
+  remoteServerUrl?: string
 }
 
 export interface Session {

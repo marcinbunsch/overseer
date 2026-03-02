@@ -40,7 +40,7 @@ interface PongResponse {
  * - Commands: POST /api/invoke/{command} with JSON body
  * - Events: WebSocket /ws/events with subscription patterns
  */
-class HttpBackend implements Backend {
+export class HttpBackend implements Backend {
   readonly type = "web" as const
 
   private baseUrl: string

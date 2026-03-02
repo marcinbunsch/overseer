@@ -1,5 +1,5 @@
 import { observable, computed, action, makeObservable, runInAction } from "mobx"
-import { backend } from "../backend"
+import type { Backend } from "../backend/types"
 import type {
   Message,
   MessageMeta,
@@ -30,6 +30,7 @@ export interface ChatStoreContext {
   renameChat: (chatId: string, newLabel: string) => void
   isWorkspaceSelected: () => boolean
   refreshChangedFiles: () => void
+  getBackend: () => Backend
 }
 
 type BackendQuestionItem = {
@@ -98,6 +99,13 @@ export class ChatStore {
     makeObservable(this)
     this.registerCallbacks()
     this.loadDraft()
+  }
+
+  /**
+   * Get the backend for this chat (Tauri for local, HTTP for remote workspaces).
+   */
+  private get backend(): Backend {
+    return this.context.getBackend()
   }
 
   // --- Computed ---
@@ -321,7 +329,7 @@ export class ChatStore {
           console.log("[approveToolUseAll] Adding command prefixes:", tool.commandPrefixes)
           for (const prefix of tool.commandPrefixes) {
             console.log("[approveToolUseAll] Invoking add_approval for prefix:", prefix)
-            await backend.invoke("add_approval", {
+            await this.backend.invoke("add_approval", {
               projectName,
               toolOrPrefix: prefix,
               isPrefix: true,
@@ -329,7 +337,7 @@ export class ChatStore {
           }
         } else {
           console.log("[approveToolUseAll] Adding tool:", tool.name)
-          await backend.invoke("add_approval", {
+          await this.backend.invoke("add_approval", {
             projectName,
             toolOrPrefix: tool.name,
             isPrefix: false,
@@ -488,7 +496,7 @@ export class ChatStore {
 
   dispose(): void {
     this.sessionRegistered = false
-    void backend.invoke("unregister_chat_session", { chatId: this.chat.id })
+    void this.backend.invoke("unregister_chat_session", { chatId: this.chat.id })
   }
 
   // --- Agent event handling ---
@@ -781,7 +789,7 @@ export class ChatStore {
     if (!projectName || !workspaceName) return
 
     try {
-      await backend.invoke("register_chat_session", {
+      await this.backend.invoke("register_chat_session", {
         chatId: this.chat.id,
         projectName,
         workspaceName,
@@ -799,7 +807,7 @@ export class ChatStore {
     if (!projectName || !workspaceName) return
 
     try {
-      await backend.invoke("save_chat_metadata", {
+      await this.backend.invoke("save_chat_metadata", {
         projectName,
         workspaceName,
         metadata: this.buildMetadata(),
@@ -814,7 +822,7 @@ export class ChatStore {
     let persisted = false
 
     try {
-      const event = await backend.invoke<BackendAgentEvent | null>("add_user_message", {
+      const event = await this.backend.invoke<BackendAgentEvent | null>("add_user_message", {
         chatId: this.chat.id,
         content,
         meta: meta ?? null,
@@ -850,7 +858,7 @@ export class ChatStore {
       event.is_info = true
     }
     try {
-      await backend.invoke("append_chat_event", {
+      await this.backend.invoke("append_chat_event", {
         chatId: this.chat.id,
         event,
       })
@@ -887,7 +895,7 @@ export class ChatStore {
 
       let metadata: BackendChatMetadata | null = null
       try {
-        metadata = await backend.invoke<BackendChatMetadata>("load_chat_metadata", {
+        metadata = await this.backend.invoke<BackendChatMetadata>("load_chat_metadata", {
           projectName,
           workspaceName,
           chatId: this.chat.id,
@@ -896,7 +904,7 @@ export class ChatStore {
         // Metadata doesn't exist yet
       }
 
-      const events = await backend.invoke<BackendAgentEvent[]>("load_chat_events", {
+      const events = await this.backend.invoke<BackendAgentEvent[]>("load_chat_events", {
         projectName,
         workspaceName,
         chatId: this.chat.id,

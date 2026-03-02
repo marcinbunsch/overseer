@@ -30,6 +30,7 @@ import { ClaudePermissionModeSelect } from "./ClaudePermissionModeSelect"
 import { Input } from "./Input"
 import { Textarea } from "./Textarea"
 import { Checkbox } from "./Checkbox"
+import { RemoteServersSettings } from "./RemoteServersSettings"
 
 type SettingsTab = "general" | "agents" | "advanced" | "updates" | "design-system"
 
@@ -618,6 +619,9 @@ const AdvancedTab = observer(function AdvancedTab() {
           </div>
         </div>
       </div>
+
+      {/* Remote Servers */}
+      <RemoteServersSettings />
     </div>
   )
 })

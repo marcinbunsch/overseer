@@ -61,6 +61,7 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
   const workspace = projectRegistry.selectedWorkspace
   const project = projectRegistry.selectedProject
   const isGitRepo = project?.isGitRepo ?? true
+  const isRemote = project?.isRemote ?? false
   const changesHeight = useRef(configStore.changesHeight)
   const selectedTab = configStore.rightPaneTab as RightPaneTab
 
@@ -84,7 +85,7 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
       className="flex h-full flex-col border-l border-ovr-border-subtle bg-ovr-bg-panel"
       style={{ width, minWidth: 200 }}
     >
-      {/* Changes/Commits section (top) - only shown for git repos */}
+      {/* Changes/Commits section (top) - only shown for local git repos */}
       {isGitRepo && (
         <>
           {/* Tab bar */}
@@ -114,7 +115,11 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
             style={{ height: configStore.changesHeight, minHeight: 80 }}
           >
             <div className="min-h-0 flex-1 overflow-hidden">
-              {workspace?.isCreating ? (
+              {isRemote ? (
+                <div className="flex h-full items-center justify-center text-sm text-ovr-text-dim">
+                  Not available for remote projects
+                </div>
+              ) : workspace?.isCreating ? (
                 <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
                   Workspace initializing...
                 </div>
@@ -141,7 +146,11 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
         <span className="text-xs font-semibold text-ovr-text-muted">TERMINAL</span>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {workspace?.isCreating ? (
+        {isRemote ? (
+          <div className="flex h-full items-center justify-center text-sm text-ovr-text-dim">
+            Not available for remote projects
+          </div>
+        ) : workspace?.isCreating ? (
           <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
             Workspace initializing...
           </div>

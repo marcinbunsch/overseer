@@ -8,6 +8,7 @@ import { toastStore } from "./ToastStore"
 import { workspaceHistoryStore } from "./WorkspaceHistoryStore"
 import { backend } from "../backend"
 import { restoreFromUrl } from "../utils/urlState"
+import { remoteServerStore } from "./RemoteServerStore"
 
 class ProjectRegistry {
   @observable private _projects: Project[] = []
@@ -21,19 +22,19 @@ class ProjectRegistry {
   }
 
   /**
-   * Returns ProjectStore instances for all projects.
-   * Caches ProjectStore instances to maintain referential stability.
+   * Returns ProjectStore instances for all local projects only.
    */
-  @computed get projects(): ProjectStore[] {
-    // Clean up cache for removed projects
+  @computed get localProjects(): ProjectStore[] {
+    // Clean up cache for removed local projects
     const currentIds = new Set(this._projects.map((r) => r.id))
-    for (const id of this._projectStoreCache.keys()) {
-      if (!currentIds.has(id)) {
+    for (const [id, store] of this._projectStoreCache) {
+      // Only remove local projects (no remoteServerUrl) that are no longer in _projects
+      if (!store.remoteServerUrl && !currentIds.has(id)) {
         this._projectStoreCache.delete(id)
       }
     }
 
-    // Return ProjectStore instances, creating new ones as needed
+    // Return ProjectStore instances for local projects
     return this._projects.map((project) => {
       let store = this._projectStoreCache.get(project.id)
       if (!store) {
@@ -42,6 +43,40 @@ class ProjectRegistry {
       }
       return store
     })
+  }
+
+  /**
+   * Returns ProjectStore instances for all projects (local + remote).
+   * Caches ProjectStore instances to maintain referential stability.
+   */
+  @computed get projects(): ProjectStore[] {
+    // Get local projects
+    const local = this.localProjects
+
+    // Get remote projects from connected servers
+    const remoteProjects = remoteServerStore.remoteProjects
+
+    // Clean up cache for removed remote projects
+    const remoteIds = new Set(remoteProjects.map((r) => r.id))
+    for (const [id, store] of this._projectStoreCache) {
+      // Only remove remote projects that are no longer in remoteProjects
+      if (store.remoteServerUrl && !remoteIds.has(id)) {
+        this._projectStoreCache.delete(id)
+      }
+    }
+
+    // Create ProjectStore instances for remote projects
+    const remote = remoteProjects.map((project) => {
+      let store = this._projectStoreCache.get(project.id)
+      if (!store) {
+        store = new ProjectStore(project)
+        this._projectStoreCache.set(project.id, store)
+      }
+      return store
+    })
+
+    // Return local projects first, then remote
+    return [...local, ...remote]
   }
 
   @computed get selectedProject(): ProjectStore | undefined {

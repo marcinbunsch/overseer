@@ -12,6 +12,7 @@ import type {
   AgentType,
   Workspace,
 } from "../types"
+import type { Backend } from "../backend/types"
 import { getAgentService } from "../services/agentRegistry"
 import { ChatStore, type ChatStoreContext } from "./ChatStore"
 import { ChangedFilesStore } from "./ChangedFilesStore"
@@ -20,7 +21,7 @@ import { configStore } from "./ConfigStore"
 import { getAgentDisplayName } from "../utils/agentDisplayName"
 import { toastStore } from "./ToastStore"
 import { projectRegistry } from "./ProjectRegistry"
-import { backend } from "../backend"
+import { backend as defaultBackend } from "../backend"
 import { getConfigPath } from "../utils/paths"
 
 export type { PendingToolUse } from "../types"
@@ -81,19 +82,23 @@ export class WorkspaceStore {
   // Init prompt from project
   private initPrompt?: string
 
+  // Backend to use for this workspace (Tauri for local, HTTP for remote)
+  readonly backend: Backend
+
   // Cached ChangedFilesStore - created lazily
   private _changedFilesStore: ChangedFilesStore | null = null
 
   // Cached CommitsStore - created lazily
   private _commitsStore: CommitsStore | null = null
 
-  constructor(workspace: Workspace, projectName: string, initPrompt?: string) {
+  constructor(workspace: Workspace, projectName: string, initPrompt?: string, backend?: Backend) {
     this.id = workspace.id
     this.projectId = workspace.projectId
     this.branch = workspace.branch
     this.path = workspace.path
     this.projectName = projectName
     this.initPrompt = initPrompt
+    this.backend = backend ?? defaultBackend
     makeObservable(this)
 
     // Debug: warn if workspace has empty path
@@ -380,7 +385,7 @@ export class WorkspaceStore {
       service.removeChat(chatId)
     }
     try {
-      await backend.invoke("unregister_chat_session", { chatId })
+      await this.backend.invoke("unregister_chat_session", { chatId })
     } catch (err) {
       console.error("Failed to unregister chat session:", err)
     }
@@ -417,7 +422,7 @@ export class WorkspaceStore {
       service.removeChat(chatId)
     }
     try {
-      await backend.invoke("unregister_chat_session", { chatId })
+      await this.backend.invoke("unregister_chat_session", { chatId })
     } catch (err) {
       console.error("Failed to unregister chat session:", err)
     }
@@ -436,7 +441,7 @@ export class WorkspaceStore {
 
     // Delete the chat file from disk
     try {
-      await backend.invoke("delete_chat", {
+      await this.backend.invoke("delete_chat", {
         projectName: this.projectName,
         workspaceName: this.getWorkspaceName(),
         chatId,
@@ -549,6 +554,7 @@ export class WorkspaceStore {
       renameChat: (chatId: string, newLabel: string) => this.renameChat(chatId, newLabel),
       isWorkspaceSelected: () => projectRegistry.selectedWorkspaceId === this.id,
       refreshChangedFiles: () => void this._changedFilesStore?.refresh(),
+      getBackend: () => this.backend,
     }
   }
 
@@ -599,7 +605,7 @@ export class WorkspaceStore {
       const safeBranch = this.branch.replace(/\//g, "-")
       const archiveName = `${safeBranch}-${ts}`
 
-      await backend.invoke("archive_chat_dir", {
+      await this.backend.invoke("archive_chat_dir", {
         projectName: this.projectName,
         workspaceName: this.getWorkspaceName(),
         archiveName,
@@ -620,7 +626,7 @@ export class WorkspaceStore {
     if (!this.projectName || !this.path) return null
     // Return a placeholder - this is only used for logging now
     try {
-      const homeDir = await backend.invoke<string>("get_home_dir")
+      const homeDir = await this.backend.invoke<string>("get_home_dir")
       const normalizedHome = homeDir.replace(/\/$/, "")
       const configDir = getConfigPath(normalizedHome)
       const resolved = `${configDir}/chats/${this.projectName}/${this.getWorkspaceName()}`
@@ -642,7 +648,7 @@ export class WorkspaceStore {
       await this.getChatDir()
 
       // Ensure chat directory exists
-      await backend.invoke("ensure_chat_dir", { projectName, workspaceName })
+      await this.backend.invoke("ensure_chat_dir", { projectName, workspaceName })
 
       // Load workspace state (activeChatId)
       const workspaceState = await this.loadWorkspaceState()
@@ -736,7 +742,7 @@ export class WorkspaceStore {
    */
   private async loadWorkspaceState(): Promise<WorkspaceState> {
     try {
-      return await backend.invoke<WorkspaceState>("load_workspace_state", {
+      return await this.backend.invoke<WorkspaceState>("load_workspace_state", {
         projectName: this.projectName,
         workspaceName: this.getWorkspaceName(),
       })
@@ -750,7 +756,7 @@ export class WorkspaceStore {
    */
   private async loadChatIndex(): Promise<ChatIndex> {
     try {
-      return await backend.invoke<ChatIndex>("load_chat_index", {
+      return await this.backend.invoke<ChatIndex>("load_chat_index", {
         projectName: this.projectName,
         workspaceName: this.getWorkspaceName(),
       })
@@ -773,7 +779,7 @@ export class WorkspaceStore {
       const state: WorkspaceState = {
         activeChatId: this.activeChatId,
       }
-      await backend.invoke("save_workspace_state", {
+      await this.backend.invoke("save_workspace_state", {
         projectName: this.projectName,
         workspaceName: this.getWorkspaceName(),
         workspaceState: state,
@@ -797,7 +803,7 @@ export class WorkspaceStore {
           archivedAt: cs.chat.archivedAt?.toISOString(),
         })),
       }
-      await backend.invoke("save_chat_index", {
+      await this.backend.invoke("save_chat_index", {
         projectName: this.projectName,
         workspaceName: this.getWorkspaceName(),
         index,
