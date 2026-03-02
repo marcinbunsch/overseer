@@ -10,6 +10,9 @@ import type { Backend, EventCallback, Unsubscribe } from "./types"
 /** WebSocket connection state */
 export type WsConnectionState = "disconnected" | "connecting" | "connected"
 
+// Debug helper - timestamp for logs
+const ts = () => new Date().toISOString().split("T")[1].slice(0, -1)
+
 /** Response format from the HTTP server */
 interface InvokeResponse<T> {
   success: boolean
@@ -206,8 +209,14 @@ class HttpBackend implements Backend {
    */
   onConnectionStateChange(callback: (state: WsConnectionState) => void): () => void {
     this.connectionStateCallbacks.add(callback)
+    console.log(
+      `[WS ${ts()}] 🔔 onConnectionStateChange callback registered (total: ${this.connectionStateCallbacks.size})`
+    )
     return () => {
       this.connectionStateCallbacks.delete(callback)
+      console.log(
+        `[WS ${ts()}] 🔕 onConnectionStateChange callback removed (total: ${this.connectionStateCallbacks.size})`
+      )
     }
   }
 
@@ -215,8 +224,14 @@ class HttpBackend implements Backend {
    * Update the connection state and notify all listeners.
    */
   private setConnectionState(state: WsConnectionState): void {
-    if (this._connectionState === state) return
+    const prev = this._connectionState
+    if (prev === state) {
+      console.log(`[WS ${ts()}] setConnectionState: already ${state}, skipping`)
+      return
+    }
+    console.log(`[WS ${ts()}] 🔄 STATE CHANGE: ${prev} → ${state}`)
     this._connectionState = state
+    console.log(`[WS ${ts()}] Notifying ${this.connectionStateCallbacks.size} state callbacks`)
     for (const callback of this.connectionStateCallbacks) {
       try {
         callback(state)
@@ -261,28 +276,35 @@ class HttpBackend implements Backend {
   }
 
   async listen<T>(event: string, callback: EventCallback<T>): Promise<Unsubscribe> {
+    console.log(`[WS ${ts()}] 👂 listen("${event}") called`)
     // Ensure WebSocket is connected
     await this.ensureWsConnected()
+    console.log(`[WS ${ts()}] 👂 listen("${event}") - WS connected, adding subscription`)
 
     // Add subscription
     if (!this.subscriptions.has(event)) {
       this.subscriptions.set(event, new Set())
       // Send subscribe message to server
+      console.log(`[WS ${ts()}] 👂 New subscription pattern, sending to server: ${event}`)
       this.sendWsMessage({ type: "subscribe", pattern: event })
     }
     this.subscriptions.get(event)!.add(callback as EventCallback<unknown>)
+    console.log(`[WS ${ts()}] 👂 Total subscriptions now: ${this.subscriptions.size}`)
 
     // Return unsubscribe function
     return () => {
+      console.log(`[WS ${ts()}] 🔇 Unsubscribe called for "${event}"`)
       const callbacks = this.subscriptions.get(event)
       if (callbacks) {
         callbacks.delete(callback as EventCallback<unknown>)
         if (callbacks.size === 0) {
           this.subscriptions.delete(event)
           // Send unsubscribe message to server
+          console.log(`[WS ${ts()}] 🔇 Last callback removed, sending unsubscribe to server`)
           this.sendWsMessage({ type: "unsubscribe", pattern: event })
         }
       }
+      console.log(`[WS ${ts()}] 🔇 Total subscriptions now: ${this.subscriptions.size}`)
     }
   }
 
@@ -318,45 +340,85 @@ class HttpBackend implements Backend {
   }
 
   private async ensureWsConnected(): Promise<void> {
+    const wsReadyState = this.ws?.readyState
+    const readyStateNames: Record<number, string> = {
+      [WebSocket.CONNECTING]: "CONNECTING",
+      [WebSocket.OPEN]: "OPEN",
+      [WebSocket.CLOSING]: "CLOSING",
+      [WebSocket.CLOSED]: "CLOSED",
+    }
+    const wsReadyStateStr =
+      wsReadyState === undefined
+        ? "null"
+        : (readyStateNames[wsReadyState] ?? `unknown(${wsReadyState})`)
+
+    console.log(
+      `[WS ${ts()}] ▶ ensureWsConnected called | state=${this._connectionState} | wsConnecting=${this.wsConnecting} | ws.readyState=${wsReadyStateStr} | subscriptions=${this.subscriptions.size}`
+    )
+
     // Only return early if we're truly connected (pong verified)
     if (this._connectionState === "connected" && this.ws?.readyState === WebSocket.OPEN) {
+      console.log(`[WS ${ts()}] ✓ Already connected, returning early`)
       return
     }
 
     if (this.wsConnecting) {
+      console.log(`[WS ${ts()}] ⏳ Another connection attempt in progress, entering wait loop...`)
       // Wait for existing connection attempt with timeout
       return new Promise((resolve, reject) => {
+        let checkCount = 0
         const timeout = setTimeout(() => {
+          console.log(`[WS ${ts()}] ⏳ Wait loop TIMEOUT after 10s (checked ${checkCount} times)`)
           clearInterval(check)
           reject(new Error("WebSocket connection timeout"))
         }, 10000)
 
         const check = setInterval(() => {
+          checkCount++
           // Check for actual connected state (pong verified), not just WebSocket.OPEN
           if (this._connectionState === "connected") {
+            console.log(
+              `[WS ${ts()}] ⏳ Wait loop: connection succeeded after ${checkCount} checks`
+            )
             clearInterval(check)
             clearTimeout(timeout)
             resolve()
           } else if (!this.wsConnecting) {
             // Connection attempt finished but not connected (failed)
+            console.log(
+              `[WS ${ts()}] ⏳ Wait loop: connection FAILED after ${checkCount} checks (wsConnecting=false but state=${this._connectionState})`
+            )
             clearInterval(check)
             clearTimeout(timeout)
             reject(new Error("WebSocket connection failed"))
+          }
+          // Log every 20 checks (1 second)
+          if (checkCount % 20 === 0) {
+            console.log(
+              `[WS ${ts()}] ⏳ Wait loop still waiting... checks=${checkCount} state=${this._connectionState} wsConnecting=${this.wsConnecting}`
+            )
           }
         }, 50)
       })
     }
 
+    console.log(`[WS ${ts()}] 🚀 Starting NEW connection attempt`)
     this.wsConnecting = true
     this.setConnectionState("connecting")
 
     return new Promise((resolve, reject) => {
+      const attemptId = Math.random().toString(36).slice(2, 8) // Random ID for this attempt
+      console.log(`[WS ${ts()}] [${attemptId}] Creating new WebSocket connection...`)
+
       // Connection timeout
       const connectionTimeout = setTimeout(() => {
-        console.error("[HttpBackend] WebSocket connection timeout")
+        console.error(
+          `[WS ${ts()}] [${attemptId}] ⏰ CONNECTION TIMEOUT (10s) - wsConnecting=${this.wsConnecting} state=${this._connectionState}`
+        )
         this.wsConnecting = false
         this.setConnectionState("disconnected")
         if (this.ws) {
+          console.log(`[WS ${ts()}] [${attemptId}] Closing WS due to timeout`)
           this.ws.close()
           this.ws = null
         }
@@ -366,15 +428,23 @@ class HttpBackend implements Backend {
       try {
         // Include auth token as query param for WebSocket (can't use headers)
         const wsUrl = this.authToken ? `${this.wsUrl}?token=${this.authToken}` : this.wsUrl
+        console.log(
+          `[WS ${ts()}] [${attemptId}] Creating WebSocket to: ${wsUrl.replace(/token=.*/, "token=***")}`
+        )
         this.ws = new WebSocket(wsUrl)
 
         // Track whether we've received pong for this connection attempt
         let pongReceived = false
         const isReconnect = this.hasConnectedBefore
+        const wsCreatedAt = Date.now()
 
         this.ws.onopen = () => {
+          const elapsed = Date.now() - wsCreatedAt
+          console.log(
+            `[WS ${ts()}] [${attemptId}] 📡 ONOPEN fired after ${elapsed}ms | isReconnect=${isReconnect}`
+          )
           // WebSocket is open but not yet verified - send ping to confirm
-          console.log(`[HttpBackend] WebSocket opened, sending ping...`)
+          console.log(`[WS ${ts()}] [${attemptId}] Sending ping...`)
           this.ws?.send(JSON.stringify({ type: "ping" }))
         }
 
@@ -384,62 +454,105 @@ class HttpBackend implements Backend {
 
             // Check for pong response
             if ((data as PongResponse).type === "pong") {
+              const elapsed = Date.now() - wsCreatedAt
+              console.log(
+                `[WS ${ts()}] [${attemptId}] 🏓 PONG received after ${elapsed}ms | pongReceived=${pongReceived}`
+              )
               if (!pongReceived) {
                 pongReceived = true
                 clearTimeout(connectionTimeout)
+                console.log(
+                  `[WS ${ts()}] [${attemptId}] Clearing timeout, setting wsConnecting=false`
+                )
                 this.wsConnecting = false
                 this.setConnectionState("connected")
                 this.hasConnectedBefore = true
                 console.log(
-                  `[HttpBackend] WebSocket ${isReconnect ? "reconnected" : "connected"} (pong received)`
+                  `[WS ${ts()}] [${attemptId}] ✅ CONNECTION ESTABLISHED (${isReconnect ? "reconnect" : "first connect"})`
                 )
 
                 // Resubscribe to all patterns
-                for (const pattern of this.subscriptions.keys()) {
+                const patterns = Array.from(this.subscriptions.keys())
+                console.log(
+                  `[WS ${ts()}] [${attemptId}] Resubscribing to ${patterns.length} patterns:`,
+                  patterns
+                )
+                for (const pattern of patterns) {
                   this.sendWsMessage({ type: "subscribe", pattern })
                 }
 
                 // Notify reconnection handlers so they can catch up on missed events
                 if (isReconnect) {
+                  console.log(
+                    `[WS ${ts()}] [${attemptId}] Notifying ${this.reconnectCallbacks.size} reconnect callbacks`
+                  )
                   this.notifyReconnect()
                 }
 
+                console.log(`[WS ${ts()}] [${attemptId}] Resolving promise`)
                 resolve()
+              } else {
+                console.log(`[WS ${ts()}] [${attemptId}] Ignoring duplicate pong`)
               }
               return
             }
 
-            // Handle regular events
+            // Handle regular events (don't log each one - too noisy)
             this.handleWsEvent(data as WsEvent)
           } catch (e) {
-            console.error("[HttpBackend] Failed to parse WebSocket message:", e)
+            console.error(`[WS ${ts()}] [${attemptId}] Failed to parse WebSocket message:`, e)
           }
         }
 
-        this.ws.onclose = () => {
+        this.ws.onclose = (closeEvent) => {
+          const elapsed = Date.now() - wsCreatedAt
+          console.log(
+            `[WS ${ts()}] [${attemptId}] 🔴 ONCLOSE fired after ${elapsed}ms | code=${closeEvent?.code ?? "?"} reason="${closeEvent?.reason ?? ""}" wasClean=${closeEvent?.wasClean ?? "?"}`
+          )
+          console.log(
+            `[WS ${ts()}] [${attemptId}] State at close: pongReceived=${pongReceived} wsConnecting=${this.wsConnecting} state=${this._connectionState}`
+          )
           clearTimeout(connectionTimeout)
           const wasConnecting = this.wsConnecting
           this.wsConnecting = false
           this.setConnectionState("disconnected")
-          console.log("[HttpBackend] WebSocket disconnected")
+          console.log(`[WS ${ts()}] [${attemptId}] Calling scheduleReconnect()`)
           this.scheduleReconnect()
           // Reject promise if we closed before pong was received
           if (!pongReceived && wasConnecting) {
+            console.log(
+              `[WS ${ts()}] [${attemptId}] ❌ Rejecting promise: closed before pong received`
+            )
             reject(new Error("WebSocket closed before connection verified"))
+          } else if (!pongReceived) {
+            console.log(
+              `[WS ${ts()}] [${attemptId}] Not rejecting: pong not received but wasConnecting=false (already handled)`
+            )
+          } else {
+            console.log(
+              `[WS ${ts()}] [${attemptId}] Connection was established then closed (graceful disconnect)`
+            )
           }
         }
 
         this.ws.onerror = (error) => {
+          const elapsed = Date.now() - wsCreatedAt
+          console.error(`[WS ${ts()}] [${attemptId}] 💥 ONERROR fired after ${elapsed}ms:`, error)
+          console.log(
+            `[WS ${ts()}] [${attemptId}] State at error: pongReceived=${pongReceived} wsConnecting=${this.wsConnecting} state=${this._connectionState}`
+          )
           clearTimeout(connectionTimeout)
           this.wsConnecting = false
           this.setConnectionState("disconnected")
-          console.error("[HttpBackend] WebSocket error:", error)
+          console.log(`[WS ${ts()}] [${attemptId}] Calling scheduleReconnect() after error`)
           this.scheduleReconnect()
           if (!pongReceived) {
+            console.log(`[WS ${ts()}] [${attemptId}] ❌ Rejecting promise due to error`)
             reject(error)
           }
         }
       } catch (e) {
+        console.error(`[WS ${ts()}] [${attemptId}] 💥 Exception creating WebSocket:`, e)
         clearTimeout(connectionTimeout)
         this.wsConnecting = false
         this.setConnectionState("disconnected")
@@ -483,24 +596,46 @@ class HttpBackend implements Backend {
 
   private sendWsMessage(message: SubscriptionRequest): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      console.log(`[WS ${ts()}] 📤 Sending: ${message.type} "${message.pattern}"`)
       this.ws.send(JSON.stringify(message))
+    } else {
+      const readyStateNames: Record<number, string> = {
+        [WebSocket.CONNECTING]: "CONNECTING",
+        [WebSocket.CLOSING]: "CLOSING",
+        [WebSocket.CLOSED]: "CLOSED",
+      }
+      const stateStr =
+        this.ws?.readyState !== undefined ? (readyStateNames[this.ws.readyState] ?? "?") : "null"
+      console.log(
+        `[WS ${ts()}] ⚠️ Cannot send (ws.readyState=${stateStr}): ${message.type} "${message.pattern}"`
+      )
     }
   }
 
   private scheduleReconnect(): void {
+    console.log(
+      `[WS ${ts()}] 📅 scheduleReconnect called | timerExists=${!!this.wsReconnectTimer} | subscriptions=${this.subscriptions.size}`
+    )
     if (this.wsReconnectTimer) {
+      console.log(`[WS ${ts()}] 📅 Timer already exists, skipping`)
       return
     }
 
     // Only reconnect if we have active subscriptions
     if (this.subscriptions.size > 0) {
+      console.log(`[WS ${ts()}] 📅 Setting 2-second reconnect timer...`)
       this.wsReconnectTimer = setTimeout(() => {
+        console.log(`[WS ${ts()}] ⏰ Reconnect timer FIRED`)
         this.wsReconnectTimer = null
+        console.log(`[WS ${ts()}] ⏰ Calling ensureWsConnected from timer...`)
         this.ensureWsConnected().catch((e) => {
-          console.error("[HttpBackend] Reconnect failed:", e)
+          console.error(`[WS ${ts()}] ⏰ ensureWsConnected FAILED in timer callback:`, e)
+          console.log(`[WS ${ts()}] ⏰ Scheduling another reconnect...`)
           this.scheduleReconnect()
         })
       }, 2000)
+    } else {
+      console.log(`[WS ${ts()}] 📅 No subscriptions, NOT scheduling reconnect`)
     }
   }
 
@@ -512,8 +647,14 @@ class HttpBackend implements Backend {
    */
   onReconnect(callback: () => void): () => void {
     this.reconnectCallbacks.add(callback)
+    console.log(
+      `[WS ${ts()}] 🔔 onReconnect callback registered (total: ${this.reconnectCallbacks.size})`
+    )
     return () => {
       this.reconnectCallbacks.delete(callback)
+      console.log(
+        `[WS ${ts()}] 🔕 onReconnect callback removed (total: ${this.reconnectCallbacks.size})`
+      )
     }
   }
 
@@ -522,13 +663,19 @@ class HttpBackend implements Backend {
    * Called after WebSocket reconnects and resubscribes to patterns.
    */
   private notifyReconnect(): void {
+    console.log(
+      `[WS ${ts()}] 📢 notifyReconnect: calling ${this.reconnectCallbacks.size} callbacks`
+    )
+    let i = 0
     for (const callback of this.reconnectCallbacks) {
       try {
+        console.log(`[WS ${ts()}] 📢 Calling reconnect callback ${++i}`)
         callback()
       } catch (e) {
         console.error("[HttpBackend] Reconnect callback error:", e)
       }
     }
+    console.log(`[WS ${ts()}] 📢 notifyReconnect done`)
   }
 
   /**
@@ -536,21 +683,28 @@ class HttpBackend implements Backend {
    * Call this when the backend is no longer needed.
    */
   disconnect(): void {
+    console.log(`[WS ${ts()}] 🛑 disconnect() called`)
     if (this.wsReconnectTimer) {
+      console.log(`[WS ${ts()}] 🛑 Clearing reconnect timer`)
       clearTimeout(this.wsReconnectTimer)
       this.wsReconnectTimer = null
     }
 
     if (this.ws) {
+      console.log(`[WS ${ts()}] 🛑 Closing WebSocket`)
       this.ws.close()
       this.ws = null
     }
 
+    console.log(
+      `[WS ${ts()}] 🛑 Clearing ${this.subscriptions.size} subscriptions, ${this.reconnectCallbacks.size} reconnect callbacks`
+    )
     this.subscriptions.clear()
     this.reconnectCallbacks.clear()
     this.authRequiredCallbacks.clear()
     this.connectionStateCallbacks.clear()
     this.setConnectionState("disconnected")
+    console.log(`[WS ${ts()}] 🛑 disconnect() complete`)
   }
 }
 
