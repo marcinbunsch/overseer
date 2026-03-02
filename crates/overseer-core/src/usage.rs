@@ -22,7 +22,7 @@ pub struct ExtraUsage {
     pub is_enabled: bool,
     pub monthly_limit: u32,
     pub used_credits: f64,
-    pub utilization: f64,
+    pub utilization: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
