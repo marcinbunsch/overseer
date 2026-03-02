@@ -409,6 +409,8 @@ pub fn run() {
             git::rename_branch,
             git::get_file_diff,
             git::get_uncommitted_diff,
+            git::get_submodule_file_diff,
+            git::get_submodule_uncommitted_diff,
             git::list_commits,
             git::list_commit_files,
             git::get_commit_diff,

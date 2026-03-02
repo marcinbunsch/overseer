@@ -29,6 +29,11 @@ interface WsEvent {
   payload: unknown
 }
 
+/** Pong response from server */
+interface PongResponse {
+  type: "pong"
+}
+
 /**
  * HTTP backend that communicates with the Overseer HTTP server.
  *
@@ -313,7 +318,8 @@ class HttpBackend implements Backend {
   }
 
   private async ensureWsConnected(): Promise<void> {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    // Only return early if we're truly connected (pong verified)
+    if (this._connectionState === "connected" && this.ws?.readyState === WebSocket.OPEN) {
       return
     }
 
@@ -326,7 +332,8 @@ class HttpBackend implements Backend {
         }, 10000)
 
         const check = setInterval(() => {
-          if (this.ws?.readyState === WebSocket.OPEN) {
+          // Check for actual connected state (pong verified), not just WebSocket.OPEN
+          if (this._connectionState === "connected") {
             clearInterval(check)
             clearTimeout(timeout)
             resolve()
@@ -361,31 +368,49 @@ class HttpBackend implements Backend {
         const wsUrl = this.authToken ? `${this.wsUrl}?token=${this.authToken}` : this.wsUrl
         this.ws = new WebSocket(wsUrl)
 
+        // Track whether we've received pong for this connection attempt
+        let pongReceived = false
+        const isReconnect = this.hasConnectedBefore
+
         this.ws.onopen = () => {
-          clearTimeout(connectionTimeout)
-          this.wsConnecting = false
-          this.setConnectionState("connected")
-          const isReconnect = this.hasConnectedBefore
-          this.hasConnectedBefore = true
-          console.log(`[HttpBackend] WebSocket ${isReconnect ? "reconnected" : "connected"}`)
-
-          // Resubscribe to all patterns
-          for (const pattern of this.subscriptions.keys()) {
-            this.sendWsMessage({ type: "subscribe", pattern })
-          }
-
-          // Notify reconnection handlers so they can catch up on missed events
-          if (isReconnect) {
-            this.notifyReconnect()
-          }
-
-          resolve()
+          // WebSocket is open but not yet verified - send ping to confirm
+          console.log(`[HttpBackend] WebSocket opened, sending ping...`)
+          this.ws?.send(JSON.stringify({ type: "ping" }))
         }
 
         this.ws.onmessage = (event) => {
           try {
-            const data: WsEvent = JSON.parse(event.data)
-            this.handleWsEvent(data)
+            const data = JSON.parse(event.data)
+
+            // Check for pong response
+            if ((data as PongResponse).type === "pong") {
+              if (!pongReceived) {
+                pongReceived = true
+                clearTimeout(connectionTimeout)
+                this.wsConnecting = false
+                this.setConnectionState("connected")
+                this.hasConnectedBefore = true
+                console.log(
+                  `[HttpBackend] WebSocket ${isReconnect ? "reconnected" : "connected"} (pong received)`
+                )
+
+                // Resubscribe to all patterns
+                for (const pattern of this.subscriptions.keys()) {
+                  this.sendWsMessage({ type: "subscribe", pattern })
+                }
+
+                // Notify reconnection handlers so they can catch up on missed events
+                if (isReconnect) {
+                  this.notifyReconnect()
+                }
+
+                resolve()
+              }
+              return
+            }
+
+            // Handle regular events
+            this.handleWsEvent(data as WsEvent)
           } catch (e) {
             console.error("[HttpBackend] Failed to parse WebSocket message:", e)
           }
@@ -393,10 +418,15 @@ class HttpBackend implements Backend {
 
         this.ws.onclose = () => {
           clearTimeout(connectionTimeout)
+          const wasConnecting = this.wsConnecting
           this.wsConnecting = false
           this.setConnectionState("disconnected")
           console.log("[HttpBackend] WebSocket disconnected")
           this.scheduleReconnect()
+          // Reject promise if we closed before pong was received
+          if (!pongReceived && wasConnecting) {
+            reject(new Error("WebSocket closed before connection verified"))
+          }
         }
 
         this.ws.onerror = (error) => {
@@ -405,7 +435,9 @@ class HttpBackend implements Backend {
           this.setConnectionState("disconnected")
           console.error("[HttpBackend] WebSocket error:", error)
           this.scheduleReconnect()
-          reject(error)
+          if (!pongReceived) {
+            reject(error)
+          }
         }
       } catch (e) {
         clearTimeout(connectionTimeout)

@@ -2,6 +2,7 @@ import { observer } from "mobx-react-lite"
 import * as Tooltip from "@radix-ui/react-tooltip"
 import { useEffect } from "react"
 import { claudeUsageStore } from "../../stores/ClaudeUsageStore"
+import { configStore } from "../../stores/ConfigStore"
 
 interface CircleIndicatorProps {
   utilization: number
@@ -96,12 +97,15 @@ function CircleIndicator({ utilization, label, resetsAt }: CircleIndicatorProps)
 
 export const ClaudeUsageIndicator = observer(function ClaudeUsageIndicator() {
   const { usageData } = claudeUsageStore
+  const { showClaudeUsageIndicator } = configStore
 
   useEffect(() => {
-    void claudeUsageStore.fetchUsage()
-  }, [])
+    if (showClaudeUsageIndicator) {
+      void claudeUsageStore.fetchUsage()
+    }
+  }, [showClaudeUsageIndicator])
 
-  if (!usageData) return null
+  if (!showClaudeUsageIndicator || !usageData) return null
 
   return (
     <div className="flex items-center gap-1.5" data-testid="claude-usage-indicator">

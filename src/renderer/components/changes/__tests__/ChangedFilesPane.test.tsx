@@ -29,6 +29,7 @@ const mockChangedFilesStore = {
   prLoading: false,
   totalFileCount: 1,
   allFiles: [{ path: "test.ts", status: "M" }],
+  submodules: [],
   activate: vi.fn(),
   deactivate: vi.fn(),
   dispose: vi.fn(),

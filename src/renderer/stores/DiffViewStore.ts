@@ -25,8 +25,11 @@ export class DiffViewStore {
 
   @action
   async fetchDiff(file: ChangedFile): Promise<void> {
-    // Use different cache keys for uncommitted vs branch changes
-    const cacheKey = file.isUncommitted ? `uncommitted:${file.path}` : `branch:${file.path}`
+    // Use different cache keys for uncommitted vs branch changes, include submodule path
+    const prefix = file.submodulePath ? `${file.submodulePath}:` : ""
+    const cacheKey = file.isUncommitted
+      ? `uncommitted:${prefix}${file.path}`
+      : `branch:${prefix}${file.path}`
     const cached = this.cache.get(cacheKey)
     if (cached !== undefined) {
       this.status = "done"
@@ -39,10 +42,30 @@ export class DiffViewStore {
     this.errorMessage = null
 
     try {
-      // Use different diff command based on whether file is uncommitted
-      const result = file.isUncommitted
-        ? await gitService.getUncommittedDiff(this.workspacePath, file.path, file.status)
-        : await gitService.getFileDiff(this.workspacePath, file.path, file.status)
+      let result: string
+
+      if (file.submodulePath) {
+        // File is inside a submodule - use submodule diff commands
+        result = file.isUncommitted
+          ? await gitService.getSubmoduleUncommittedDiff(
+              this.workspacePath,
+              file.submodulePath,
+              file.path,
+              file.status
+            )
+          : await gitService.getSubmoduleFileDiff(
+              this.workspacePath,
+              file.submodulePath,
+              file.path,
+              file.status
+            )
+      } else {
+        // Regular file - use standard diff commands
+        result = file.isUncommitted
+          ? await gitService.getUncommittedDiff(this.workspacePath, file.path, file.status)
+          : await gitService.getFileDiff(this.workspacePath, file.path, file.status)
+      }
+
       runInAction(() => {
         this.cache.set(cacheKey, result)
         this.status = "done"

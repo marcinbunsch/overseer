@@ -43,6 +43,7 @@ interface Config {
   codexApprovalPolicy?: CodexApprovalPolicy
   geminiApprovalMode?: GeminiApprovalMode
   animationsEnabled?: boolean
+  showClaudeUsageIndicator?: boolean
   httpServer?: HttpServerConfig
 }
 
@@ -147,6 +148,7 @@ class ConfigStore {
   @observable defaultGeminiModel: string | null = null
   @observable defaultOpencodeModel: string | null = null
   @observable animationsEnabled: boolean = false
+  @observable showClaudeUsageIndicator: boolean = false
   @observable agentShell: string = ""
   @observable settingsOpen: boolean = false
   @observable loaded: boolean = false
@@ -262,6 +264,7 @@ class ConfigStore {
         this.defaultGeminiModel = parsed.defaultGeminiModel ?? null
         this.defaultOpencodeModel = parsed.defaultOpencodeModel ?? null
         this.animationsEnabled = parsed.animationsEnabled ?? false
+        this.showClaudeUsageIndicator = parsed.showClaudeUsageIndicator ?? false
         this.agentShell = parsed.agentShell ?? ""
         // HTTP Server settings
         if (parsed.httpServer) {
@@ -315,6 +318,7 @@ class ConfigStore {
         codexApprovalPolicy: this.codexApprovalPolicy,
         geminiApprovalMode: this.geminiApprovalMode,
         animationsEnabled: this.animationsEnabled,
+        showClaudeUsageIndicator: this.showClaudeUsageIndicator,
         agentShell: this.agentShell || undefined,
         httpServer: {
           host: this.httpServerHost,
@@ -435,6 +439,11 @@ class ConfigStore {
 
   @action setAnimationsEnabled(enabled: boolean) {
     this.animationsEnabled = enabled
+    this.save()
+  }
+
+  @action setShowClaudeUsageIndicator(enabled: boolean) {
+    this.showClaudeUsageIndicator = enabled
     this.save()
   }
 

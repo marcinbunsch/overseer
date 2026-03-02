@@ -601,6 +601,46 @@ impl ClaudeParser {
                 }]
             }
 
+            // ================================================
+            // "system" — system messages (compaction, etc.)
+            // ================================================
+            //
+            // System events convey meta-information about the session.
+            // The subtype field indicates what kind of system event.
+            "system" => {
+                // Check for known subtypes
+                if let Some(ref subtype) = event.subtype {
+                    match subtype.as_str() {
+                        // Status update - check the status field
+                        // e.g. {"type":"system","subtype":"status","status":"compacting",...}
+                        "status" => {
+                            if event.status.as_deref() == Some("compacting") {
+                                return vec![AgentEvent::Message {
+                                    content: "Compacting context...".to_string(),
+                                    tool_meta: None,
+                                    parent_tool_use_id: None,
+                                    tool_use_id: None,
+                                    is_info: Some(true),
+                                }];
+                            }
+                        }
+                        // Context compaction completed
+                        // e.g. {"type":"system","subtype":"compact_boundary","compact_metadata":{...},...}
+                        "compact_boundary" => {
+                            return vec![AgentEvent::Message {
+                                content: "Context compacted.".to_string(),
+                                tool_meta: None,
+                                parent_tool_use_id: None,
+                                tool_use_id: None,
+                                is_info: Some(true),
+                            }];
+                        }
+                        _ => {}
+                    }
+                }
+                Vec::new()
+            }
+
             // Catch-all for unknown event types
             _ => Vec::new(),
         }
@@ -949,5 +989,31 @@ mod tests {
             .filter(|e| matches!(e, AgentEvent::Message { .. }))
             .collect();
         assert_eq!(messages.len(), 2);
+    }
+
+    #[test]
+    fn parse_system_status_compacting_event() {
+        let mut parser = ClaudeParser::new();
+        let line = r#"{"type":"system","subtype":"status","status":"compacting","session_id":"test"}"#;
+        let events = parser.feed(&format!("{line}\n"));
+
+        assert!(events.iter().any(|e| matches!(
+            e,
+            AgentEvent::Message { content, is_info: Some(true), .. }
+            if content.contains("Compacting")
+        )));
+    }
+
+    #[test]
+    fn parse_system_compact_boundary_event() {
+        let mut parser = ClaudeParser::new();
+        let line = r#"{"type":"system","subtype":"compact_boundary","session_id":"test","compact_metadata":{"trigger":"auto","pre_tokens":168027}}"#;
+        let events = parser.feed(&format!("{line}\n"));
+
+        assert!(events.iter().any(|e| matches!(
+            e,
+            AgentEvent::Message { content, is_info: Some(true), .. }
+            if content.contains("compacted")
+        )));
     }
 }

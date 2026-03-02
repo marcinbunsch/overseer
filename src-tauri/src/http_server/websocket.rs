@@ -96,6 +96,24 @@ struct UnsubscriptionRequest {
     unsubscribe: String,
 }
 
+/// Ping request from client.
+///
+/// Sent by the client to verify the connection is alive and working.
+/// Server responds with a pong message.
+#[derive(Deserialize)]
+struct PingRequest {
+    /// Must be "ping" to be recognized as a ping request.
+    r#type: String,
+}
+
+/// Pong response sent to client.
+///
+/// Sent in response to a ping request to confirm the connection is working.
+#[derive(Serialize)]
+struct PongResponse {
+    r#type: &'static str,
+}
+
 /// WebSocket event message sent to client.
 ///
 /// This is the format for all events pushed from server to client.
@@ -157,6 +175,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<HttpSharedState>) {
     // We filter on the client side based on subscription patterns.
     let mut event_rx = state.context.event_bus.subscribe();
 
+    // Channel for sending messages from recv_task to send_task (e.g., pong responses)
+    let (outgoing_tx, mut outgoing_rx) = tokio::sync::mpsc::channel::<String>(16);
+
     // ═══════════════════════════════════════════════════════════════════
     // RECEIVE TASK: Handle incoming messages from client
     // ═══════════════════════════════════════════════════════════════════
@@ -166,6 +187,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<HttpSharedState>) {
         // Process messages until client disconnects
         while let Some(Ok(msg)) = receiver.next().await {
             if let Message::Text(text) = msg {
+                // Try parsing as ping request: {"type": "ping"}
+                if let Ok(req) = serde_json::from_str::<PingRequest>(&text) {
+                    if req.r#type == "ping" {
+                        let pong = PongResponse { r#type: "pong" };
+                        if let Ok(json) = serde_json::to_string(&pong) {
+                            let _ = outgoing_tx.send(json).await;
+                        }
+                        continue;
+                    }
+                }
                 // Try parsing as subscription request: {"subscribe": "pattern"}
                 if let Ok(req) = serde_json::from_str::<SubscriptionRequest>(&text) {
                     let mut subs = subs_clone.lock().unwrap();
@@ -190,43 +221,54 @@ async fn handle_socket(socket: WebSocket, state: Arc<HttpSharedState>) {
 
     let send_task = tokio::spawn(async move {
         loop {
-            match event_rx.recv().await {
-                Ok(event) => {
-                    // Determine if this event should be sent to the client
-                    let should_send = {
-                        let subs = subscriptions.lock().unwrap();
-                        // No subscriptions = send everything (useful for debugging)
-                        // With subscriptions = only send matching events
-                        subs.is_empty()
-                            || subs
-                                .iter()
-                                .any(|pattern| matches_pattern(&event.event_type, pattern))
-                    };
-
-                    if should_send {
-                        // Convert to wire format
-                        let ws_event = WsEvent {
-                            event_type: event.event_type,
-                            payload: event.payload,
-                        };
-
-                        if let Ok(json) = serde_json::to_string(&ws_event) {
-                            // Send to client - if this fails, client has disconnected
-                            if sender.send(Message::Text(json.into())).await.is_err() {
-                                break;
-                            }
-                        }
+            tokio::select! {
+                // Handle outgoing messages from recv_task (e.g., pong responses)
+                Some(msg) = outgoing_rx.recv() => {
+                    if sender.send(Message::Text(msg.into())).await.is_err() {
+                        break;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                    // Client is too slow to keep up with events.
-                    // The broadcast channel has a fixed capacity; old events are dropped.
-                    // We log and continue - the client should handle missing events.
-                    log::warn!("WebSocket client lagged by {} events", count);
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    // EventBus was dropped (application shutting down)
-                    break;
+                // Handle events from EventBus
+                result = event_rx.recv() => {
+                    match result {
+                        Ok(event) => {
+                            // Determine if this event should be sent to the client
+                            let should_send = {
+                                let subs = subscriptions.lock().unwrap();
+                                // No subscriptions = send everything (useful for debugging)
+                                // With subscriptions = only send matching events
+                                subs.is_empty()
+                                    || subs
+                                        .iter()
+                                        .any(|pattern| matches_pattern(&event.event_type, pattern))
+                            };
+
+                            if should_send {
+                                // Convert to wire format
+                                let ws_event = WsEvent {
+                                    event_type: event.event_type,
+                                    payload: event.payload,
+                                };
+
+                                if let Ok(json) = serde_json::to_string(&ws_event) {
+                                    // Send to client - if this fails, client has disconnected
+                                    if sender.send(Message::Text(json.into())).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                            // Client is too slow to keep up with events.
+                            // The broadcast channel has a fixed capacity; old events are dropped.
+                            // We log and continue - the client should handle missing events.
+                            log::warn!("WebSocket client lagged by {} events", count);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            // EventBus was dropped (application shutting down)
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -375,5 +417,19 @@ mod tests {
         let json = r#"{"unsubscribe": "agent:event:*"}"#;
         let req: UnsubscriptionRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.unsubscribe, "agent:event:*");
+    }
+
+    #[test]
+    fn ping_request_deserialization() {
+        let json = r#"{"type": "ping"}"#;
+        let req: PingRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.r#type, "ping");
+    }
+
+    #[test]
+    fn pong_response_serialization() {
+        let pong = PongResponse { r#type: "pong" };
+        let json = serde_json::to_string(&pong).unwrap();
+        assert_eq!(json, r#"{"type":"pong"}"#);
     }
 }

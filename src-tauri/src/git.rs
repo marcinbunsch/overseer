@@ -115,6 +115,39 @@ pub async fn get_uncommitted_diff(
         .map_err(|e| e.to_string())
 }
 
+/// Get the diff for a file inside a submodule (branch changes).
+#[tauri::command]
+pub async fn get_submodule_file_diff(
+    workspace_path: String,
+    submodule_path: String,
+    file_path: String,
+    file_status: String,
+) -> Result<String, String> {
+    let path = std::path::PathBuf::from(&workspace_path);
+    overseer_core::git::get_submodule_file_diff(&path, &submodule_path, &file_path, &file_status)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get the diff for uncommitted changes to a file inside a submodule.
+#[tauri::command]
+pub async fn get_submodule_uncommitted_diff(
+    workspace_path: String,
+    submodule_path: String,
+    file_path: String,
+    file_status: String,
+) -> Result<String, String> {
+    let path = std::path::PathBuf::from(&workspace_path);
+    overseer_core::git::get_submodule_uncommitted_diff(
+        &path,
+        &submodule_path,
+        &file_path,
+        &file_status,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// List commits on this branch vs the default branch.
 #[tauri::command]
 pub async fn list_commits(workspace_path: String) -> Result<Vec<Commit>, String> {

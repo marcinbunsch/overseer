@@ -111,6 +111,7 @@ describe("ChangedFilesStore", () => {
       files: mockBranchFiles,
       uncommitted: mockUncommittedFiles,
       is_default_branch: false,
+      submodules: [],
     })
 
     const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -143,6 +144,7 @@ describe("ChangedFilesStore", () => {
       files: [],
       uncommitted: [],
       is_default_branch: true,
+      submodules: [],
     })
 
     const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -236,6 +238,7 @@ describe("ChangedFilesStore", () => {
       files: [],
       uncommitted: [],
       is_default_branch: false,
+      submodules: [],
     })
 
     const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -273,6 +276,7 @@ describe("ChangedFilesStore", () => {
       files: [],
       uncommitted: [],
       is_default_branch: false,
+      submodules: [],
     })
 
     const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -297,6 +301,7 @@ describe("ChangedFilesStore", () => {
       files: [],
       uncommitted: [],
       is_default_branch: false,
+      submodules: [],
     })
 
     const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -317,6 +322,7 @@ describe("ChangedFilesStore", () => {
       files: [],
       uncommitted: [],
       is_default_branch: false,
+      submodules: [],
     })
 
     const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -343,6 +349,7 @@ describe("ChangedFilesStore", () => {
       files: [],
       uncommitted: [],
       is_default_branch: false,
+      submodules: [],
     })
     vi.mocked(gitService.deleteBranch).mockResolvedValue(undefined)
 
@@ -366,6 +373,7 @@ describe("ChangedFilesStore", () => {
       files: [],
       uncommitted: [],
       is_default_branch: false,
+      submodules: [],
     })
 
     const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -390,6 +398,7 @@ describe("ChangedFilesStore", () => {
       files: [],
       uncommitted: [],
       is_default_branch: false,
+      submodules: [],
     })
 
     const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -415,6 +424,7 @@ describe("ChangedFilesStore", () => {
       files: [],
       uncommitted: [],
       is_default_branch: false,
+      submodules: [],
     })
     vi.mocked(gitService.deleteBranch).mockRejectedValue(new Error("Branch not merged"))
 
@@ -433,6 +443,7 @@ describe("ChangedFilesStore", () => {
       files: [],
       uncommitted: [],
       is_default_branch: false,
+      submodules: [],
     })
 
     const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -492,6 +503,7 @@ describe("ChangedFilesStore", () => {
           { path: "src/e.ts", status: "A" },
         ],
         is_default_branch: false,
+        submodules: [],
       })
 
       const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -518,6 +530,7 @@ describe("ChangedFilesStore", () => {
           { path: "src/uncommitted-b.ts", status: "?" },
         ],
         is_default_branch: false,
+        submodules: [],
       })
 
       const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -551,6 +564,7 @@ describe("ChangedFilesStore", () => {
           { path: "src/untracked.ts", status: "?" },
         ],
         is_default_branch: false,
+        submodules: [],
       })
 
       const store = new ChangedFilesStore(workspacePath, workspaceId)
@@ -569,6 +583,7 @@ describe("ChangedFilesStore", () => {
         files: [],
         uncommitted: [],
         is_default_branch: false,
+        submodules: [],
       })
       vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
 
@@ -584,6 +599,7 @@ describe("ChangedFilesStore", () => {
         files: [],
         uncommitted: [],
         is_default_branch: false,
+        submodules: [],
       })
       vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
 
@@ -601,6 +617,7 @@ describe("ChangedFilesStore", () => {
         files: [],
         uncommitted: [],
         is_default_branch: false,
+        submodules: [],
       })
       vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
       vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
@@ -625,6 +642,7 @@ describe("ChangedFilesStore", () => {
         files: [],
         uncommitted: [],
         is_default_branch: false,
+        submodules: [],
       })
       vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
       vi.mocked(gitService.checkMerge).mockResolvedValue({
@@ -651,6 +669,7 @@ describe("ChangedFilesStore", () => {
         files: [],
         uncommitted: [],
         is_default_branch: false,
+        submodules: [],
       })
       vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
 
@@ -676,6 +695,7 @@ describe("ChangedFilesStore", () => {
         files: [],
         uncommitted: [],
         is_default_branch: false,
+        submodules: [],
       })
       vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
       vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
@@ -705,6 +725,7 @@ describe("ChangedFilesStore", () => {
         files: [],
         uncommitted: [],
         is_default_branch: false,
+        submodules: [],
       })
       vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
       vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
@@ -730,6 +751,7 @@ describe("ChangedFilesStore", () => {
         files: [],
         uncommitted: [],
         is_default_branch: false,
+        submodules: [],
       })
       vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
       vi.mocked(gitService.checkMerge).mockResolvedValue({
@@ -755,6 +777,7 @@ describe("ChangedFilesStore", () => {
         files: [],
         uncommitted: [],
         is_default_branch: false,
+        submodules: [],
       })
       vi.mocked(gitService.getPrStatus).mockResolvedValue(null)
       vi.mocked(gitService.checkMerge).mockResolvedValue({

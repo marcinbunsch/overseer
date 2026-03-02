@@ -99,6 +99,10 @@ pub struct ClaudeStreamEvent {
     /// Result string for completion events.
     #[serde(default)]
     pub result: Option<String>,
+
+    /// Status field for system status events (e.g., "compacting").
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 /// A control request from Claude (tool approval, question, etc.)

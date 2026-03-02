@@ -309,12 +309,32 @@ const AgentsTab = observer(function AgentsTab() {
               defaultModel={configStore.defaultClaudeModel}
               onModelChange={(model) => configStore.setDefaultClaudeModel(model)}
               extraSettings={
-                <div className="flex items-center gap-2">
-                  <span className="w-28 shrink-0 text-xs text-ovr-text-muted">
-                    Permission Mode:
-                  </span>
-                  <ClaudePermissionModeSelect />
-                </div>
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="w-28 shrink-0 text-xs text-ovr-text-muted">
+                      Permission Mode:
+                    </span>
+                    <ClaudePermissionModeSelect />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <span className="text-xs text-ovr-text-muted">Show Usage Indicator</span>
+                      <p className="text-[10px] text-ovr-warn">
+                        Uses your Claude OAuth token to query usage limits. May violate API terms.
+                      </p>
+                    </div>
+                    <Switch.Root
+                      checked={configStore.showClaudeUsageIndicator}
+                      onCheckedChange={(checked: boolean) =>
+                        configStore.setShowClaudeUsageIndicator(checked)
+                      }
+                      className="relative h-5 w-9 shrink-0 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500"
+                      data-testid="claude-usage-indicator-toggle"
+                    >
+                      <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+                    </Switch.Root>
+                  </div>
+                </>
               }
             />
           )}

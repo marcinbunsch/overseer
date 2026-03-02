@@ -8,6 +8,7 @@ import { eventBus } from "../../utils/eventBus"
 import { STATUS_STYLES } from "../../constants/git"
 import { DiffDialog } from "./DiffDialog"
 import { MergeDialog } from "./MergeDialog"
+import { SubmoduleSection } from "./SubmoduleSection"
 
 interface ChangedFilesPaneProps {
   workspacePath: string
@@ -84,11 +85,13 @@ export const ChangedFilesPane = observer(function ChangedFilesPane({
     <>
       <div className="flex h-full flex-col">
         <div className="flex-1 overflow-y-auto">
-          {store.uncommitted.length === 0 && store.files.length === 0 && (
-            <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
-              No changed files
-            </div>
-          )}
+          {store.uncommitted.length === 0 &&
+            store.files.length === 0 &&
+            store.submodules.length === 0 && (
+              <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
+                No changed files
+              </div>
+            )}
           {/* Uncommitted Changes Section */}
           {store.uncommitted.length > 0 && (
             <>
@@ -144,6 +147,15 @@ export const ChangedFilesPane = observer(function ChangedFilesPane({
               })}
             </>
           )}
+
+          {/* Submodules Section */}
+          {store.submodules.map((submodule) => (
+            <SubmoduleSection
+              key={submodule.path}
+              submodule={submodule}
+              onFileClick={(file) => store.setDiffFile(file)}
+            />
+          ))}
         </div>
         <div className="flex shrink-0 items-center justify-between border-t border-ovr-border-subtle px-3 py-1.5">
           <span className="text-xs text-ovr-text-dim">
