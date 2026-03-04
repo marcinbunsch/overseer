@@ -33,6 +33,109 @@ import { Checkbox } from "./Checkbox"
 
 type SettingsTab = "general" | "agents" | "advanced" | "updates" | "design-system"
 
+interface CommandPreset {
+  label: string
+  command: string
+}
+
+const EDITOR_PRESETS: CommandPreset[] = [
+  { label: "VS Code", command: "code" },
+  { label: "Cursor", command: "cursor" },
+  { label: "Zed", command: "zed" },
+  { label: "Windsurf", command: "windsurf" },
+]
+
+const TERMINAL_PRESETS: CommandPreset[] = [
+  { label: "iTerm2", command: "open -a iTerm" },
+  { label: "Terminal.app", command: "open -a Terminal" },
+  { label: "Warp", command: "open -a Warp" },
+  { label: "Ghostty", command: "open -a Ghostty" },
+]
+
+function getSelectValue(command: string, presets: CommandPreset[]): string {
+  const match = presets.find((p) => p.command === command)
+  return match ? match.command : "custom"
+}
+
+interface CommandSelectorProps {
+  label: string
+  value: string
+  presets: CommandPreset[]
+  onChange: (cmd: string) => void
+  testId: string
+}
+
+function CommandSelector({ label, value, presets, onChange, testId }: CommandSelectorProps) {
+  const matchesPreset = presets.some((p) => p.command === value)
+  const [forceCustom, setForceCustom] = useState(!matchesPreset)
+  const isCustom = forceCustom || !matchesPreset
+  const selectValue = isCustom ? "custom" : value
+
+  const handleSelectChange = (selected: string) => {
+    if (selected !== "custom") {
+      setForceCustom(false)
+      onChange(selected)
+    } else {
+      setForceCustom(true)
+      // Don't call onChange — just reveal the input with the current value
+    }
+  }
+
+  return (
+    <div>
+      <label className="mb-2 block text-xs text-ovr-text-muted">{label}</label>
+      <div className="flex flex-col gap-2">
+        <Select.Root value={selectValue} onValueChange={handleSelectChange}>
+          <Select.Trigger
+            className="flex w-full max-w-xs cursor-pointer items-center justify-between rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated px-3 py-2 text-xs text-ovr-text-primary focus:border-ovr-azure-500 focus:outline-none"
+            data-testid={`${testId}-trigger`}
+          >
+            <Select.Value />
+            <Select.Icon>
+              <ChevronDown className="size-3 text-ovr-text-dim" />
+            </Select.Icon>
+          </Select.Trigger>
+          <Select.Portal>
+            <Select.Content
+              className="z-[100] overflow-hidden rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated shadow-lg"
+              position="popper"
+              sideOffset={4}
+            >
+              <Select.Viewport className="p-1">
+                {presets.map((preset) => (
+                  <Select.Item
+                    key={preset.command}
+                    value={preset.command}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                  >
+                    <Select.ItemText>{preset.label}</Select.ItemText>
+                  </Select.Item>
+                ))}
+                <Select.Item
+                  value="custom"
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                >
+                  <Select.ItemText>Custom</Select.ItemText>
+                </Select.Item>
+              </Select.Viewport>
+            </Select.Content>
+          </Select.Portal>
+        </Select.Root>
+        {isCustom && (
+          <Input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Enter custom command..."
+            className="max-w-xs px-3 py-2 text-xs"
+            data-testid={`${testId}-custom-input`}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <Settings2 className="size-4" /> },
   { id: "agents", label: "Agents", icon: <Bot className="size-4" /> },
@@ -126,6 +229,27 @@ const GeneralTab = observer(function GeneralTab() {
             ? "New workspaces will start with this agent."
             : "New workspaces will show the agent selection screen."}
         </p>
+      </div>
+
+      {/* External Tools */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-ovr-text-muted">External tools</label>
+        <div className="space-y-4">
+          <CommandSelector
+            label="Editor"
+            value={configStore.editorCommand}
+            presets={EDITOR_PRESETS}
+            onChange={(cmd) => configStore.setEditorCommand(cmd)}
+            testId="editor-command"
+          />
+          <CommandSelector
+            label="Terminal"
+            value={configStore.terminalCommand}
+            presets={TERMINAL_PRESETS}
+            onChange={(cmd) => configStore.setTerminalCommand(cmd)}
+            testId="terminal-command"
+          />
+        </div>
       </div>
 
       {/* Animations */}

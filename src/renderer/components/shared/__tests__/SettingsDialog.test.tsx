@@ -372,6 +372,92 @@ describe("SettingsDialog Agents tab - Claude usage indicator", () => {
   })
 })
 
+describe("SettingsDialog General tab - External Tools", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    configStore.editorCommand = "code"
+    configStore.terminalCommand = "open -a iTerm"
+  })
+
+  it("shows External tools section", () => {
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.getByText("External tools")).toBeInTheDocument()
+    expect(screen.getByText("Editor")).toBeInTheDocument()
+    expect(screen.getByText("Terminal")).toBeInTheDocument()
+  })
+
+  it("shows editor selector trigger", () => {
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.getByTestId("editor-command-trigger")).toBeInTheDocument()
+  })
+
+  it("shows terminal selector trigger", () => {
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.getByTestId("terminal-command-trigger")).toBeInTheDocument()
+  })
+
+  it("does not show custom input when a preset is selected for editor", () => {
+    configStore.editorCommand = "code"
+
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.queryByTestId("editor-command-custom-input")).not.toBeInTheDocument()
+  })
+
+  it("does not show custom input when a preset is selected for terminal", () => {
+    configStore.terminalCommand = "open -a iTerm"
+
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.queryByTestId("terminal-command-custom-input")).not.toBeInTheDocument()
+  })
+
+  it("shows custom input when editor command doesn't match any preset", () => {
+    configStore.editorCommand = "/usr/local/bin/myeditor"
+
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.getByTestId("editor-command-custom-input")).toBeInTheDocument()
+    expect(screen.getByTestId("editor-command-custom-input")).toHaveValue("/usr/local/bin/myeditor")
+  })
+
+  it("shows custom input when terminal command doesn't match any preset", () => {
+    configStore.terminalCommand = "/usr/local/bin/myterm"
+
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.getByTestId("terminal-command-custom-input")).toBeInTheDocument()
+    expect(screen.getByTestId("terminal-command-custom-input")).toHaveValue("/usr/local/bin/myterm")
+  })
+
+  it("calls setEditorCommand when custom editor input changes", () => {
+    configStore.editorCommand = "/custom/editor"
+    const setSpy = vi.spyOn(configStore, "setEditorCommand")
+
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    const input = screen.getByTestId("editor-command-custom-input")
+    fireEvent.change(input, { target: { value: "/new/editor" } })
+
+    expect(setSpy).toHaveBeenCalledWith("/new/editor")
+  })
+
+  it("calls setTerminalCommand when custom terminal input changes", () => {
+    configStore.terminalCommand = "/custom/term"
+    const setSpy = vi.spyOn(configStore, "setTerminalCommand")
+
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    const input = screen.getByTestId("terminal-command-custom-input")
+    fireEvent.change(input, { target: { value: "/new/term" } })
+
+    expect(setSpy).toHaveBeenCalledWith("/new/term")
+  })
+})
+
 describe("SettingsDialog Advanced tab", () => {
   beforeEach(() => {
     vi.clearAllMocks()
