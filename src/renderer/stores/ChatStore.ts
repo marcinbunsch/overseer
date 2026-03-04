@@ -95,6 +95,7 @@ export class ChatStore {
   @observable autonomousIteration: number = 0
   @observable autonomousMaxIterations: number = 25
   @observable autonomousSessionId: string = ""
+  @observable autonomousPhase: "implementation" | "review" = "implementation"
   /** Accumulated text from the current iteration for completion detection */
   private autonomousCurrentIterationText: string = ""
   /** Original permission mode to restore after autonomous run completes. undefined = not set */
@@ -515,12 +516,23 @@ export class ChatStore {
     const workspacePath = this.context.getWorkspacePath()
     if (!workspacePath) return
 
+    // Kill any active generation before starting (e.g. agent waiting in plan mode)
+    if (this.isSending || this.pendingPlanApproval) {
+      if (this.service) {
+        await this.service.interruptTurn(this.chat.id)
+      }
+      this.pendingPlanApproval = null
+      this.pendingToolUses = []
+      this.isSending = false
+    }
+
     // Generate unique session ID for this autonomous run
     this.autonomousSessionId = `${this.chat.id}-auto-${Date.now()}`
     this.autonomousMode = true
     this.autonomousRunning = true
     this.autonomousIteration = 0
     this.autonomousMaxIterations = maxIterations
+    this.autonomousPhase = "implementation"
     // Save original permission mode to restore after autonomous run completes
     this.originalPermissionMode = this.chat.permissionMode
 
@@ -532,7 +544,12 @@ export class ChatStore {
       })
       await backend.invoke("write_file", {
         path: `${workspacePath}/autonomous-progress.md`,
-        content: "# Autonomous Progress\n\nNo progress yet.\n",
+        content:
+          "# Autonomous Progress\n\nNo progress yet.\n\n> Review findings are stored in `autonomous-review.md`\n",
+      })
+      await backend.invoke("write_file", {
+        path: `${workspacePath}/autonomous-review.md`,
+        content: "# Autonomous Review\n\nNo review yet.\n",
       })
     } catch (err) {
       console.error("Failed to write autonomous files:", err)
@@ -594,16 +611,18 @@ export class ChatStore {
     this.chat.permissionMode = this.getYoloModeValue()
 
     // Generate and send loop prompt (the message itself serves as the iteration marker)
-    const loopPrompt = this.generateLoopPrompt()
+    const isReview = this.autonomousPhase === "review"
+    const loopPrompt = isReview ? this.generateReviewPrompt() : this.generateLoopPrompt()
     const workspacePath = this.context.getWorkspacePath()
 
     try {
       await this.sendMessage(loopPrompt, workspacePath, {
         type: "system",
-        label: "Autonomous Loop",
+        label: isReview ? "Review Step" : "Autonomous Loop",
         autonomousType: "autonomous-loop",
         iteration: this.autonomousIteration,
         maxIterations: this.autonomousMaxIterations,
+        phase: this.autonomousPhase,
       })
     } catch (err) {
       console.error("Error in autonomous iteration:", err)
@@ -663,15 +682,37 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
 1. Study the goal and current progress
 2. Execute the NEXT logical step toward completing the goal
 3. Update \`autonomous-progress.md\` with what you accomplished
-4. If the entire goal is COMPLETE:
-   - Provide a brief summary of what was accomplished
-   - End your response with exactly: AUTONOMOUS_SESSION_COMPLETE
 
 ## Important
 - Each iteration starts fresh - you have no memory of previous iterations
 - Always read the progress file first to understand current state
 - Make meaningful progress each iteration, don't just plan
-- The progress file is your only way to communicate between iterations`
+- The progress file is your only way to communicate between iterations
+- Do NOT signal completion — a dedicated review step determines when the task is done`
+  }
+
+  private generateReviewPrompt(): string {
+    return `You are running in **Autonomous Mode**, review step after iteration ${this.autonomousIteration} of max ${this.autonomousMaxIterations}.
+
+## Your Goal
+Read \`autonomous-prompt.md\` for the original task description.
+
+## Progress So Far
+Read \`autonomous-progress.md\` to see what has been accomplished.
+
+## Your Job: Review
+1. Thoroughly review all work done against the original goal
+2. Check for correctness, completeness, and quality
+3. Write your full review findings to \`autonomous-review.md\`
+4. Update \`autonomous-progress.md\` to note that a review was performed and reference \`autonomous-review.md\`
+
+## Decision
+- If the goal is **fully and correctly completed**: end your response with exactly: AUTONOMOUS_SESSION_COMPLETE
+- If there are remaining issues or incomplete work: describe clearly in \`autonomous-review.md\` what still needs to be done. Do NOT output AUTONOMOUS_SESSION_COMPLETE.
+
+## Important
+- Be honest and thorough — this review determines whether the task is done
+- Each iteration starts fresh - read the files to understand current state`
   }
 
   private pushAutonomousMessage(
@@ -718,13 +759,24 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
   private checkAutonomousCompletion(): void {
     if (!this.autonomousRunning) return
 
-    if (this.autonomousCurrentIterationText.includes("AUTONOMOUS_SESSION_COMPLETE")) {
-      // Strip AUTONOMOUS_SESSION_COMPLETE from recent assistant messages
-      this.stripCompletionMarkerFromMessages()
-      this.finishAutonomousRun("Task completed successfully")
-    } else {
-      // Continue to next iteration
+    if (this.autonomousPhase === "implementation") {
+      // Implementation done — always move to review next; only review can signal completion
+      runInAction(() => {
+        this.autonomousPhase = "review"
+      })
       void this.runNextIteration()
+    } else {
+      // Review phase — check for completion signal
+      if (this.autonomousCurrentIterationText.includes("AUTONOMOUS_SESSION_COMPLETE")) {
+        this.stripCompletionMarkerFromMessages()
+        this.finishAutonomousRun("Task completed successfully")
+      } else {
+        // Review said not done — back to implementation for fixes
+        runInAction(() => {
+          this.autonomousPhase = "implementation"
+        })
+        void this.runNextIteration()
+      }
     }
   }
 

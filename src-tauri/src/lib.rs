@@ -2,7 +2,6 @@ mod agents;
 mod approvals;
 mod chat_session;
 mod git;
-mod http_server;
 mod persistence;
 mod pty;
 
@@ -10,6 +9,7 @@ use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
 use overseer_core::paths;
 use overseer_core::shell::build_login_shell_command;
 use overseer_core::OverseerContext;
+use overseer_http::{HttpServerHandle, HttpSharedState, ServeDir, ServeFile};
 use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager, WindowEvent};
@@ -22,13 +22,13 @@ pub struct OverseerContextState(pub Arc<OverseerContext>);
 
 /// State for the HTTP server.
 pub struct HttpServerState {
-    handle: std::sync::Mutex<http_server::HttpServerHandle>,
+    handle: std::sync::Mutex<HttpServerHandle>,
 }
 
 impl Default for HttpServerState {
     fn default() -> Self {
         Self {
-            handle: std::sync::Mutex::new(http_server::HttpServerHandle::default()),
+            handle: std::sync::Mutex::new(HttpServerHandle::default()),
         }
     }
 }
@@ -339,13 +339,20 @@ fn start_http_server(
     };
 
     // Create shared state for HTTP server from the context with auth token
-    let shared_state = Arc::new(http_server::HttpSharedState::from_context_with_auth(
+    let shared_state = Arc::new(HttpSharedState::from_context_with_auth(
         &context_state.0,
         auth_token.clone(),
     ));
 
+    // Build a ServeDir-based fallback router for static frontend files
+    let fallback = static_dir.map(|dir| {
+        let serve_dir = ServeDir::new(&dir)
+            .not_found_service(ServeFile::new(format!("{}/index.html", dir)));
+        axum::Router::new().fallback_service(serve_dir)
+    });
+
     // Start the server
-    *handle = http_server::start(shared_state, host, port, static_dir)?;
+    *handle = overseer_http::start(shared_state, host, port, fallback)?;
 
     Ok(HttpServerStartResult { auth_token })
 }

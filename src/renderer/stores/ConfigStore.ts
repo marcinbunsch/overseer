@@ -441,6 +441,16 @@ class ConfigStore {
     }
   }
 
+  @action setEditorCommand(cmd: string) {
+    this.editorCommand = cmd
+    this.save()
+  }
+
+  @action setTerminalCommand(cmd: string) {
+    this.terminalCommand = cmd
+    this.save()
+  }
+
   @action setAnimationsEnabled(enabled: boolean) {
     this.animationsEnabled = enabled
     this.save()

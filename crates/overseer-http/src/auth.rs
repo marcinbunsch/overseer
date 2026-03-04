@@ -23,7 +23,7 @@ use axum::{
 };
 use std::sync::Arc;
 
-use super::HttpSharedState;
+use crate::HttpSharedState;
 
 /// Extract bearer token from the Authorization header.
 ///

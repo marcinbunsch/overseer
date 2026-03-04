@@ -12,7 +12,59 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use super::HttpSharedState;
+use crate::HttpSharedState;
+
+// ============================================================================
+// PR STATUS HELPERS (not yet in overseer-core, implemented here)
+// ============================================================================
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrStatus {
+    number: i64,
+    state: String,
+    url: String,
+    is_draft: bool,
+}
+
+async fn get_pr_status(
+    workspace_path: String,
+    branch: String,
+    agent_shell: Option<String>,
+) -> Result<Option<PrStatus>, String> {
+    let args = vec![
+        "pr".to_string(),
+        "view".to_string(),
+        branch,
+        "--json".to_string(),
+        "number,state,url,isDraft".to_string(),
+    ];
+
+    let mut cmd = overseer_core::shell::build_login_shell_command(
+        "gh",
+        &args,
+        Some(&workspace_path),
+        agent_shell.as_deref(),
+    )?;
+
+    let output = cmd.output().map_err(|e| format!("Failed to run gh: {e}"))?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).map_err(|e| format!("Failed to parse gh output: {e}"))?;
+
+    Ok(Some(PrStatus {
+        number: parsed["number"].as_i64().unwrap_or(0),
+        state: parsed["state"].as_str().unwrap_or("OPEN").to_string(),
+        url: parsed["url"].as_str().unwrap_or("").to_string(),
+        is_draft: parsed["isDraft"].as_bool().unwrap_or(false),
+    }))
+}
+
 
 /// Response format for command invocation.
 #[derive(Serialize)]
@@ -672,7 +724,7 @@ async fn dispatch_get_pr_status(args: serde_json::Value) -> (StatusCode, Json<In
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    match crate::git::get_pr_status(workspace_path, branch, agent_shell).await {
+    match get_pr_status(workspace_path, branch, agent_shell).await {
         Ok(status) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -999,8 +1051,9 @@ async fn dispatch_list_files(args: serde_json::Value) -> (StatusCode, Json<Invok
         for entry in walker {
             match entry {
                 Ok(e) => {
-                    if e.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                    if e.file_type().map(|ft: std::fs::FileType| ft.is_file()).unwrap_or(false) {
                         if let Ok(rel) = e.path().strip_prefix(root) {
+                            let rel: &std::path::Path = rel;
                             files.push(rel.to_string_lossy().to_string());
                         }
                     }
