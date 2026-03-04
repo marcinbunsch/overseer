@@ -24,7 +24,7 @@ export type { Backend, EventCallback, Unsubscribe }
  *
  * Detection priority:
  * 1. If __TAURI_INTERNALS__ exists -> TauriBackend (desktop app)
- * 2. If httpBackend.isAvailable() -> HttpBackend (browser via HTTP server)
+ * 2. If in browser (window exists, not Tauri) -> HttpBackend
  * 3. Otherwise -> TauriBackend (default for tests that mock Tauri)
  */
 function getBackend(): Backend {
@@ -33,8 +33,9 @@ function getBackend(): Backend {
     return tauriBackend
   }
 
-  // Check if HTTP backend is available (browser environment, not Tauri, not test)
-  if (httpBackend.isAvailable()) {
+  // If we're in a browser but not in Tauri, we MUST use HTTP backend
+  // (falling back to Tauri would fail since Tauri APIs don't exist)
+  if (typeof window !== "undefined" && typeof fetch !== "undefined") {
     return httpBackend
   }
 
