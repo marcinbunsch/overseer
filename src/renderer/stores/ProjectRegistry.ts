@@ -168,8 +168,9 @@ class ProjectRegistry {
   }
 
   /**
-   * Add a project from a remote server.
-   * The project data is fetched from the server and stored locally.
+   * Add a project on a remote server.
+   * The project is registered in the remote server's registry and the
+   * local RemoteServerStore project list is refreshed.
    */
   @action async addRemoteProject(path: string, serverUrl: string): Promise<void> {
     const backend = remoteServerStore.getBackend(serverUrl)
@@ -217,17 +218,16 @@ class ProjectRegistry {
           },
         ]
 
-    runInAction(() => {
-      this._projects.push({
-        id,
-        name,
-        path,
-        isGitRepo: result.isGitRepo,
-        workspaces,
-        remoteServerUrl: serverUrl,
-      })
+    // Register the project on the remote server
+    await backend.invoke("upsert_project", {
+      project: { id, name, path, isGitRepo: result.isGitRepo, workspaces },
     })
-    await this.saveToFile()
+
+    // Refresh the remote server's project list so the UI reflects the new project
+    const server = remoteServerStore.getServerByUrl(serverUrl)
+    if (server) {
+      await remoteServerStore.refreshProjects(server.id)
+    }
   }
 
   @action updateProject(
