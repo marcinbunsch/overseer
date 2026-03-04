@@ -481,6 +481,7 @@ pub fn run() {
             persistence::archive_chat_dir,
             persistence::ensure_chat_dir,
             persistence::remove_chat_file,
+            persistence::write_file,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

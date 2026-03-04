@@ -535,6 +535,33 @@ export class WorkspaceStore {
     this.activeChat?.setPermissionMode(mode)
   }
 
+  // --- Autonomous mode ---
+
+  @action
+  async startAutonomousRun(prompt: string, maxIterations: number): Promise<void> {
+    await this.activeChat?.startAutonomousRun(prompt, maxIterations)
+  }
+
+  @action
+  stopAutonomousRun(): void {
+    this.activeChat?.stopAutonomousRun()
+  }
+
+  @computed
+  get autonomousRunning(): boolean {
+    return this.activeChat?.autonomousRunning ?? false
+  }
+
+  @computed
+  get autonomousIteration(): number {
+    return this.activeChat?.autonomousIteration ?? 0
+  }
+
+  @computed
+  get autonomousMaxIterations(): number {
+    return this.activeChat?.autonomousMaxIterations ?? 25
+  }
+
   // --- Internal helpers ---
 
   private createChatContext(): ChatStoreContext {

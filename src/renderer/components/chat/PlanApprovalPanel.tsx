@@ -1,8 +1,10 @@
 import { useState } from "react"
 import { observer } from "mobx-react-lite"
 import type { PendingPlanApproval } from "../../types"
+import { configStore } from "../../stores/ConfigStore"
 import { MarkdownContent } from "./MarkdownContent"
 import { Textarea } from "../shared/Textarea"
+import { AutonomousDialog } from "./AutonomousDialog"
 
 interface PlanApprovalPanelProps {
   pending: PendingPlanApproval | null
@@ -10,6 +12,7 @@ interface PlanApprovalPanelProps {
   onReject: (feedback: string) => void
   onDeny: () => void
   onReview: () => void
+  onStartAutonomous?: (prompt: string, maxIterations: number) => void
 }
 
 export const PlanApprovalPanel = observer(function PlanApprovalPanel({
@@ -18,9 +21,11 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
   onReject,
   onDeny,
   onReview,
+  onStartAutonomous,
 }: PlanApprovalPanelProps) {
   const [showFeedback, setShowFeedback] = useState(false)
   const [feedback, setFeedback] = useState("")
+  const [autonomousDialogOpen, setAutonomousDialogOpen] = useState(false)
 
   if (!pending) return null
 
@@ -91,10 +96,16 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
             >
               Approve
             </button>
-            <button
-              onClick={onReview}
-              className="rounded-lg bg-ovr-azure-500 px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
-            >
+            {configStore.autonomousModeEnabled && onStartAutonomous && (
+              <button
+                onClick={() => setAutonomousDialogOpen(true)}
+                className="rounded-lg bg-ovr-azure-500 px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+                data-testid="plan-autonomous-run-button"
+              >
+                Autonomous Run
+              </button>
+            )}
+            <button onClick={onReview} className="ovr-btn-ghost px-3 py-1.5 text-sm">
               Review
             </button>
             <button
@@ -109,6 +120,18 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
           </div>
         )}
       </div>
+
+      {configStore.autonomousModeEnabled && onStartAutonomous && (
+        <AutonomousDialog
+          open={autonomousDialogOpen}
+          onOpenChange={setAutonomousDialogOpen}
+          initialPrompt={`Execute the following plan:\n\n${pending.planContent ?? ""}`}
+          onStart={(prompt, maxIterations) => {
+            onStartAutonomous(prompt, maxIterations)
+            onDeny() // Close the plan approval after starting autonomous run
+          }}
+        />
+      )}
     </div>
   )
 })

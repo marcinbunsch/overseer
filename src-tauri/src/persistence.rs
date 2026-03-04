@@ -370,3 +370,26 @@ pub fn remove_chat_file(
 
     Ok(())
 }
+
+// ============================================================================
+// Workspace File Operations (for autonomous mode)
+// ============================================================================
+
+/// Write a file to an arbitrary path (typically workspace directory).
+/// Used by autonomous mode to write prompt/progress files.
+#[tauri::command]
+pub async fn write_file(path: String, content: String) -> Result<(), String> {
+    let file_path = PathBuf::from(&path);
+
+    // Ensure parent directory exists
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    // Atomic write: write to temp then rename
+    let temp_path = file_path.with_extension("tmp");
+    std::fs::write(&temp_path, &content).map_err(|e| e.to_string())?;
+    std::fs::rename(&temp_path, &file_path).map_err(|e| e.to_string())?;
+
+    Ok(())
+}

@@ -1,6 +1,9 @@
 import { observer } from "mobx-react-lite"
 import { useRef, useEffect, useState, useCallback } from "react"
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
+import { ChevronDown, Play, StopCircle, RotateCw } from "lucide-react"
 import { projectRegistry } from "../../stores/ProjectRegistry"
+import { configStore } from "../../stores/ConfigStore"
 import { debugStore } from "../../stores/DebugStore"
 import { eventBus } from "../../utils/eventBus"
 import { ModelSelector } from "./ModelSelector"
@@ -8,6 +11,7 @@ import { ClaudePermissionModeSelector } from "./ClaudePermissionModeSelector"
 import { ClaudeUsageIndicator } from "./ClaudeUsageIndicator"
 import { WebSocketConnectionIndicator } from "./WebSocketConnectionIndicator"
 import { AtSearch } from "./AtSearch"
+import { AutonomousDialog } from "./AutonomousDialog"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 import { Textarea } from "../shared/Textarea"
 
@@ -28,6 +32,12 @@ interface ChatInputProps {
   onPermissionModeChange?: (mode: string | null) => void
   hasMessages?: boolean
   workspacePath: string
+  // Autonomous mode
+  autonomousRunning?: boolean
+  autonomousIteration?: number
+  autonomousMaxIterations?: number
+  onStartAutonomous?: (prompt: string, maxIterations: number) => void
+  onStopAutonomous?: () => void
 }
 
 // Find the @ trigger and query in the input text based on cursor position
@@ -74,12 +84,18 @@ export const ChatInput = observer(function ChatInput({
   onPermissionModeChange,
   hasMessages,
   workspacePath,
+  autonomousRunning,
+  autonomousIteration,
+  autonomousMaxIterations,
+  onStartAutonomous,
+  onStopAutonomous,
 }: ChatInputProps) {
   const workspaceStore = projectRegistry.selectedWorkspaceStore
   const input = workspaceStore?.currentDraft ?? ""
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [atSearch, setAtSearch] = useState<{ start: number; query: string } | null>(null)
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [autonomousDialogOpen, setAutonomousDialogOpen] = useState(false)
 
   useEffect(() => {
     const el = textareaRef.current
@@ -202,6 +218,35 @@ export const ChatInput = observer(function ChatInput({
     }
   }
 
+  // If autonomous mode is running, show the control area instead of normal input
+  if (autonomousRunning && onStopAutonomous) {
+    return (
+      <div className="border-t border-ovr-border-subtle p-3">
+        <div className="flex items-center justify-between rounded-lg border border-ovr-azure-500/30 bg-ovr-azure-500/10 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <RotateCw size={18} className="animate-spin text-ovr-azure-400" />
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-ovr-text-primary">
+                Autonomous Mode Running
+              </span>
+              <span className="text-xs text-ovr-text-muted">
+                Iteration {autonomousIteration} of {autonomousMaxIterations}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={onStopAutonomous}
+            className="flex items-center gap-2 rounded-lg bg-ovr-bad px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            data-testid="autonomous-stop-button"
+          >
+            <StopCircle size={16} />
+            Stop
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="border-t border-ovr-border-subtle p-3">
       <div className="relative flex flex-col gap-2">
@@ -262,16 +307,61 @@ export const ChatInput = observer(function ChatInput({
                 Stop
               </button>
             )}
-            <button
-              onClick={handleSubmit}
-              disabled={!input.trim()}
-              className="rounded-lg bg-ovr-azure-500 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              {isSending ? "Queue" : "Send"}
-            </button>
+            {/* Split button: Send + Autonomous dropdown */}
+            <div className="flex">
+              <button
+                onClick={handleSubmit}
+                disabled={!input.trim()}
+                className="rounded-l-lg bg-ovr-azure-500 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                data-testid="send-button"
+              >
+                {isSending ? "Queue" : "Send"}
+              </button>
+              {configStore.autonomousModeEnabled && onStartAutonomous && !isSending && (
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      className="rounded-r-lg border-l border-ovr-azure-600 bg-ovr-azure-500 px-2 py-2 text-white transition-opacity hover:opacity-90"
+                      data-testid="send-dropdown-trigger"
+                    >
+                      <ChevronDown size={16} />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      className="z-50 min-w-48 rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated py-1 shadow-lg"
+                      align="end"
+                      sideOffset={4}
+                    >
+                      <DropdownMenu.Item
+                        onSelect={() => setAutonomousDialogOpen(true)}
+                        className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                        data-testid="autonomous-run-menu-item"
+                      >
+                        <Play size={14} className="text-ovr-azure-400" />
+                        Autonomous Run
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Autonomous mode dialog */}
+      {configStore.autonomousModeEnabled && onStartAutonomous && (
+        <AutonomousDialog
+          open={autonomousDialogOpen}
+          onOpenChange={setAutonomousDialogOpen}
+          initialPrompt={input}
+          onStart={(prompt, maxIterations) => {
+            onStartAutonomous(prompt, maxIterations)
+            workspaceStore?.setDraft(workspaceStore.activeChatId ?? "", "")
+          }}
+        />
+      )}
     </div>
   )
 })

@@ -146,6 +146,27 @@ const GeneralTab = observer(function GeneralTab() {
           </Switch.Root>
         </div>
       </div>
+
+      {/* Experimental Features */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Experimental</label>
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-xs text-ovr-text-primary">Autonomous Mode</span>
+            <p className="text-[11px] text-ovr-text-dim">
+              Run agent in a loop until task completion
+            </p>
+          </div>
+          <Switch.Root
+            checked={configStore.autonomousModeEnabled}
+            onCheckedChange={(checked: boolean) => configStore.setAutonomousModeEnabled(checked)}
+            className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
+            data-testid="autonomous-mode-toggle"
+          >
+            <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+          </Switch.Root>
+        </div>
+      </div>
     </div>
   )
 })

@@ -43,9 +43,21 @@ export interface ToolMeta {
   linesRemoved?: number
 }
 
+export type AutonomousMessageType =
+  | "autonomous-start"
+  | "autonomous-loop"
+  | "autonomous-complete"
+  | "autonomous-stopped"
+
 export interface MessageMeta {
   type: string
   label: string
+  /** For autonomous mode messages */
+  autonomousType?: AutonomousMessageType
+  /** Iteration number for autonomous loop messages */
+  iteration?: number
+  /** Max iterations for context */
+  maxIterations?: number
 }
 
 export interface Message {

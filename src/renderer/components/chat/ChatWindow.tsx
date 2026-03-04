@@ -270,6 +270,9 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                 onReject={(feedback) => workspaceStore.rejectPlan(feedback)}
                 onDeny={() => workspaceStore.denyPlan()}
                 onReview={() => setPlanReviewOpen(true)}
+                onStartAutonomous={(prompt, maxIterations) =>
+                  workspaceStore.startAutonomousRun(prompt, maxIterations)
+                }
               />
 
               {workspaceStore.pendingPlanApproval && (
@@ -299,6 +302,13 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                 onPermissionModeChange={(mode) => workspaceStore.setPermissionMode(mode)}
                 hasMessages={(workspaceStore.activeChat?.messages.length ?? 0) > 0}
                 workspacePath={workspace.path}
+                autonomousRunning={workspaceStore.autonomousRunning}
+                autonomousIteration={workspaceStore.autonomousIteration}
+                autonomousMaxIterations={workspaceStore.autonomousMaxIterations}
+                onStartAutonomous={(prompt, maxIterations) =>
+                  workspaceStore.startAutonomousRun(prompt, maxIterations)
+                }
+                onStopAutonomous={() => workspaceStore.stopAutonomousRun()}
               />
             </>
           )}

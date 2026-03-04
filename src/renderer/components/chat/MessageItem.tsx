@@ -17,6 +17,7 @@ import {
   EnterPlanModeToolItem,
 } from "./tools"
 import { MarkdownContent } from "./MarkdownContent"
+import { AutonomousMessage, isAutonomousMessage } from "./AutonomousMessage"
 
 interface MessageItemProps {
   message: Message
@@ -30,8 +31,13 @@ const BASH_OUTPUT_CHAR_THRESHOLD = 500
 function MetaMessageItem({ message }: { message: Message }) {
   const [expanded, setExpanded] = useState(false)
 
+  // Autonomous mode messages get special rendering
+  if (isAutonomousMessage(message)) {
+    return <AutonomousMessage message={message} />
+  }
+
   // do not show system messages
-  if (message.meta?.type === "system") return
+  if (message.meta?.type === "system") return null
 
   return (
     <div className="mb-3 flex justify-end">
