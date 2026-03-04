@@ -37,6 +37,14 @@ export interface Session {
   startedAt: Date
 }
 
+export interface Attachment {
+  id: string
+  filename: string
+  mimeType: string
+  size: number
+  path: string
+}
+
 export interface ToolMeta {
   toolName: string
   linesAdded?: number
@@ -75,6 +83,8 @@ export interface Message {
   parentToolUseId?: string | null
   /** Tool use ID for Task tools - used to match child messages */
   toolUseId?: string
+  /** Attachments sent with this user message */
+  attachments?: Attachment[]
 }
 
 export interface QuestionOption {

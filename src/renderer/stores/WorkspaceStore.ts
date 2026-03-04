@@ -458,7 +458,11 @@ export class WorkspaceStore {
   // --- Delegate actions to active chat ---
 
   @action
-  async sendMessage(content: string, meta?: MessageMeta): Promise<void> {
+  async sendMessage(
+    content: string,
+    meta?: MessageMeta,
+    attachments?: import("../types").Attachment[]
+  ): Promise<void> {
     const active = this.activeChat
     if (!active) return
 
@@ -472,7 +476,7 @@ export class WorkspaceStore {
       })
     }
 
-    await active.sendMessage(content, this.path, meta)
+    await active.sendMessage(content, this.path, meta, attachments)
   }
 
   @action

@@ -1,7 +1,7 @@
 import { observer } from "mobx-react-lite"
 import { useRef, useEffect, useState, useCallback } from "react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
-import { ChevronDown, Play, StopCircle, RotateCw } from "lucide-react"
+import { ChevronDown, Play, StopCircle, RotateCw, Paperclip } from "lucide-react"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { configStore } from "../../stores/ConfigStore"
 import { debugStore } from "../../stores/DebugStore"
@@ -12,8 +12,11 @@ import { ClaudeUsageIndicator } from "./ClaudeUsageIndicator"
 import { WebSocketConnectionIndicator } from "./WebSocketConnectionIndicator"
 import { AtSearch } from "./AtSearch"
 import { AutonomousDialog } from "./AutonomousDialog"
+import { AttachmentChip } from "./AttachmentChip"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 import { Textarea } from "../shared/Textarea"
+import { saveAttachment } from "../../services/attachmentService"
+import type { Attachment } from "../../types"
 
 // Detect touch-only devices (mobile/tablet without keyboard)
 const isTouchDevice =
@@ -22,7 +25,7 @@ const isTouchDevice =
   !window.matchMedia("(pointer: fine)").matches
 
 interface ChatInputProps {
-  onSend: (content: string) => void
+  onSend: (content: string, attachments?: Attachment[]) => void
   onStop?: () => void
   isSending?: boolean
   agentType?: string
@@ -32,6 +35,8 @@ interface ChatInputProps {
   onPermissionModeChange?: (mode: string | null) => void
   hasMessages?: boolean
   workspacePath: string
+  /** External attachments to add (e.g. from Tauri drag-drop on parent container) */
+  externalAttachments?: Attachment[] | null
   // Autonomous mode
   autonomousRunning?: boolean
   autonomousIteration?: number
@@ -84,6 +89,7 @@ export const ChatInput = observer(function ChatInput({
   onPermissionModeChange,
   hasMessages,
   workspacePath,
+  externalAttachments,
   autonomousRunning,
   autonomousIteration,
   autonomousMaxIterations,
@@ -93,9 +99,11 @@ export const ChatInput = observer(function ChatInput({
   const workspaceStore = projectRegistry.selectedWorkspaceStore
   const input = workspaceStore?.currentDraft ?? ""
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [atSearch, setAtSearch] = useState<{ start: number; query: string } | null>(null)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [autonomousDialogOpen, setAutonomousDialogOpen] = useState(false)
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
 
   useEffect(() => {
     const el = textareaRef.current
@@ -128,9 +136,53 @@ export const ChatInput = observer(function ChatInput({
 
   const handleSubmit = () => {
     const trimmed = input.trim()
-    if (!trimmed) return
-    onSend(trimmed)
+    if (!trimmed && pendingAttachments.length === 0) return
+    onSend(trimmed, pendingAttachments.length > 0 ? pendingAttachments : undefined)
+    setPendingAttachments([])
   }
+
+  const processFiles = useCallback(async (files: FileList | File[]) => {
+    const fileArray = Array.from(files)
+    for (const file of fileArray) {
+      try {
+        const attachment = await saveAttachment(file)
+        setPendingAttachments((prev) => [...prev, attachment])
+      } catch (err) {
+        console.error("Failed to save attachment:", err)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (externalAttachments && externalAttachments.length > 0) {
+      setPendingAttachments((prev) => [...prev, ...externalAttachments])
+    }
+  }, [externalAttachments])
+
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files.length > 0) {
+        void processFiles(e.target.files)
+        // Reset the input so the same file can be re-attached
+        e.target.value = ""
+      }
+    },
+    [processFiles]
+  )
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (e.clipboardData.files.length > 0) {
+        e.preventDefault()
+        void processFiles(e.clipboardData.files)
+      }
+    },
+    [processFiles]
+  )
+
+  const removeAttachment = useCallback((id: string) => {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id))
+  }, [])
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -249,6 +301,15 @@ export const ChatInput = observer(function ChatInput({
 
   return (
     <div className="border-t border-ovr-border-subtle p-3">
+      {/* Hidden file input for the paperclip button */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileInputChange}
+        data-testid="file-input"
+      />
       <div className="relative flex flex-col gap-2">
         {atSearch && (
           <AtSearch
@@ -259,11 +320,23 @@ export const ChatInput = observer(function ChatInput({
             onSelectedIndexChange={setSelectedIndex}
           />
         )}
+        {pendingAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5" data-testid="pending-attachments">
+            {pendingAttachments.map((attachment) => (
+              <AttachmentChip
+                key={attachment.id}
+                attachment={attachment}
+                onRemove={() => removeAttachment(attachment.id)}
+              />
+            ))}
+          </div>
+        )}
         <Textarea
           ref={textareaRef}
           value={input}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={
             isSending
               ? "Type a follow-up message to queue..."
@@ -299,6 +372,16 @@ export const ChatInput = observer(function ChatInput({
             <WebSocketConnectionIndicator />
           </div>
           <div className="flex gap-2">
+            {/* Attach file button */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-lg p-2 text-ovr-text-muted transition-colors hover:bg-ovr-bg-elevated hover:text-ovr-text-primary"
+              title="Attach file"
+              data-testid="attach-button"
+            >
+              <Paperclip size={16} />
+            </button>
             {isSending && onStop && (
               <button
                 onClick={onStop}
@@ -311,7 +394,7 @@ export const ChatInput = observer(function ChatInput({
             <div className="flex">
               <button
                 onClick={handleSubmit}
-                disabled={!input.trim()}
+                disabled={!input.trim() && pendingAttachments.length === 0}
                 className="rounded-l-lg bg-ovr-azure-500 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                 data-testid="send-button"
               >

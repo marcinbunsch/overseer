@@ -9,6 +9,8 @@ import { debugStore } from "../../stores/DebugStore"
 import { externalService } from "../../services/external"
 import { toastStore } from "../../stores/ToastStore"
 import { isDefaultBranch } from "../../utils/git"
+import { saveAttachmentFromPath } from "../../services/attachmentService"
+import type { Attachment } from "../../types"
 import { MessageList } from "./MessageList"
 import { ChatInput } from "./ChatInput"
 import { ToolApprovalPanel } from "./ToolApprovalPanel"
@@ -39,7 +41,43 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
   const [editing, setEditing] = useState(false)
   const [editValue, setEditValue] = useState(workspace.branch)
   const [planReviewOpen, setPlanReviewOpen] = useState(false)
+  const [droppedAttachments, setDroppedAttachments] = useState<Attachment[] | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Use Tauri's drag-drop event (HTML drag-and-drop doesn't receive OS file drops in Tauri)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      getCurrentWindow()
+        .onDragDropEvent(async (event) => {
+          if (event.payload.type === "drop" && event.payload.paths.length > 0) {
+            const attachments: Attachment[] = []
+            for (const path of event.payload.paths) {
+              try {
+                const attachment = await saveAttachmentFromPath(path)
+                attachments.push(attachment)
+              } catch (err) {
+                console.error("Failed to save dropped attachment:", err)
+              }
+            }
+            if (attachments.length > 0) {
+              setDroppedAttachments(attachments)
+            }
+          }
+        })
+        .then((fn) => {
+          unlisten = fn
+        })
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [])
+
+  // Clear after ChatInput consumes them
+  useEffect(() => {
+    if (droppedAttachments) setDroppedAttachments(null)
+  }, [droppedAttachments])
 
   const handleCopyChatId = useCallback(() => {
     if (workspaceStore?.activeChatId) {
@@ -292,7 +330,9 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
               />
 
               <ChatInput
-                onSend={(content) => workspaceStore.sendMessage(content)}
+                onSend={(content, attachments) =>
+                  workspaceStore.sendMessage(content, undefined, attachments)
+                }
                 onStop={() => workspaceStore.stopGeneration()}
                 isSending={workspaceStore.isSending}
                 agentType={workspaceStore.activeChat?.agentType}
@@ -302,6 +342,7 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                 onPermissionModeChange={(mode) => workspaceStore.setPermissionMode(mode)}
                 hasMessages={(workspaceStore.activeChat?.messages.length ?? 0) > 0}
                 workspacePath={workspace.path}
+                externalAttachments={droppedAttachments}
                 autonomousRunning={workspaceStore.autonomousRunning}
                 autonomousIteration={workspaceStore.autonomousIteration}
                 autonomousMaxIterations={workspaceStore.autonomousMaxIterations}

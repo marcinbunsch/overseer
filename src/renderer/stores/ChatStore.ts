@@ -1,6 +1,7 @@
 import { observable, computed, action, makeObservable, runInAction } from "mobx"
 import { backend } from "../backend"
 import type {
+  Attachment,
   Message,
   MessageMeta,
   MessageTurn,
@@ -182,7 +183,8 @@ export class ChatStore {
   @action async sendMessage(
     content: string,
     workspacePath: string,
-    meta?: MessageMeta
+    meta?: MessageMeta,
+    attachments?: Attachment[]
   ): Promise<void> {
     // If agent is responding, queue as follow-up instead
     if (this.isSending) {
@@ -210,7 +212,7 @@ export class ChatStore {
       chatId: this.chat.id,
     })
 
-    await this.persistUserMessage(content, meta)
+    await this.persistUserMessage(content, meta, attachments)
     runInAction(() => {
       this.isSending = true
     })
@@ -226,9 +228,17 @@ export class ChatStore {
             ? configStore.codexApprovalPolicy
             : null
       const projectName = this.context?.getProjectName() ?? ""
+
+      // Prepend attachment paths to the message so the agent can read the files
+      let messageContent = content
+      if (attachments && attachments.length > 0) {
+        const pathList = attachments.map((a) => `- ${a.path}`).join("\n")
+        messageContent = `[Attached files:\n${pathList}]\n\n${content}`
+      }
+
       await this.service.sendMessage(
         this.chat.id,
-        content,
+        messageContent,
         workspacePath,
         logDir,
         this.chat.modelVersion,
@@ -960,7 +970,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
     })
   }
 
-  private pushUserMsg(content: string, meta?: MessageMeta): void {
+  private pushUserMsg(content: string, meta?: MessageMeta, attachments?: Attachment[]): void {
     const id = crypto.randomUUID()
     this.chat.messages.push({
       id,
@@ -968,6 +978,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
       content,
       timestamp: new Date(),
       ...(meta && { meta }),
+      ...(attachments?.length && { attachments }),
     })
     eventBus.emit("agent:messageReceived", {
       agentType: this.chat.agentType ?? "claude",
@@ -983,6 +994,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
       content: event.content,
       timestamp: event.timestamp,
       ...(event.meta && { meta: event.meta }),
+      ...(event.attachments?.length && { attachments: event.attachments }),
     })
     eventBus.emit("agent:messageReceived", {
       agentType: this.chat.agentType ?? "claude",
@@ -1080,15 +1092,25 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
     }
   }
 
-  private async persistUserMessage(content: string, meta?: MessageMeta): Promise<void> {
+  private async persistUserMessage(
+    content: string,
+    meta?: MessageMeta,
+    attachments?: Attachment[]
+  ): Promise<void> {
     await this.ensureSessionRegistered()
     let persisted = false
+
+    // Store attachments in meta so they survive JSONL persistence/replay
+    const metaWithAttachments: Record<string, unknown> | null =
+      meta || attachments?.length
+        ? { ...(meta ?? {}), ...(attachments?.length ? { attachments } : {}) }
+        : null
 
     try {
       const event = await backend.invoke<BackendAgentEvent | null>("add_user_message", {
         chatId: this.chat.id,
         content,
-        meta: meta ?? null,
+        meta: metaWithAttachments,
       })
       if (!event) {
         throw new Error("No event returned from add_user_message")
@@ -1106,7 +1128,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
 
     if (!persisted) {
       runInAction(() => {
-        this.pushUserMsg(content, meta)
+        this.pushUserMsg(content, meta, attachments)
       })
     }
   }
@@ -1241,12 +1263,27 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
       }
       case "userMessage": {
         if (!event.id || !event.content || !event.timestamp) return null
+        const rawMeta = event.meta as Record<string, unknown> | undefined
+        // Extract attachments stored in meta (if any)
+        const attachments =
+          rawMeta?.attachments && Array.isArray(rawMeta.attachments)
+            ? (rawMeta.attachments as Attachment[])
+            : undefined
+        // Reconstruct meta without the attachments field
+        let meta: MessageMeta | undefined
+        if (rawMeta) {
+          const { attachments: _a, ...restMeta } = rawMeta
+          if (Object.keys(restMeta).length > 0) {
+            meta = restMeta as unknown as MessageMeta
+          }
+        }
         return {
           kind: "userMessage",
           id: event.id,
           content: event.content,
           timestamp: new Date(event.timestamp),
-          meta: (event.meta as MessageMeta | undefined) ?? undefined,
+          meta,
+          attachments,
         }
       }
       case "bashOutput":

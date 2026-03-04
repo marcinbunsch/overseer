@@ -148,6 +148,127 @@ async fn check_command_exists(command: String) -> CommandCheckResult {
     }
 }
 
+/// Metadata returned after saving an attachment.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachmentInfo {
+    id: String,
+    filename: String,
+    path: String,
+    mime_type: String,
+    size: usize,
+}
+
+fn guess_mime_type(filename: &str) -> &'static str {
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "md" => "text/markdown",
+        "json" => "application/json",
+        "ts" | "tsx" => "text/typescript",
+        "js" | "jsx" => "text/javascript",
+        "rs" | "py" | "rb" | "go" | "java" | "c" | "cpp" | "h" => "text/plain",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Save a file attachment to the overseer attachments directory.
+///
+/// Accepts a filename and binary data (as a byte array), generates a UUID-prefixed
+/// filename, writes the file to `~/.config/overseer[-dev]/attachments/`, and
+/// returns metadata about the stored attachment.
+#[tauri::command]
+async fn save_attachment(
+    context_state: tauri::State<'_, OverseerContextState>,
+    filename: String,
+    data: Vec<u8>,
+) -> Result<AttachmentInfo, String> {
+    let config_dir = context_state
+        .0
+        .config_dir()
+        .ok_or_else(|| "Config directory not set".to_string())?;
+
+    let attachments_dir = config_dir.join("attachments");
+    std::fs::create_dir_all(&attachments_dir)
+        .map_err(|e| format!("Failed to create attachments directory: {}", e))?;
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let stored_filename = format!("{}-{}", id, filename);
+    let path = attachments_dir.join(&stored_filename);
+
+    let size = data.len();
+    std::fs::write(&path, &data)
+        .map_err(|e| format!("Failed to write attachment: {}", e))?;
+
+    let mime_type = guess_mime_type(&filename).to_string();
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| "Invalid path".to_string())?
+        .to_string();
+
+    Ok(AttachmentInfo {
+        id,
+        filename,
+        path: path_str,
+        mime_type,
+        size,
+    })
+}
+
+/// Save a file attachment by copying from an existing filesystem path.
+///
+/// Used for files dropped onto the window (Tauri drag-drop gives paths, not bytes).
+#[tauri::command]
+async fn save_attachment_from_path(
+    context_state: tauri::State<'_, OverseerContextState>,
+    source_path: String,
+) -> Result<AttachmentInfo, String> {
+    let source = std::path::Path::new(&source_path);
+    let filename = source
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "Invalid source path".to_string())?
+        .to_string();
+
+    let data =
+        std::fs::read(source).map_err(|e| format!("Failed to read source file: {}", e))?;
+
+    let config_dir = context_state
+        .0
+        .config_dir()
+        .ok_or_else(|| "Config directory not set".to_string())?;
+
+    let attachments_dir = config_dir.join("attachments");
+    std::fs::create_dir_all(&attachments_dir)
+        .map_err(|e| format!("Failed to create attachments directory: {}", e))?;
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let stored_filename = format!("{}-{}", id, filename);
+    let dest = attachments_dir.join(&stored_filename);
+    let size = data.len();
+    std::fs::write(&dest, &data).map_err(|e| format!("Failed to write attachment: {}", e))?;
+
+    let mime_type = guess_mime_type(&filename).to_string();
+    let path_str = dest
+        .to_str()
+        .ok_or_else(|| "Invalid path".to_string())?
+        .to_string();
+
+    Ok(AttachmentInfo {
+        id,
+        filename,
+        path: path_str,
+        mime_type,
+        size,
+    })
+}
+
 #[tauri::command]
 async fn fetch_claude_usage() -> Result<overseer_core::usage::ClaudeUsageResponse, String> {
     overseer_core::usage::fetch_claude_usage()
@@ -487,6 +608,8 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
             fetch_claude_usage,
+            save_attachment,
+            save_attachment_from_path,
             start_http_server,
             stop_http_server,
             get_http_server_status,
