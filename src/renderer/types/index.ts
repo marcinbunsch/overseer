@@ -58,6 +58,8 @@ export interface MessageMeta {
   iteration?: number
   /** Max iterations for context */
   maxIterations?: number
+  /** Phase of autonomous loop iteration */
+  phase?: "implementation" | "review"
 }
 
 export interface Message {
