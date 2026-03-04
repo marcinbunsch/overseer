@@ -96,15 +96,22 @@ async fn serve_embedded_asset(req: axum::extract::Request) -> impl IntoResponse 
 }
 
 fn generate_auth_token() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-
-    let random_part: u64 = std::ptr::null::<()>() as u64 ^ (timestamp as u64);
-    format!("{:016x}{:016x}", timestamp as u64, random_part)
+    use std::io::Read;
+    // Read 16 random bytes from the OS and encode as hex (32 hex chars)
+    let mut buf = [0u8; 16];
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        let _ = f.read_exact(&mut buf);
+    } else {
+        // Fallback: spread timestamp nanos across bytes (weak, but better than nothing)
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        for (i, b) in buf.iter_mut().enumerate() {
+            *b = ((t >> (i % 16 * 8)) & 0xff) as u8;
+        }
+    }
+    buf.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 fn determine_config_dir(args: &Args) -> PathBuf {
