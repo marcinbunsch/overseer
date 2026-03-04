@@ -45,7 +45,13 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Use Tauri's drag-drop event (HTML drag-and-drop doesn't receive OS file drops in Tauri)
+  // Only runs in Tauri desktop app, not in browser
   useEffect(() => {
+    // Skip if not in Tauri
+    if (!("__TAURI_INTERNALS__" in window)) {
+      return
+    }
+
     let unlisten: (() => void) | undefined
     import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
       getCurrentWindow()
