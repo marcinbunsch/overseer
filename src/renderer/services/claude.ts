@@ -1,4 +1,5 @@
-import { backend, type Unsubscribe } from "../backend"
+import { backend as defaultBackend, type Unsubscribe } from "../backend"
+import type { Backend } from "../backend/types"
 import type { QuestionItem, ToolMeta } from "../types"
 import type { AgentService, AgentEventCallback, AgentDoneCallback } from "./types"
 import { configStore } from "../stores/ConfigStore"
@@ -121,10 +122,15 @@ interface ConversationProcess {
   unlistenEvent: Unsubscribe | null
 }
 
-class ClaudeAgentService implements AgentService {
+export class ClaudeAgentService implements AgentService {
+  private backend: Backend
   private conversations: Map<string, ConversationProcess> = new Map()
   private eventCallbacks: Map<string, AgentEventCallback> = new Map()
   private doneCallbacks: Map<string, AgentDoneCallback> = new Map()
+
+  constructor(backend?: Backend) {
+    this.backend = backend ?? defaultBackend
+  }
 
   private getOrCreateConversation(chatId: string): ConversationProcess {
     let conv = this.conversations.get(chatId)
@@ -147,7 +153,7 @@ class ClaudeAgentService implements AgentService {
     const conv = this.getOrCreateConversation(chatId)
 
     if (!conv.unlistenStdout) {
-      conv.unlistenStdout = await backend.listen<string>(`agent:stdout:${chatId}`, (line) => {
+      conv.unlistenStdout = await this.backend.listen<string>(`agent:stdout:${chatId}`, (line) => {
         const payload = line ?? ""
         if (conv.rawOutput.length < 4096) {
           conv.rawOutput += payload
@@ -156,15 +162,18 @@ class ClaudeAgentService implements AgentService {
     }
 
     if (!conv.unlistenStderr) {
-      conv.unlistenStderr = await backend.listen<string>(`agent:stderr:${chatId}`, (payload) => {
-        if (payload) {
-          console.warn(`Claude stderr [${chatId}]:`, payload)
+      conv.unlistenStderr = await this.backend.listen<string>(
+        `agent:stderr:${chatId}`,
+        (payload) => {
+          if (payload) {
+            console.warn(`Claude stderr [${chatId}]:`, payload)
+          }
         }
-      })
+      )
     }
 
     if (!conv.unlistenEvent) {
-      conv.unlistenEvent = await backend.listen<BackendAgentEvent>(
+      conv.unlistenEvent = await this.backend.listen<BackendAgentEvent>(
         `agent:event:${chatId}`,
         (event) => {
           this.handleBackendEvent(chatId, event)
@@ -173,15 +182,18 @@ class ClaudeAgentService implements AgentService {
     }
 
     if (!conv.unlistenClose) {
-      conv.unlistenClose = await backend.listen<{ code: number }>(`agent:close:${chatId}`, () => {
-        if (!conv.rawOutput.trim()) {
-          console.warn(`Claude exited with no output [${chatId}]`)
-        } else if (!conv.rawOutput.includes("{")) {
-          console.warn(`Claude output (non-JSON) [${chatId}]:`, conv.rawOutput.slice(0, 2000))
+      conv.unlistenClose = await this.backend.listen<{ code: number }>(
+        `agent:close:${chatId}`,
+        () => {
+          if (!conv.rawOutput.trim()) {
+            console.warn(`Claude exited with no output [${chatId}]`)
+          } else if (!conv.rawOutput.includes("{")) {
+            console.warn(`Claude output (non-JSON) [${chatId}]:`, conv.rawOutput.slice(0, 2000))
+          }
+          conv.running = false
+          this.doneCallbacks.get(chatId)?.()
         }
-        conv.running = false
-        this.doneCallbacks.get(chatId)?.()
-      })
+      )
     }
   }
 
@@ -206,21 +218,28 @@ class ClaudeAgentService implements AgentService {
 
     try {
       // Backend decides whether to start a new process or send via stdin
-      await backend.invoke("send_message", {
+      // For remote backends, pass null for agentPath/agentShell - the server uses its own config
+      const isRemote = this.backend.type === "web"
+      await this.backend.invoke("send_message", {
         conversationId: chatId,
         projectName: projectName ?? "",
         prompt: messageText,
         workingDir,
-        agentPath: configStore.claudePath,
+        agentPath: isRemote ? null : configStore.claudePath,
         sessionId: conv.sessionId ?? null,
         modelVersion: modelVersion ?? null,
         logDir: logDir ?? null,
         logId: chatId,
         permissionMode: permissionMode ?? null,
-        agentShell: configStore.agentShell || null,
+        agentShell: isRemote ? null : configStore.agentShell || null,
       })
       conv.running = true
     } catch (err) {
+      // Skip "CLI not found" error formatting for remote projects
+      // (remote server handles its own CLI paths)
+      if (this.backend.type === "web") {
+        throw err
+      }
       // Re-throw with a more helpful error message
       throw new Error(formatSpawnError(err, configStore.claudePath, workingDir))
     }
@@ -246,7 +265,7 @@ class ClaudeAgentService implements AgentService {
 
     console.log(`Sending control_response [${chatId}]:`, response)
 
-    await backend.invoke("agent_stdin", {
+    await this.backend.invoke("agent_stdin", {
       conversationId: chatId,
       data: JSON.stringify(response),
     })
@@ -367,7 +386,7 @@ class ClaudeAgentService implements AgentService {
     if (conv) {
       conv.running = false
     }
-    await backend.invoke("stop_agent", { conversationId: chatId })
+    await this.backend.invoke("stop_agent", { conversationId: chatId })
   }
 
   isRunning(chatId: string): boolean {
@@ -405,4 +424,5 @@ class ClaudeAgentService implements AgentService {
   }
 }
 
+// Singleton instance for backward compatibility (uses default Tauri backend)
 export const claudeAgentService = new ClaudeAgentService()

@@ -12,7 +12,7 @@ import type {
   AgentType,
 } from "../types"
 import { groupMessagesIntoTurns } from "../utils/groupMessagesIntoTurns"
-import { getAgentService } from "../services/agentRegistry"
+import { createAgentService } from "../services/agentRegistry"
 import type { AgentEvent, AgentService } from "../services/types"
 import { configStore } from "./ConfigStore"
 import { extractOverseerBlocks, type OverseerAction } from "../utils/overseerActions"
@@ -92,6 +92,10 @@ export class ChatStore {
   private sessionRegistered: boolean = false
   /** True during loadFromDisk - prevents re-executing overseer actions on replay */
   private isReplaying: boolean = false
+  /** Cached agent service instance for this chat */
+  private _service: AgentService | null = null
+  /** Agent type the cached service was created for */
+  private _serviceAgentType: AgentType | undefined = undefined
 
   constructor(chat: Chat, context: ChatStoreContext) {
     this.chat = chat
@@ -162,9 +166,21 @@ export class ChatStore {
 
   // --- Private: service accessor ---
 
+  /**
+   * Get or create the agent service for this chat.
+   * Creates a per-chat service instance using the workspace's backend.
+   */
   private get service(): AgentService | null {
     if (!this.chat.agentType) return null
-    return getAgentService(this.chat.agentType)
+    // Re-create service if agent type changed
+    if (this._service && this._serviceAgentType !== this.chat.agentType) {
+      this._service = null
+    }
+    if (!this._service) {
+      this._service = createAgentService(this.chat.agentType, this.backend)
+      this._serviceAgentType = this.chat.agentType
+    }
+    return this._service
   }
 
   // --- Public actions ---

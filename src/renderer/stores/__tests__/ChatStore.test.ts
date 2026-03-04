@@ -22,6 +22,7 @@ const mockAgentService = {
 
 vi.mock("../../services/agentRegistry", () => ({
   getAgentService: () => mockAgentService,
+  createAgentService: () => mockAgentService,
 }))
 
 // Mock ConfigStore
