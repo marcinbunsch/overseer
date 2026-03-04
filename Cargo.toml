@@ -1,3 +1,3 @@
 [workspace]
-members = ["src-tauri", "crates/overseer-core"]
+members = ["src-tauri", "crates/overseer-core", "crates/overseer-http", "crates/overseer-daemon"]
 resolver = "2"
