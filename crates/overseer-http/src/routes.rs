@@ -252,6 +252,12 @@ pub async fn invoke_handler(
         // fetch_claude_usage is an async network call that works fine via HTTP
         "fetch_claude_usage" => dispatch_fetch_claude_usage().await,
 
+        // =====================================================================
+        // ATTACHMENTS
+        // =====================================================================
+        "save_attachment" => dispatch_save_attachment(&state, request.args).await,
+        "save_attachment_from_path" => dispatch_save_attachment_from_path(&state, request.args).await,
+
         // HTTP server commands (these wouldn't make sense via HTTP)
         "start_http_server" | "stop_http_server" | "get_http_server_status" => (
             StatusCode::NOT_IMPLEMENTED,
@@ -3702,6 +3708,242 @@ async fn dispatch_fetch_claude_usage() -> (StatusCode, Json<InvokeResponse>) {
             }),
         ),
     }
+}
+
+// ============================================================================
+// ATTACHMENT COMMAND DISPATCHERS
+// ============================================================================
+
+fn guess_mime_type(filename: &str) -> &'static str {
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "md" => "text/markdown",
+        "json" => "application/json",
+        "ts" | "tsx" => "text/typescript",
+        "js" | "jsx" => "text/javascript",
+        "rs" | "py" | "rb" | "go" | "java" | "c" | "cpp" | "h" => "text/plain",
+        _ => "application/octet-stream",
+    }
+}
+
+async fn dispatch_save_attachment(
+    state: &HttpSharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let config_dir = match state.get_config_dir() {
+        Some(dir) => dir,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Config directory not set".to_string()),
+                }),
+            );
+        }
+    };
+
+    let filename = match args.get("filename").and_then(|v| v.as_str()) {
+        Some(f) => f.to_string(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: filename".to_string()),
+                }),
+            );
+        }
+    };
+
+    let data: Vec<u8> = match args.get("data") {
+        Some(v) => match serde_json::from_value::<Vec<u8>>(v.clone()) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(InvokeResponse {
+                        success: false,
+                        data: None,
+                        error: Some(format!("Invalid data: {}", e)),
+                    }),
+                );
+            }
+        },
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: data".to_string()),
+                }),
+            );
+        }
+    };
+
+    let attachments_dir = config_dir.join("attachments");
+    if let Err(e) = std::fs::create_dir_all(&attachments_dir) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(format!("Failed to create attachments directory: {}", e)),
+            }),
+        );
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let stored_filename = format!("{}-{}", id, filename);
+    let path = attachments_dir.join(&stored_filename);
+    let size = data.len();
+
+    if let Err(e) = std::fs::write(&path, &data) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(format!("Failed to write attachment: {}", e)),
+            }),
+        );
+    }
+
+    let mime_type = guess_mime_type(&filename);
+    let path_str = path.to_string_lossy().to_string();
+
+    (
+        StatusCode::OK,
+        Json(InvokeResponse {
+            success: true,
+            data: Some(serde_json::json!({
+                "id": id,
+                "filename": filename,
+                "path": path_str,
+                "mimeType": mime_type,
+                "size": size,
+            })),
+            error: None,
+        }),
+    )
+}
+
+async fn dispatch_save_attachment_from_path(
+    state: &HttpSharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let config_dir = match state.get_config_dir() {
+        Some(dir) => dir,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Config directory not set".to_string()),
+                }),
+            );
+        }
+    };
+
+    let source_path = match args.get("sourcePath").and_then(|v| v.as_str()) {
+        Some(p) => p.to_string(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: sourcePath".to_string()),
+                }),
+            );
+        }
+    };
+
+    let source = std::path::Path::new(&source_path);
+    let filename = match source.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n.to_string(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Invalid source path".to_string()),
+                }),
+            );
+        }
+    };
+
+    let data = match std::fs::read(source) {
+        Ok(d) => d,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some(format!("Failed to read source file: {}", e)),
+                }),
+            );
+        }
+    };
+
+    let attachments_dir = config_dir.join("attachments");
+    if let Err(e) = std::fs::create_dir_all(&attachments_dir) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(format!("Failed to create attachments directory: {}", e)),
+            }),
+        );
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let stored_filename = format!("{}-{}", id, filename);
+    let dest = attachments_dir.join(&stored_filename);
+    let size = data.len();
+
+    if let Err(e) = std::fs::write(&dest, &data) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(format!("Failed to write attachment: {}", e)),
+            }),
+        );
+    }
+
+    let mime_type = guess_mime_type(&filename);
+    let path_str = dest.to_string_lossy().to_string();
+
+    (
+        StatusCode::OK,
+        Json(InvokeResponse {
+            success: true,
+            data: Some(serde_json::json!({
+                "id": id,
+                "filename": filename,
+                "path": path_str,
+                "mimeType": mime_type,
+                "size": size,
+            })),
+            error: None,
+        }),
+    )
 }
 
 // ============================================================================
