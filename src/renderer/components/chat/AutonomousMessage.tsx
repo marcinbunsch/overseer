@@ -21,8 +21,10 @@ export function AutonomousMessage({ message }: AutonomousMessageProps) {
   const maxIterations = message.meta?.maxIterations
 
   // Generate the header text for loop messages
+  const phase = message.meta?.phase
+  const phaseLabel = phase === "review" ? " (Review)" : ""
   const headerText = isLoopMessage
-    ? `🔄 **Iteration ${iteration} of ${maxIterations}**`
+    ? `🔄 **Iteration ${iteration} of ${maxIterations}${phaseLabel}**`
     : message.content
 
   // For loop messages, the content is the prompt that should be expandable

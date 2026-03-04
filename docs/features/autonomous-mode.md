@@ -8,30 +8,32 @@ Each iteration runs with a **fresh context** (new session ID per iteration). The
 
 ## Architecture
 
+Each autonomous run enforces a **impl → review → fixes → review** cycle. A review step must run after every implementation step, and only the review step can signal completion.
+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    AUTONOMOUS SESSION                        │
-│  sessionId: {chatId}-auto-{timestamp}                       │
-├─────────────────────────────────────────────────────────────┤
-│ Iteration 1              │ Iteration 2              │ ...   │
-│ sessionId: ...-iter-1    │ sessionId: ...-iter-2    │       │
-│ Fresh context            │ Fresh context            │       │
-│ Reads prompt + progress  │ Reads prompt + progress  │       │
-│ Updates progress         │ Updates progress         │       │
-│ Terminates or continues  │ Terminates or continues  │       │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                       AUTONOMOUS SESSION                             │
+│  sessionId: {chatId}-auto-{timestamp}                               │
+├─────────────────────────────────────────────────────────────────────┤
+│ Iteration 1 (impl) │ Iteration 2 (review) │ Iteration 3 (impl) │ …  │
+│ Fresh context      │ Fresh context        │ Fresh context      │    │
+│ Does the work      │ Reviews all work     │ Fixes issues       │    │
+│ Updates progress   │ Writes review.md     │ Updates progress   │    │
+│ Cannot complete    │ CAN signal COMPLETE  │ Cannot complete    │    │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Files
 
-Two files are created in the **workspace root** (visible to the agent):
+Three files are created in the **workspace root** (visible to the agent):
 
 - `autonomous-prompt.md` - The user's original goal (written once at start)
 - `autonomous-progress.md` - Agent's progress notes (updated each iteration)
+- `autonomous-review.md` - Review findings written by the review step
 
-## Loop Prompt
+## Prompts
 
-Each iteration receives this injected prompt:
+### Implementation prompt (odd iterations by default)
 
 ```markdown
 You are running in **Autonomous Mode**, iteration {N} of max {MAX}.
@@ -46,20 +48,44 @@ Read `autonomous-progress.md` to see what has been accomplished so far.
 1. Study the goal and current progress
 2. Execute the NEXT logical step toward completing the goal
 3. Update `autonomous-progress.md` with what you accomplished
-4. If the entire goal is COMPLETE:
-   - Provide a brief summary of what was accomplished
-   - End your response with exactly: AUTONOMOUS_SESSION_COMPLETE
 
 ## Important
 - Each iteration starts fresh - you have no memory of previous iterations
 - Always read the progress file first to understand current state
 - Make meaningful progress each iteration, don't just plan
 - The progress file is your only way to communicate between iterations
+- Do NOT signal completion — a dedicated review step determines when the task is done
+```
+
+### Review prompt (runs after each implementation step)
+
+```markdown
+You are running in **Autonomous Mode**, review step after iteration {N} of max {MAX}.
+
+## Your Goal
+Read `autonomous-prompt.md` for the original task description.
+
+## Progress So Far
+Read `autonomous-progress.md` to see what has been accomplished.
+
+## Your Job: Review
+1. Thoroughly review all work done against the original goal
+2. Check for correctness, completeness, and quality
+3. Write your full review findings to `autonomous-review.md`
+4. Update `autonomous-progress.md` to note that a review was performed and reference `autonomous-review.md`
+
+## Decision
+- If the goal is **fully and correctly completed**: end your response with exactly: AUTONOMOUS_SESSION_COMPLETE
+- If there are remaining issues or incomplete work: describe clearly in `autonomous-review.md` what still needs to be done. Do NOT output AUTONOMOUS_SESSION_COMPLETE.
+
+## Important
+- Be honest and thorough — this review determines whether the task is done
+- Each iteration starts fresh - read the files to understand current state
 ```
 
 ## Termination Conditions
 
-1. Agent outputs `AUTONOMOUS_SESSION_COMPLETE` (marker is stripped from displayed messages)
+1. **Review step** outputs `AUTONOMOUS_SESSION_COMPLETE` (marker stripped from displayed messages) — only review can trigger this
 2. Max iterations reached (default: 25, configurable)
 3. User clicks Stop button
 
@@ -96,7 +122,8 @@ When autonomous mode is running, the normal input area is replaced with:
 ### Visual Iteration Markers
 Special message components show in the chat with markdown rendering:
 - **Start**: Blue play icon, "Autonomous Mode Started"
-- **Loop**: Gray rotate icon, "Iteration N of MAX" (clickable to expand and show full loop prompt)
+- **Loop (impl)**: Gray rotate icon, "Iteration N of MAX" (clickable to expand and show full loop prompt)
+- **Loop (review)**: Gray rotate icon, "Iteration N of MAX (Review)" (clickable to expand)
 - **Complete**: Green check, "Autonomous Mode Complete"
 - **Stopped**: Yellow stop icon, "Autonomous Mode Stopped"
 
