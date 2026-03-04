@@ -167,6 +167,69 @@ class ProjectRegistry {
     await this.saveToFile()
   }
 
+  /**
+   * Add a project from a remote server.
+   * The project data is fetched from the server and stored locally.
+   */
+  @action async addRemoteProject(path: string, serverUrl: string): Promise<void> {
+    const backend = remoteServerStore.getBackend(serverUrl)
+    if (!backend) {
+      throw new Error("Remote server not connected")
+    }
+
+    // Validate and get project info from the remote server
+    const result = await backend.invoke<{ exists: boolean; isGitRepo: boolean }>(
+      "validate_project_path",
+      { path }
+    )
+
+    if (!result.exists) {
+      throw new Error("Path does not exist on the remote server")
+    }
+
+    const name = path.split("/").pop() || path
+    const id = crypto.randomUUID()
+
+    // For remote projects, list workspaces from the remote server
+    const gitWorkspaces = result.isGitRepo
+      ? await backend.invoke<Array<{ branch: string; path: string }>>("list_workspaces", {
+          repoPath: path,
+        })
+      : []
+
+    const workspaces = result.isGitRepo
+      ? gitWorkspaces.map((wt) => ({
+          id: crypto.randomUUID(),
+          projectId: id,
+          branch: wt.branch,
+          path: wt.path,
+          isArchived: false,
+          createdAt: new Date(),
+        }))
+      : [
+          {
+            id: crypto.randomUUID(),
+            projectId: id,
+            branch: name,
+            path,
+            isArchived: false,
+            createdAt: new Date(),
+          },
+        ]
+
+    runInAction(() => {
+      this._projects.push({
+        id,
+        name,
+        path,
+        isGitRepo: result.isGitRepo,
+        workspaces,
+        remoteServerUrl: serverUrl,
+      })
+    })
+    await this.saveToFile()
+  }
+
   @action updateProject(
     id: string,
     updates: {

@@ -5,8 +5,6 @@ import { listen } from "@tauri-apps/api/event"
 // Mock ConfigStore to avoid async load side effects
 vi.mock("../../stores/ConfigStore", () => ({
   configStore: {
-    claudePath: "claude",
-    agentShell: null,
     loaded: true,
   },
 }))
@@ -42,13 +40,11 @@ describe("ClaudeAgentService", () => {
       projectName: "",
       prompt: "hello",
       workingDir: "/tmp/workdir",
-      agentPath: "claude",
       sessionId: null,
       modelVersion: null,
       logDir: null,
       logId: "conv-1",
       permissionMode: null,
-      agentShell: null,
     })
     expect(service.isRunning("conv-1")).toBe(true)
   })
@@ -63,13 +59,11 @@ describe("ClaudeAgentService", () => {
       projectName: "",
       prompt: "hello",
       workingDir: "/tmp/workdir",
-      agentPath: "claude",
       sessionId: null,
       modelVersion: "opus",
       logDir: null,
       logId: "conv-1",
       permissionMode: null,
-      agentShell: null,
     })
   })
 
@@ -83,13 +77,11 @@ describe("ClaudeAgentService", () => {
       projectName: "",
       prompt: "hello",
       workingDir: "/tmp/workdir",
-      agentPath: "claude",
       sessionId: null,
       modelVersion: "haiku",
       logDir: "/tmp/logs",
       logId: "conv-1",
       permissionMode: null,
-      agentShell: null,
     })
   })
 
@@ -111,13 +103,11 @@ describe("ClaudeAgentService", () => {
       projectName: "",
       prompt: "Read docs/ARCH.md first\n\nhello",
       workingDir: "/tmp/workdir",
-      agentPath: "claude",
       sessionId: null,
       modelVersion: null,
       logDir: null,
       logId: "conv-1",
       permissionMode: null,
-      agentShell: null,
     })
   })
 
@@ -143,13 +133,11 @@ describe("ClaudeAgentService", () => {
       projectName: "",
       prompt: "hello", // No initPrompt prepended
       workingDir: "/tmp/workdir",
-      agentPath: "claude",
       sessionId: "session-abc",
       modelVersion: null,
       logDir: null,
       logId: "conv-1",
       permissionMode: null,
-      agentShell: null,
     })
   })
 
@@ -175,13 +163,11 @@ describe("ClaudeAgentService", () => {
       projectName: "",
       prompt: "follow up",
       workingDir: "/tmp",
-      agentPath: "claude",
       sessionId: "session-abc",
       modelVersion: null,
       logDir: null,
       logId: "conv-1",
       permissionMode: null,
-      agentShell: null,
     })
   })
 

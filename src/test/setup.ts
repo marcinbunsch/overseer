@@ -1,6 +1,16 @@
 import { vi } from "vitest"
 import "@testing-library/jest-dom/vitest"
 
+// Set __TAURI_INTERNALS__ to make backend use tauriBackend (which we mock)
+// This must be set before any imports that check for Tauri
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(globalThis as any).__TAURI_INTERNALS__ = {}
+// Set on window only if it exists (jsdom environment)
+if (typeof window !== "undefined") {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ;(window as any).__TAURI_INTERNALS__ = {}
+}
+
 // Mock Tauri core API
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),

@@ -1,27 +1,21 @@
+import { useState } from "react"
 import { observer } from "mobx-react-lite"
-import { open } from "@tauri-apps/plugin-dialog"
-import { projectRegistry } from "../../stores/ProjectRegistry"
+import { AddProjectDialog } from "./AddProjectDialog"
 
 export const AddProjectButton = observer(function AddProjectButton() {
-  const handleClick = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: "Select a project folder",
-    })
-
-    if (selected) {
-      await projectRegistry.addProject(selected)
-    }
-  }
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
-    <button
-      onClick={handleClick}
-      className="flex size-5 items-center justify-center rounded text-sm text-ovr-text-dim transition-colors hover:bg-ovr-bg-elevated hover:text-ovr-text-primary"
-      title="Add Project"
-    >
-      +
-    </button>
+    <>
+      <button
+        onClick={() => setDialogOpen(true)}
+        className="flex size-5 items-center justify-center rounded text-sm text-ovr-text-dim transition-colors hover:bg-ovr-bg-elevated hover:text-ovr-text-primary"
+        title="Add Project"
+      >
+        +
+      </button>
+
+      <AddProjectDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+    </>
   )
 })

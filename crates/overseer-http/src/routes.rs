@@ -177,6 +177,7 @@ pub async fn invoke_handler(
         "list_commits" => dispatch_list_commits(request.args).await,
         "list_commit_files" => dispatch_list_commit_files(request.args).await,
         "is_git_repo" => dispatch_is_git_repo(request.args).await,
+        "validate_project_path" => dispatch_validate_project_path(request.args).await,
         "get_file_diff" => dispatch_get_file_diff(request.args).await,
         "get_uncommitted_diff" => dispatch_get_uncommitted_diff(request.args).await,
         "get_commit_diff" => dispatch_get_commit_diff(request.args).await,
@@ -466,6 +467,46 @@ async fn dispatch_is_git_repo(args: serde_json::Value) -> (StatusCode, Json<Invo
         Json(InvokeResponse {
             success: true,
             data: Some(serde_json::json!(is_repo)),
+            error: None,
+        }),
+    )
+}
+
+/// Validate that a project path exists and is a directory.
+/// Returns { exists: bool, isGitRepo: bool } for valid paths.
+async fn dispatch_validate_project_path(
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let path = match args.get("path").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: path".to_string()),
+                }),
+            );
+        }
+    };
+
+    let path_buf = PathBuf::from(path);
+    let exists = path_buf.exists() && path_buf.is_dir();
+    let is_git_repo = if exists {
+        overseer_core::git::is_git_repo(&path_buf)
+    } else {
+        false
+    };
+
+    (
+        StatusCode::OK,
+        Json(InvokeResponse {
+            success: true,
+            data: Some(serde_json::json!({
+                "exists": exists,
+                "isGitRepo": is_git_repo
+            })),
             error: None,
         }),
     )

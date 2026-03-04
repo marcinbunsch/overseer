@@ -189,6 +189,26 @@ pub async fn is_git_repo(path: String) -> bool {
     Path::new(&path).join(".git").exists()
 }
 
+/// Validate that a project path exists and check if it's a git repo.
+#[derive(Serialize)]
+pub struct ValidateProjectPathResult {
+    pub exists: bool,
+    #[serde(rename = "isGitRepo")]
+    pub is_git_repo: bool,
+}
+
+#[tauri::command]
+pub async fn validate_project_path(path: String) -> ValidateProjectPathResult {
+    let path_buf = Path::new(&path);
+    let exists = path_buf.exists() && path_buf.is_dir();
+    let is_git_repo = if exists {
+        path_buf.join(".git").exists()
+    } else {
+        false
+    };
+    ValidateProjectPathResult { exists, is_git_repo }
+}
+
 // ============================================================================
 // PR STATUS (uses gh CLI, not in overseer-core)
 // ============================================================================
