@@ -69,6 +69,7 @@ export const NewChatScreen = observer(function NewChatScreen({
   isPendingChat = false,
 }: NewChatScreenProps) {
   const workspaceStore = projectRegistry.selectedWorkspaceStore
+  const isRemote = projectRegistry.selectedProject?.isRemote ?? false
   const claudeStatus = toolAvailabilityStore.claude
   const codexStatus = toolAvailabilityStore.codex
   const copilotStatus = toolAvailabilityStore.copilot
@@ -106,7 +107,8 @@ export const NewChatScreen = observer(function NewChatScreen({
             unavailableMessage={claudeStatus?.error}
           />
         )}
-        {configStore.isAgentEnabled("codex") && (
+        {/* Other agents only available for local projects */}
+        {!isRemote && configStore.isAgentEnabled("codex") && (
           <AgentButton
             agentType="codex"
             title="Codex"
@@ -117,7 +119,7 @@ export const NewChatScreen = observer(function NewChatScreen({
             unavailableMessage={codexStatus?.error}
           />
         )}
-        {configStore.isAgentEnabled("copilot") && (
+        {!isRemote && configStore.isAgentEnabled("copilot") && (
           <AgentButton
             agentType="copilot"
             title="Copilot"
@@ -129,7 +131,7 @@ export const NewChatScreen = observer(function NewChatScreen({
             beta
           />
         )}
-        {configStore.isAgentEnabled("gemini") && (
+        {!isRemote && configStore.isAgentEnabled("gemini") && (
           <AgentButton
             agentType="gemini"
             title="Gemini"
@@ -141,7 +143,7 @@ export const NewChatScreen = observer(function NewChatScreen({
             beta
           />
         )}
-        {configStore.isAgentEnabled("opencode") && (
+        {!isRemote && configStore.isAgentEnabled("opencode") && (
           <AgentButton
             agentType="opencode"
             title="OpenCode"
@@ -157,6 +159,11 @@ export const NewChatScreen = observer(function NewChatScreen({
       {configStore.enabledAgents.length === 0 && (
         <p className="mt-8 text-sm text-ovr-text-dim">
           No agents enabled. Enable agents in Settings.
+        </p>
+      )}
+      {isRemote && !configStore.isAgentEnabled("claude") && (
+        <p className="mt-8 text-sm text-ovr-text-dim">
+          Remote projects only support Claude. Enable Claude in Settings.
         </p>
       )}
 
