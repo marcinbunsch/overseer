@@ -218,30 +218,25 @@ export class ClaudeAgentService implements AgentService {
 
     try {
       // Backend decides whether to start a new process or send via stdin
-      // For remote backends, pass null for agentPath/agentShell - the server uses its own config
-      const isRemote = this.backend.type === "web"
+      // Backend reads agentPath/agentShell from its own config
       await this.backend.invoke("send_message", {
         conversationId: chatId,
         projectName: projectName ?? "",
         prompt: messageText,
         workingDir,
-        agentPath: isRemote ? null : configStore.claudePath,
         sessionId: conv.sessionId ?? null,
         modelVersion: modelVersion ?? null,
         logDir: logDir ?? null,
         logId: chatId,
         permissionMode: permissionMode ?? null,
-        agentShell: isRemote ? null : configStore.agentShell || null,
       })
       conv.running = true
     } catch (err) {
-      // Skip "CLI not found" error formatting for remote projects
-      // (remote server handles its own CLI paths)
-      if (this.backend.type === "web") {
-        throw err
+      // Re-throw with a more helpful error message for local backends
+      if (this.backend.type === "tauri") {
+        throw new Error(formatSpawnError(err, configStore.claudePath, workingDir))
       }
-      // Re-throw with a more helpful error message
-      throw new Error(formatSpawnError(err, configStore.claudePath, workingDir))
+      throw err
     }
   }
 
