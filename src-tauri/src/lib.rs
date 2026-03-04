@@ -199,8 +199,10 @@ async fn save_attachment(
         .map_err(|e| format!("Failed to create attachments directory: {}", e))?;
 
     let id = uuid::Uuid::new_v4().to_string();
-    let stored_filename = format!("{}-{}", id, filename);
-    let path = attachments_dir.join(&stored_filename);
+    let attachment_dir = attachments_dir.join(&id);
+    std::fs::create_dir_all(&attachment_dir)
+        .map_err(|e| format!("Failed to create attachment directory: {}", e))?;
+    let path = attachment_dir.join(&filename);
 
     let size = data.len();
     std::fs::write(&path, &data)
@@ -249,8 +251,10 @@ async fn save_attachment_from_path(
         .map_err(|e| format!("Failed to create attachments directory: {}", e))?;
 
     let id = uuid::Uuid::new_v4().to_string();
-    let stored_filename = format!("{}-{}", id, filename);
-    let dest = attachments_dir.join(&stored_filename);
+    let attachment_dir = attachments_dir.join(&id);
+    std::fs::create_dir_all(&attachment_dir)
+        .map_err(|e| format!("Failed to create attachment directory: {}", e))?;
+    let dest = attachment_dir.join(&filename);
     let size = data.len();
     std::fs::write(&dest, &data).map_err(|e| format!("Failed to write attachment: {}", e))?;
 

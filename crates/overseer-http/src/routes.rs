@@ -3804,8 +3804,18 @@ async fn dispatch_save_attachment(
     }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let stored_filename = format!("{}-{}", id, filename);
-    let path = attachments_dir.join(&stored_filename);
+    let attachment_dir = attachments_dir.join(&id);
+    if let Err(e) = std::fs::create_dir_all(&attachment_dir) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(format!("Failed to create attachment directory: {}", e)),
+            }),
+        );
+    }
+    let path = attachment_dir.join(&filename);
     let size = data.len();
 
     if let Err(e) = std::fs::write(&path, &data) {
@@ -3912,8 +3922,18 @@ async fn dispatch_save_attachment_from_path(
     }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let stored_filename = format!("{}-{}", id, filename);
-    let dest = attachments_dir.join(&stored_filename);
+    let attachment_dir = attachments_dir.join(&id);
+    if let Err(e) = std::fs::create_dir_all(&attachment_dir) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                success: false,
+                data: None,
+                error: Some(format!("Failed to create attachment directory: {}", e)),
+            }),
+        );
+    }
+    let dest = attachment_dir.join(&filename);
     let size = data.len();
 
     if let Err(e) = std::fs::write(&dest, &data) {
