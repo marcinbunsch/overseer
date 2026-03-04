@@ -65,7 +65,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use super::HttpSharedState;
+use crate::HttpSharedState;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MESSAGE TYPES

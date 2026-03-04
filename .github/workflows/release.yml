@@ -109,6 +109,15 @@ jobs:
             target/x86_64-apple-darwin/release/bundle/macos/*.tar.gz
             target/x86_64-apple-darwin/release/bundle/macos/*.tar.gz.sig
 
+      - name: Build daemon (aarch64)
+        run: cargo build --release --package overseer-daemon --target aarch64-apple-darwin
+
+      - name: Upload daemon (aarch64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: daemon-macos-aarch64
+          path: target/aarch64-apple-darwin/release/overseer-daemon
+
   build-linux:
     needs: ci
     runs-on: ubuntu-latest
@@ -171,6 +180,15 @@ jobs:
             target/release/bundle/appimage/*.AppImage
             target/release/bundle/appimage/*.AppImage.sig
 
+      - name: Build daemon (linux x86_64)
+        run: cargo build --release --package overseer-daemon
+
+      - name: Upload daemon (linux x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: daemon-linux-x86_64
+          path: target/release/overseer-daemon
+
   create-release:
     needs: [build-mac, build-linux]
     runs-on: ubuntu-latest
@@ -193,13 +211,17 @@ jobs:
           # Rename aarch64 files to include architecture
           mv artifacts/macos-updater-aarch64/Overseer.app.tar.gz artifacts/macos-updater-aarch64/Overseer-aarch64.app.tar.gz
           mv artifacts/macos-updater-aarch64/Overseer.app.tar.gz.sig artifacts/macos-updater-aarch64/Overseer-aarch64.app.tar.gz.sig
-          
+
           # Rename x86_64 files to include architecture
           mv artifacts/macos-updater-x86_64/Overseer.app.tar.gz artifacts/macos-updater-x86_64/Overseer-x86_64.app.tar.gz
           mv artifacts/macos-updater-x86_64/Overseer.app.tar.gz.sig artifacts/macos-updater-x86_64/Overseer-x86_64.app.tar.gz.sig
-          
+
           # Remove duplicate AppImage from linux-updater (it's in linux-appimage already)
           rm -f artifacts/linux-updater/*.AppImage
+
+          # Rename daemon binaries with architecture suffix
+          mv artifacts/daemon-macos-aarch64/overseer-daemon artifacts/daemon-macos-aarch64/overseer-daemon-aarch64-apple-darwin
+          mv artifacts/daemon-linux-x86_64/overseer-daemon artifacts/daemon-linux-x86_64/overseer-daemon-x86_64-unknown-linux-gnu
 
       - name: Generate latest.json
         run: |
@@ -253,5 +275,7 @@ jobs:
             artifacts/linux-appimage/*
             artifacts/linux-deb/*
             artifacts/linux-updater/*
+            artifacts/daemon-macos-aarch64/*
+            artifacts/daemon-linux-x86_64/*
             artifacts/latest.json
           generate_release_notes: true
