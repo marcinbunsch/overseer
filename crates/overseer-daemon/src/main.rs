@@ -11,7 +11,8 @@
 //! Options:
 //!   -H, --host <HOST>         Host to bind to [default: 127.0.0.1]
 //!   -p, --port <PORT>         Port to listen on [default: 6767]
-//!       --auth                Enable bearer token authentication
+//!       --auth                Enable bearer token authentication (auto-generates token)
+//!       --token <TOKEN>       Use a specific auth token (implies --auth)
 //!       --config-dir <DIR>    Config directory (overrides default)
 //!       --dev                 Use dev config paths (~/.config/overseer-dev/)
 //! ```
@@ -37,9 +38,13 @@ struct Args {
     #[arg(short = 'p', long, default_value_t = 6767)]
     port: u16,
 
-    /// Enable bearer token authentication (prints token to stdout)
+    /// Enable bearer token authentication (auto-generates token, prints to stdout)
     #[arg(long)]
     auth: bool,
+
+    /// Use a specific auth token instead of generating one (implies --auth)
+    #[arg(long, value_name = "TOKEN")]
+    token: Option<String>,
 
     /// Override the config directory (e.g., ~/.config/overseer)
     #[arg(long, value_name = "DIR")]
@@ -152,8 +157,10 @@ async fn main() {
     context.approval_manager.set_config_dir(config_dir.clone());
     context.chat_sessions.set_config_dir(config_dir.clone());
 
-    // Generate auth token if requested
-    let auth_token = if args.auth {
+    // Determine auth token: explicit --token takes priority, --auth auto-generates
+    let auth_token = if let Some(token) = args.token.clone() {
+        Some(token)
+    } else if args.auth {
         Some(generate_auth_token())
     } else {
         None
@@ -223,6 +230,49 @@ mod tests {
         assert_ne!(t1, t2, "successive tokens should differ");
     }
 
+    // --- auth token selection ---
+
+    #[test]
+    fn explicit_token_is_used_as_is() {
+        let args = Args {
+            host: "127.0.0.1".to_string(),
+            port: 6767,
+            auth: false,
+            token: Some("my-secret-token".to_string()),
+            config_dir: None,
+            dev: false,
+        };
+        let auth_token = if let Some(token) = args.token.clone() {
+            Some(token)
+        } else if args.auth {
+            Some(generate_auth_token())
+        } else {
+            None
+        };
+        assert_eq!(auth_token, Some("my-secret-token".to_string()));
+    }
+
+    #[test]
+    fn auth_flag_without_token_generates_random() {
+        let args = Args {
+            host: "127.0.0.1".to_string(),
+            port: 6767,
+            auth: true,
+            token: None,
+            config_dir: None,
+            dev: false,
+        };
+        let auth_token = if let Some(token) = args.token.clone() {
+            Some(token)
+        } else if args.auth {
+            Some(generate_auth_token())
+        } else {
+            None
+        };
+        assert!(auth_token.is_some());
+        assert_ne!(auth_token.unwrap(), "my-secret-token");
+    }
+
     // --- determine_config_dir ---
 
     fn make_args(config_dir: Option<PathBuf>, dev: bool) -> Args {
@@ -230,6 +280,7 @@ mod tests {
             host: "127.0.0.1".to_string(),
             port: 6767,
             auth: false,
+            token: None,
             config_dir,
             dev,
         }
