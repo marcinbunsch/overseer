@@ -36,22 +36,51 @@ fn expand_env_vars(s: &str) -> String {
 
 /// Load agent configuration from config.json.
 fn load_agent_config(state: &HttpSharedState) -> (Option<String>, Option<String>) {
-    let config = state
-        .get_config_dir()
-        .and_then(|dir| std::fs::read_to_string(dir.join("config.json")).ok())
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+    let config_dir = state.get_config_dir();
+    log::debug!("load_agent_config: config_dir = {:?}", config_dir);
 
-    let agent_path = config
+    let config_path = config_dir.as_ref().map(|d| d.join("config.json"));
+    log::debug!("load_agent_config: config_path = {:?}", config_path);
+
+    let config = config_dir
+        .and_then(|dir| {
+            let path = dir.join("config.json");
+            match std::fs::read_to_string(&path) {
+                Ok(contents) => {
+                    log::debug!("load_agent_config: read config.json successfully");
+                    Some(contents)
+                }
+                Err(e) => {
+                    log::warn!("load_agent_config: failed to read config.json: {}", e);
+                    None
+                }
+            }
+        })
+        .and_then(|s| {
+            match serde_json::from_str::<serde_json::Value>(&s) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    log::warn!("load_agent_config: failed to parse config.json: {}", e);
+                    None
+                }
+            }
+        });
+
+    let raw_path = config
         .as_ref()
         .and_then(|c| c.get("claudePath"))
-        .and_then(|v| v.as_str())
-        .map(expand_env_vars);
+        .and_then(|v| v.as_str());
+    log::debug!("load_agent_config: raw claudePath = {:?}", raw_path);
+
+    let agent_path = raw_path.map(expand_env_vars);
+    log::info!("load_agent_config: resolved agent_path = {:?}", agent_path);
 
     let agent_shell = config
         .as_ref()
         .and_then(|c| c.get("agentShell"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    log::debug!("load_agent_config: agent_shell = {:?}", agent_shell);
 
     (agent_path, agent_shell)
 }
@@ -4160,12 +4189,20 @@ async fn dispatch_send_message(
     let (config_agent_path, config_agent_shell) = load_agent_config(state);
 
     // Use provided agentPath or fall back to config
-    let agent_path = args
+    let provided_agent_path = args
         .get("agentPath")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+        .map(|s| s.to_string());
+    log::debug!(
+        "dispatch_send_message: provided_agent_path = {:?}, config_agent_path = {:?}",
+        provided_agent_path,
+        config_agent_path
+    );
+
+    let agent_path = provided_agent_path
         .or(config_agent_path)
         .unwrap_or_else(|| "claude".to_string()); // Default to "claude" if nothing configured
+    log::info!("dispatch_send_message: using agent_path = {}", agent_path);
 
     // Extract optional arguments
     let project_name = args
