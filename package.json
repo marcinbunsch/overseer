@@ -26,7 +26,10 @@
     "test:watch": "vitest --silent --reporter=dot",
     "release:patch": "./scripts/release.sh patch",
     "release:minor": "./scripts/release.sh minor",
-    "release:major": "./scripts/release.sh major"
+    "release:major": "./scripts/release.sh major",
+    "daemon:build": "cargo build -p overseer-daemon --release",
+    "daemon:dev": "cargo build -p overseer-daemon",
+    "daemon:run": "cargo run -p overseer-daemon --release --"
   },
   "packageManager": "pnpm@10.17.1",
   "pnpm": {
