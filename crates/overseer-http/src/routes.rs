@@ -15,6 +15,48 @@ use std::sync::Arc;
 use crate::HttpSharedState;
 
 // ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/// Expand environment variables in a path string (e.g., $HOME/.local/bin/claude).
+fn expand_env_vars(s: &str) -> String {
+    let mut result = s.to_string();
+    // Handle $HOME
+    if let Ok(home) = std::env::var("HOME") {
+        result = result.replace("$HOME", &home);
+    }
+    // Handle ~ at the start
+    if result.starts_with('~') {
+        if let Ok(home) = std::env::var("HOME") {
+            result = result.replacen('~', &home, 1);
+        }
+    }
+    result
+}
+
+/// Load agent configuration from config.json.
+fn load_agent_config(state: &HttpSharedState) -> (Option<String>, Option<String>) {
+    let config = state
+        .get_config_dir()
+        .and_then(|dir| std::fs::read_to_string(dir.join("config.json")).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+
+    let agent_path = config
+        .as_ref()
+        .and_then(|c| c.get("claudePath"))
+        .and_then(|v| v.as_str())
+        .map(expand_env_vars);
+
+    let agent_shell = config
+        .as_ref()
+        .and_then(|c| c.get("agentShell"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    (agent_path, agent_shell)
+}
+
+// ============================================================================
 // PR STATUS HELPERS (not yet in overseer-core, implemented here)
 // ============================================================================
 
@@ -4114,19 +4156,16 @@ async fn dispatch_send_message(
         }
     };
 
-    let agent_path = match args.get("agentPath").and_then(|v| v.as_str()) {
-        Some(p) => p.to_string(),
-        None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(InvokeResponse {
-                    success: false,
-                    data: None,
-                    error: Some("Missing required argument: agentPath".to_string()),
-                }),
-            );
-        }
-    };
+    // Load config.json to get default agentPath and agentShell
+    let (config_agent_path, config_agent_shell) = load_agent_config(state);
+
+    // Use provided agentPath or fall back to config
+    let agent_path = args
+        .get("agentPath")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or(config_agent_path)
+        .unwrap_or_else(|| "claude".to_string()); // Default to "claude" if nothing configured
 
     // Extract optional arguments
     let project_name = args
@@ -4154,10 +4193,12 @@ async fn dispatch_send_message(
         .get("permissionMode")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    // Use provided agentShell or fall back to config
     let agent_shell = args
         .get("agentShell")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(|s| s.to_string())
+        .or(config_agent_shell);
 
     let config = overseer_core::managers::ClaudeStartConfig {
         conversation_id,

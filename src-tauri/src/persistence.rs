@@ -40,7 +40,7 @@ impl PersistenceConfig {
     }
 
     /// Get the config directory path.
-    fn get_config_dir(&self) -> Result<PathBuf, String> {
+    pub fn get_config_dir(&self) -> Result<PathBuf, String> {
         self.config_dir
             .lock()
             .unwrap()
@@ -263,6 +263,22 @@ fn get_project(config_dir: &std::path::Path, project_id: &str) -> Result<Project
         .ok_or_else(|| format!("Project not found: {}", project_id))
 }
 
+/// Expand environment variables in a path string (e.g., $HOME/.local/bin/claude).
+fn expand_env_vars(s: &str) -> String {
+    let mut result = s.to_string();
+    // Handle $HOME
+    if let Ok(home) = std::env::var("HOME") {
+        result = result.replace("$HOME", &home);
+    }
+    // Handle ~ at the start
+    if result.starts_with('~') {
+        if let Ok(home) = std::env::var("HOME") {
+            result = result.replacen('~', &home, 1);
+        }
+    }
+    result
+}
+
 /// Get the shell prefix from config.json (agentShell field).
 fn get_shell_prefix_from_config(config_dir: &std::path::Path) -> Option<String> {
     let config_path = config_dir.join("config.json");
@@ -275,6 +291,25 @@ fn get_shell_prefix_from_config(config_dir: &std::path::Path) -> Option<String> 
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
+}
+
+/// Get the Claude CLI path from config.json (claudePath field).
+pub fn get_claude_path_from_config(config_dir: &std::path::Path) -> Option<String> {
+    let config_path = config_dir.join("config.json");
+    if !config_path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    json.get("claudePath")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| expand_env_vars(s))
+}
+
+/// Get the agent shell from config.json (agentShell field).
+pub fn get_agent_shell_from_config(config_dir: &std::path::Path) -> Option<String> {
+    get_shell_prefix_from_config(config_dir)
 }
 
 /// Run the post-create command for a project in a workspace.
