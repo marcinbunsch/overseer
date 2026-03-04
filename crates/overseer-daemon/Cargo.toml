@@ -1,0 +1,23 @@
+[package]
+name = "overseer-daemon"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "overseer-daemon"
+path = "src/main.rs"
+
+[dependencies]
+overseer-core = { path = "../overseer-core" }
+overseer-http = { path = "../overseer-http" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+rust-embed = "8"
+axum = "0.8"
+mime_guess = "2"
+log = "0.4"
+env_logger = "0.11"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tower = { version = "0.5", features = ["util"] }

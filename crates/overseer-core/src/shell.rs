@@ -24,12 +24,119 @@
 //! ```
 
 use std::process::Command;
+use tokio::process::Command as AsyncCommand;
 
 /// Exit status emitted when an agent process terminates.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AgentExit {
     pub code: i32,
     pub signal: Option<i32>,
+}
+
+/// Result of running a shell command.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellCommandResult {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub success: bool,
+}
+
+/// Run a shell command in a login shell and return the result.
+///
+/// This is useful for running setup scripts (like postCreate) that need
+/// the user's environment variables (PATH, etc.).
+///
+/// # Arguments
+/// * `command` - The command to run (will be passed to the shell)
+/// * `working_dir` - The directory to run the command in
+/// * `shell_prefix` - Optional shell prefix override (e.g., "/bin/zsh -l -c")
+pub fn run_shell_command(
+    command: &str,
+    working_dir: &str,
+    shell_prefix: Option<&str>,
+) -> Result<ShellCommandResult, String> {
+    // Get the shell prefix (either custom or default)
+    let prefix = get_shell_prefix(shell_prefix);
+
+    // Parse the prefix into shell program and its arguments
+    let prefix_parts: Vec<&str> = prefix.split_whitespace().collect();
+    if prefix_parts.is_empty() {
+        return Err("Empty shell prefix".to_string());
+    }
+
+    let shell_program = prefix_parts[0];
+    let shell_args = &prefix_parts[1..];
+
+    let mut cmd = Command::new(shell_program);
+    cmd.args(shell_args)
+        .arg(command)
+        .current_dir(working_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let output = cmd.output().map_err(|e| format!("Failed to run command: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let exit_code = output.status.code().unwrap_or(-1);
+
+    Ok(ShellCommandResult {
+        exit_code,
+        stdout,
+        stderr,
+        success: output.status.success(),
+    })
+}
+
+/// Async version of `run_shell_command`.
+///
+/// Run a shell command in a login shell and return the result asynchronously.
+///
+/// # Arguments
+/// * `command` - The command to run (will be passed to the shell)
+/// * `working_dir` - The directory to run the command in
+/// * `shell_prefix` - Optional shell prefix override (e.g., "/bin/zsh -l -c")
+pub async fn run_shell_command_async(
+    command: &str,
+    working_dir: &str,
+    shell_prefix: Option<&str>,
+) -> Result<ShellCommandResult, String> {
+    // Get the shell prefix (either custom or default)
+    let prefix = get_shell_prefix(shell_prefix);
+
+    // Parse the prefix into shell program and its arguments
+    let prefix_parts: Vec<&str> = prefix.split_whitespace().collect();
+    if prefix_parts.is_empty() {
+        return Err("Empty shell prefix".to_string());
+    }
+
+    let shell_program = prefix_parts[0];
+    let shell_args = &prefix_parts[1..];
+
+    let mut cmd = AsyncCommand::new(shell_program);
+    cmd.args(shell_args)
+        .arg(command)
+        .current_dir(working_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run command: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let exit_code = output.status.code().unwrap_or(-1);
+
+    Ok(ShellCommandResult {
+        exit_code,
+        stdout,
+        stderr,
+        success: output.status.success(),
+    })
 }
 
 /// Prepend the binary's parent directory to PATH so node/etc. are found.

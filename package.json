@@ -1,6 +1,6 @@
 {
   "name": "overseer",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -59,6 +59,7 @@
     "@opencode-ai/sdk": "^1.1.53",
     "@pierre/diffs": "^1.0.10",
     "@radix-ui/react-alert-dialog": "^1.1.15",
+    "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-switch": "^1.2.6",

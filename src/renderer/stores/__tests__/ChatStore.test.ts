@@ -1734,4 +1734,314 @@ Live text.`,
       configStore.agentShell = originalShell
     })
   })
+
+  describe("Autonomous mode YOLO permission values", () => {
+    it("sets bypassPermissions for claude agent", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore({ agentType: "claude" })
+
+      // Start autonomous run
+      await store.startAutonomousRun("test prompt", 5)
+
+      // The permission mode should be set to Claude's YOLO value
+      expect(store.chat.permissionMode).toBe("bypassPermissions")
+    })
+
+    it("sets full-auto for codex agent", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore({ agentType: "codex" })
+
+      await store.startAutonomousRun("test prompt", 5)
+
+      // The permission mode should be set to Codex's YOLO value
+      expect(store.chat.permissionMode).toBe("full-auto")
+    })
+
+    it("sets yolo for gemini agent", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore({ agentType: "gemini" })
+
+      await store.startAutonomousRun("test prompt", 5)
+
+      // The permission mode should be set to Gemini's YOLO value
+      expect(store.chat.permissionMode).toBe("yolo")
+    })
+
+    it("sets yolo for copilot agent", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore({ agentType: "copilot" })
+
+      await store.startAutonomousRun("test prompt", 5)
+
+      // Copilot doesn't use permission modes but we set yolo for consistency
+      expect(store.chat.permissionMode).toBe("yolo")
+    })
+
+    it("sets yolo for opencode agent", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore({ agentType: "opencode" })
+
+      await store.startAutonomousRun("test prompt", 5)
+
+      // OpenCode doesn't use permission modes but we set yolo for consistency
+      expect(store.chat.permissionMode).toBe("yolo")
+    })
+  })
+
+  describe("Autonomous mode permission restoration", () => {
+    it("restores original permission mode when autonomous run is stopped", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore({
+        agentType: "claude",
+        permissionMode: "default",
+      })
+
+      // Start autonomous run - this should change to bypassPermissions
+      await store.startAutonomousRun("test prompt", 5)
+      expect(store.chat.permissionMode).toBe("bypassPermissions")
+
+      // Stop the run - should restore original permission mode
+      store.stopAutonomousRun()
+      expect(store.chat.permissionMode).toBe("default")
+    })
+
+    it("restores original permission mode when max iterations reached", async () => {
+      let addUserMessageCount = 0
+      vi.mocked(invoke).mockImplementation(async (command) => {
+        if (command === "add_user_message") {
+          addUserMessageCount++
+          return {
+            kind: "userMessage",
+            id: `user-${addUserMessageCount}`,
+            content: "test",
+            meta: null,
+          }
+        }
+        return undefined
+      })
+
+      const store = createChatStore({
+        agentType: "claude",
+        permissionMode: "plan",
+      })
+
+      // Start autonomous run with 1 iteration max
+      await store.startAutonomousRun("test prompt", 1)
+      expect(store.chat.permissionMode).toBe("bypassPermissions")
+
+      // Simulate iteration completion that doesn't contain completion marker
+      // This should trigger finishAutonomousRun due to max iterations
+      runInAction(() => {
+        store.autonomousIteration = 1
+        // Access the private method via any cast for testing
+        ;(store as any).finishAutonomousRun("Max iterations reached")
+      })
+
+      expect(store.chat.permissionMode).toBe("plan")
+    })
+
+    it("restores original permission mode when autonomous run completes successfully", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore({
+        agentType: "claude",
+        permissionMode: "allowEdits",
+      })
+
+      await store.startAutonomousRun("test prompt", 5)
+      expect(store.chat.permissionMode).toBe("bypassPermissions")
+
+      // Simulate completion
+      runInAction(() => {
+        ;(store as any).finishAutonomousRun("Task completed successfully")
+      })
+
+      expect(store.chat.permissionMode).toBe("allowEdits")
+    })
+
+    it("handles null original permission mode", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore({
+        agentType: "claude",
+        permissionMode: null,
+      })
+
+      await store.startAutonomousRun("test prompt", 5)
+      expect(store.chat.permissionMode).toBe("bypassPermissions")
+
+      store.stopAutonomousRun()
+      // Should restore to null
+      expect(store.chat.permissionMode).toBeNull()
+    })
+  })
+
+  describe("Autonomous mode state management", () => {
+    it("initializes autonomous state correctly on start", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore()
+
+      expect(store.autonomousMode).toBe(false)
+      expect(store.autonomousRunning).toBe(false)
+      expect(store.autonomousIteration).toBe(0)
+
+      await store.startAutonomousRun("test prompt", 10)
+
+      expect(store.autonomousMode).toBe(true)
+      expect(store.autonomousRunning).toBe(true)
+      expect(store.autonomousIteration).toBe(1)
+      expect(store.autonomousMaxIterations).toBe(10)
+      expect(store.autonomousSessionId).toMatch(/^test-chat-id-auto-\d+$/)
+    })
+
+    it("stopAutonomousRun sets autonomousRunning to false", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore()
+      await store.startAutonomousRun("test prompt", 5)
+
+      expect(store.autonomousRunning).toBe(true)
+
+      store.stopAutonomousRun()
+
+      expect(store.autonomousRunning).toBe(false)
+      // autonomousMode remains true to show the messages
+      expect(store.autonomousMode).toBe(true)
+    })
+
+    it("stopAutonomousRun is idempotent when not running", () => {
+      const store = createChatStore()
+
+      expect(store.autonomousRunning).toBe(false)
+
+      // Should not throw and should remain false
+      store.stopAutonomousRun()
+
+      expect(store.autonomousRunning).toBe(false)
+    })
+
+    it("adds autonomous-start message on run start", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore()
+      await store.startAutonomousRun("test prompt", 5)
+
+      // Should have autonomous-start message
+      const startMessage = store.messages.find((m) => m.meta?.autonomousType === "autonomous-start")
+      expect(startMessage).toBeDefined()
+      expect(startMessage?.content).toContain("Autonomous Mode Started")
+    })
+
+    it("adds autonomous-stopped message when stopped", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+
+      const store = createChatStore()
+      await store.startAutonomousRun("test prompt", 5)
+      store.stopAutonomousRun()
+
+      const stoppedMessage = store.messages.find(
+        (m) => m.meta?.autonomousType === "autonomous-stopped"
+      )
+      expect(stoppedMessage).toBeDefined()
+      expect(stoppedMessage?.content).toContain("Stopped")
+    })
+
+    it("writes autonomous prompt and progress files on start", async () => {
+      const writeFileCalls: Array<{ path: string; content: string }> = []
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command === "write_file") {
+          const { path, content } = args as { path: string; content: string }
+          writeFileCalls.push({ path, content })
+          return undefined
+        }
+        if (command === "add_user_message") {
+          return {
+            kind: "userMessage",
+            id: "user-1",
+            content: "test",
+            meta: null,
+          }
+        }
+        return undefined
+      })
+
+      const store = createChatStore()
+      await store.startAutonomousRun("My autonomous prompt", 5)
+
+      expect(writeFileCalls).toHaveLength(3)
+      expect(writeFileCalls[0].path).toBe("/tmp/test-workspace/autonomous-prompt.md")
+      expect(writeFileCalls[0].content).toBe("My autonomous prompt")
+      expect(writeFileCalls[1].path).toBe("/tmp/test-workspace/autonomous-progress.md")
+      expect(writeFileCalls[1].content).toContain("# Autonomous Progress")
+      expect(writeFileCalls[2].path).toBe("/tmp/test-workspace/autonomous-review.md")
+      expect(writeFileCalls[2].content).toContain("# Autonomous Review")
+    })
+  })
 })

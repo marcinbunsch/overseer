@@ -12,3 +12,7 @@ src-tauri/target/
 *.iml
 
 target
+
+autonomous-progress.md
+autonomous-prompt.md
+autonomous-review.md

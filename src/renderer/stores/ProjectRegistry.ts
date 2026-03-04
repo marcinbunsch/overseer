@@ -10,6 +10,14 @@ import { backend } from "../backend"
 import { restoreFromUrl } from "../utils/urlState"
 import { remoteServerStore } from "./RemoteServerStore"
 
+/** Result from run_shell_command backend call */
+interface ShellCommandResult {
+  exitCode: number
+  stdout: string
+  stderr: string
+  success: boolean
+}
+
 class ProjectRegistry {
   @observable private _projects: Project[] = []
   private _projectStoreCache = new Map<string, ProjectStore>()
@@ -274,12 +282,9 @@ class ProjectRegistry {
         })
         this.saveToFile()
 
-        // Run postCreate script after terminal is ready
+        // Run postCreate script in background
         if (postCreate) {
-          terminalService.getOrCreate(workspacePath, project.path).then(async () => {
-            await terminalService.waitForReady(workspacePath)
-            terminalService.write(workspacePath, postCreate + "\n")
-          })
+          this.runPostCreate(projectId, id)
         }
       })
       .catch((err) => {
@@ -301,6 +306,57 @@ class ProjectRegistry {
         })
         toastStore.show(`Failed to create workspace: ${err}`)
       })
+  }
+
+  /**
+   * Run postCreate script in background and post result to chat.
+   */
+  private async runPostCreate(projectId: string, workspaceId: string): Promise<void> {
+    try {
+      const result = await backend.invoke<ShellCommandResult>("run_post_create_command", {
+        projectId,
+        workspaceId,
+      })
+
+      // Find the workspace store and active chat to post messages
+      const workspaceStore = this.getWorkspaceStoreByWorkspaceId(workspaceId)
+      if (!workspaceStore) return
+
+      // Wait for workspace to load its chats
+      await workspaceStore.load()
+      const chat = workspaceStore.activeChat
+      if (!chat) {
+        toastStore.show("Setup complete (no chat to display result)")
+        return
+      }
+
+      // Get the project to show the command in the message
+      const project = this._projects.find((p) => p.id === projectId)
+      const command = project?.postCreate ?? "setup"
+
+      if (result.success) {
+        chat.addSystemMessage(`Setup complete: \`${command}\``)
+      } else {
+        const output = result.stderr || result.stdout || "No output"
+        chat.addSystemMessage(
+          `Setup failed (exit ${result.exitCode}): \`${command}\`\n\n\`\`\`\n${output.trim()}\n\`\`\``
+        )
+      }
+    } catch (err) {
+      console.error("Failed to run postCreate:", err)
+      toastStore.show(`Setup script failed: ${err}`)
+    }
+  }
+
+  /**
+   * Get WorkspaceStore by workspace ID (searches all projects).
+   */
+  private getWorkspaceStoreByWorkspaceId(workspaceId: string): WorkspaceStore | undefined {
+    for (const project of this.projects) {
+      const store = project.getWorkspaceStore(workspaceId)
+      if (store) return store
+    }
+    return undefined
   }
 
   @action async archiveWorkspace(workspaceId: string, deleteBranch = false): Promise<void> {

@@ -789,11 +789,10 @@ describe("ProjectRegistry", () => {
   })
 
   describe("addWorkspace postCreate", () => {
-    it("executes postCreate script via terminal.write when provided", async () => {
+    it("executes postCreate via run_post_create_command when provided", async () => {
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
-      const { terminalService } = await import("../../services/terminal")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
@@ -817,24 +816,19 @@ describe("ProjectRegistry", () => {
 
       await projectRegistry.addWorkspace("repo-1", "feature")
 
-      // postCreate runs fire-and-forget, so wait for it to complete
+      // postCreate runs fire-and-forget, so wait for the backend call
       await vi.waitFor(() => {
-        // Should get or create terminal for the workspace (with project root)
-        expect(terminalService.getOrCreate).toHaveBeenCalledWith("/test/feature", "/test")
-
-        // Should wait for the shell to be ready
-        expect(terminalService.waitForReady).toHaveBeenCalledWith("/test/feature")
-
-        // Should write the postCreate script to the terminal
-        expect(terminalService.write).toHaveBeenCalledWith("/test/feature", "pnpm install\n")
+        expect(invoke).toHaveBeenCalledWith("run_post_create_command", {
+          projectId: "repo-1",
+          workspaceId: expect.any(String),
+        })
       })
     })
 
-    it("does not write to terminal when no postCreate script", async () => {
+    it("does not call run_post_create_command when no postCreate script", async () => {
       vi.resetModules()
       const { projectRegistry } = await import("../ProjectRegistry")
       const { gitService } = await import("../../services/git")
-      const { terminalService } = await import("../../services/terminal")
       const { runInAction } = await import("mobx")
 
       await vi.waitFor(() => {
@@ -851,10 +845,13 @@ describe("ProjectRegistry", () => {
 
       await projectRegistry.addWorkspace("repo-1", "feature")
 
-      // Should not get terminal, wait, or write
-      expect(terminalService.getOrCreate).not.toHaveBeenCalled()
-      expect(terminalService.waitForReady).not.toHaveBeenCalled()
-      expect(terminalService.write).not.toHaveBeenCalled()
+      // Wait for workspace to be fully created
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("save_project_registry", expect.anything())
+      })
+
+      // Should not call run_post_create_command
+      expect(invoke).not.toHaveBeenCalledWith("run_post_create_command", expect.anything())
     })
   })
 

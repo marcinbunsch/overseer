@@ -45,6 +45,8 @@ interface Config {
   geminiApprovalMode?: GeminiApprovalMode
   animationsEnabled?: boolean
   showClaudeUsageIndicator?: boolean
+  autonomousModeEnabled?: boolean
+  terminalOpenByDefault?: boolean
   httpServer?: HttpServerConfig
   remoteServers?: RemoteServerConfig[]
 }
@@ -151,6 +153,8 @@ class ConfigStore {
   @observable defaultOpencodeModel: string | null = null
   @observable animationsEnabled: boolean = false
   @observable showClaudeUsageIndicator: boolean = false
+  @observable autonomousModeEnabled: boolean = false
+  @observable terminalOpenByDefault: boolean = false
   @observable agentShell: string = ""
   @observable settingsOpen: boolean = false
   @observable loaded: boolean = false
@@ -267,6 +271,8 @@ class ConfigStore {
         this.defaultOpencodeModel = parsed.defaultOpencodeModel ?? null
         this.animationsEnabled = parsed.animationsEnabled ?? false
         this.showClaudeUsageIndicator = parsed.showClaudeUsageIndicator ?? false
+        this.autonomousModeEnabled = parsed.autonomousModeEnabled ?? false
+        this.terminalOpenByDefault = parsed.terminalOpenByDefault ?? false
         this.agentShell = parsed.agentShell ?? ""
         // HTTP Server settings
         if (parsed.httpServer) {
@@ -330,6 +336,8 @@ class ConfigStore {
         geminiApprovalMode: this.geminiApprovalMode,
         animationsEnabled: this.animationsEnabled,
         showClaudeUsageIndicator: this.showClaudeUsageIndicator,
+        autonomousModeEnabled: this.autonomousModeEnabled,
+        terminalOpenByDefault: this.terminalOpenByDefault,
         agentShell: this.agentShell || undefined,
         httpServer: {
           host: this.httpServerHost,
@@ -449,6 +457,16 @@ class ConfigStore {
     }
   }
 
+  @action setEditorCommand(cmd: string) {
+    this.editorCommand = cmd
+    this.save()
+  }
+
+  @action setTerminalCommand(cmd: string) {
+    this.terminalCommand = cmd
+    this.save()
+  }
+
   @action setAnimationsEnabled(enabled: boolean) {
     this.animationsEnabled = enabled
     this.save()
@@ -456,6 +474,16 @@ class ConfigStore {
 
   @action setShowClaudeUsageIndicator(enabled: boolean) {
     this.showClaudeUsageIndicator = enabled
+    this.save()
+  }
+
+  @action setAutonomousModeEnabled(enabled: boolean) {
+    this.autonomousModeEnabled = enabled
+    this.save()
+  }
+
+  @action setTerminalOpenByDefault(enabled: boolean) {
+    this.terminalOpenByDefault = enabled
     this.save()
   }
 

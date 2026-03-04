@@ -47,6 +47,8 @@
         { "path": "$HOME/.config/overseer/**" },
         { "path": "$HOME/.config/overseer-dev" },
         { "path": "$HOME/.config/overseer-dev/**" },
+        { "path": "$HOME/.config/overseer/attachments/**" },
+        { "path": "$HOME/.config/overseer-dev/attachments/**" },
         { "path": "$HOME/overseer/chats" },
         { "path": "$HOME/overseer/chats/**" }
       ]

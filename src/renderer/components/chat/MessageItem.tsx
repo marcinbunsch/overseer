@@ -17,6 +17,8 @@ import {
   EnterPlanModeToolItem,
 } from "./tools"
 import { MarkdownContent } from "./MarkdownContent"
+import { AutonomousMessage, isAutonomousMessage } from "./AutonomousMessage"
+import { AttachmentChip } from "./AttachmentChip"
 
 interface MessageItemProps {
   message: Message
@@ -30,8 +32,13 @@ const BASH_OUTPUT_CHAR_THRESHOLD = 500
 function MetaMessageItem({ message }: { message: Message }) {
   const [expanded, setExpanded] = useState(false)
 
+  // Autonomous mode messages get special rendering
+  if (isAutonomousMessage(message)) {
+    return <AutonomousMessage message={message} />
+  }
+
   // do not show system messages
-  if (message.meta?.type === "system") return
+  if (message.meta?.type === "system") return null
 
   return (
     <div className="mb-3 flex justify-end">
@@ -150,6 +157,13 @@ export const MessageItem = observer(function MessageItem({ message, compact }: M
       <div className="mb-3 flex justify-end">
         <div className="max-w-[80%] overflow-hidden rounded-lg border-r-2 border-ovr-azure-500 bg-ovr-bg-elevated px-3 py-4 text-sm text-white">
           <MarkdownContent content={message.content} />
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {message.attachments.map((a) => (
+                <AttachmentChip key={a.id} attachment={a} />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     )

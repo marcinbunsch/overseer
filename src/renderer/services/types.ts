@@ -1,4 +1,4 @@
-import type { MessageMeta, QuestionItem, ToolMeta } from "../types"
+import type { Attachment, MessageMeta, QuestionItem, ToolMeta } from "../types"
 
 export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "opencode"
 
@@ -45,6 +45,7 @@ export type AgentEvent =
       content: string
       timestamp: Date
       meta?: MessageMeta
+      attachments?: Attachment[]
     }
   | { kind: "sessionId"; sessionId: string }
   | { kind: "turnComplete" }

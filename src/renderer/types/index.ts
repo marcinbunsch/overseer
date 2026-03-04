@@ -41,15 +41,37 @@ export interface Session {
   startedAt: Date
 }
 
+export interface Attachment {
+  id: string
+  filename: string
+  mimeType: string
+  size: number
+  path: string
+}
+
 export interface ToolMeta {
   toolName: string
   linesAdded?: number
   linesRemoved?: number
 }
 
+export type AutonomousMessageType =
+  | "autonomous-start"
+  | "autonomous-loop"
+  | "autonomous-complete"
+  | "autonomous-stopped"
+
 export interface MessageMeta {
   type: string
   label: string
+  /** For autonomous mode messages */
+  autonomousType?: AutonomousMessageType
+  /** Iteration number for autonomous loop messages */
+  iteration?: number
+  /** Max iterations for context */
+  maxIterations?: number
+  /** Phase of autonomous loop iteration */
+  phase?: "implementation" | "review"
 }
 
 export interface Message {
@@ -67,6 +89,8 @@ export interface Message {
   parentToolUseId?: string | null
   /** Tool use ID for Task tools - used to match child messages */
   toolUseId?: string
+  /** Attachments sent with this user message */
+  attachments?: Attachment[]
 }
 
 export interface QuestionOption {

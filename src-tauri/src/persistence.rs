@@ -253,6 +253,73 @@ pub fn remove_project(state: State<PersistenceConfig>, project_id: String) -> Re
     persistence::save_project_registry(&dir, &registry).map_err(|e| e.to_string())
 }
 
+/// Get a project by ID from the registry.
+fn get_project(config_dir: &std::path::Path, project_id: &str) -> Result<Project, String> {
+    let registry = persistence::load_project_registry(config_dir).map_err(|e| e.to_string())?;
+    registry
+        .projects
+        .into_iter()
+        .find(|p| p.id == project_id)
+        .ok_or_else(|| format!("Project not found: {}", project_id))
+}
+
+/// Get the shell prefix from config.json (agentShell field).
+fn get_shell_prefix_from_config(config_dir: &std::path::Path) -> Option<String> {
+    let config_path = config_dir.join("config.json");
+    if !config_path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    json.get("agentShell")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// Run the post-create command for a project in a workspace.
+///
+/// Reads the postCreate script and shell prefix from config, finds the workspace path,
+/// and executes the command.
+/// Returns the command result with stdout/stderr and exit code.
+#[tauri::command]
+pub async fn run_post_create_command(
+    state: State<'_, PersistenceConfig>,
+    project_id: String,
+    workspace_id: String,
+) -> Result<overseer_core::shell::ShellCommandResult, String> {
+    let dir = state.get_config_dir()?;
+
+    // Get project and find workspace path
+    let project = get_project(&dir, &project_id)?;
+
+    let workspace = project
+        .workspaces
+        .iter()
+        .find(|w| w.id == workspace_id)
+        .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+
+    let workspace_path = workspace.path.clone();
+
+    // Get post_create command
+    let command = project
+        .post_create
+        .as_ref()
+        .ok_or_else(|| "No post_create command configured for this project".to_string())?
+        .clone();
+
+    // Get shell prefix from config
+    let shell_prefix = get_shell_prefix_from_config(&dir);
+
+    // Run the command asynchronously
+    overseer_core::shell::run_shell_command_async(
+        &command,
+        &workspace_path,
+        shell_prefix.as_deref(),
+    )
+    .await
+}
+
 // ============================================================================
 // Config Commands (for ConfigStore)
 // ============================================================================
@@ -367,6 +434,29 @@ pub fn remove_chat_file(
     if file_path.exists() {
         std::fs::remove_file(&file_path).map_err(|e| e.to_string())?;
     }
+
+    Ok(())
+}
+
+// ============================================================================
+// Workspace File Operations (for autonomous mode)
+// ============================================================================
+
+/// Write a file to an arbitrary path (typically workspace directory).
+/// Used by autonomous mode to write prompt/progress files.
+#[tauri::command]
+pub async fn write_file(path: String, content: String) -> Result<(), String> {
+    let file_path = PathBuf::from(&path);
+
+    // Ensure parent directory exists
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    // Atomic write: write to temp then rename
+    let temp_path = file_path.with_extension("tmp");
+    std::fs::write(&temp_path, &content).map_err(|e| e.to_string())?;
+    std::fs::rename(&temp_path, &file_path).map_err(|e| e.to_string())?;
 
     Ok(())
 }

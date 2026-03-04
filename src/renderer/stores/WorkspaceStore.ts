@@ -478,7 +478,11 @@ export class WorkspaceStore {
   // --- Delegate actions to active chat ---
 
   @action
-  async sendMessage(content: string, meta?: MessageMeta): Promise<void> {
+  async sendMessage(
+    content: string,
+    meta?: MessageMeta,
+    attachments?: import("../types").Attachment[]
+  ): Promise<void> {
     const active = this.activeChat
     if (!active) return
 
@@ -492,7 +496,7 @@ export class WorkspaceStore {
       })
     }
 
-    await active.sendMessage(content, this.path, meta)
+    await active.sendMessage(content, this.path, meta, attachments)
   }
 
   @action
@@ -553,6 +557,33 @@ export class WorkspaceStore {
   @action
   setPermissionMode(mode: string | null): void {
     this.activeChat?.setPermissionMode(mode)
+  }
+
+  // --- Autonomous mode ---
+
+  @action
+  async startAutonomousRun(prompt: string, maxIterations: number): Promise<void> {
+    await this.activeChat?.startAutonomousRun(prompt, maxIterations)
+  }
+
+  @action
+  stopAutonomousRun(): void {
+    this.activeChat?.stopAutonomousRun()
+  }
+
+  @computed
+  get autonomousRunning(): boolean {
+    return this.activeChat?.autonomousRunning ?? false
+  }
+
+  @computed
+  get autonomousIteration(): number {
+    return this.activeChat?.autonomousIteration ?? 0
+  }
+
+  @computed
+  get autonomousMaxIterations(): number {
+    return this.activeChat?.autonomousMaxIterations ?? 25
   }
 
   // --- Internal helpers ---

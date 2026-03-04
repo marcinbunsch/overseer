@@ -11,7 +11,7 @@ export interface ExtraUsage {
   isEnabled: boolean
   monthlyLimit: number
   usedCredits: number
-  utilization: number
+  utilization: number | null
 }
 
 export interface ClaudeUsageData {
@@ -35,7 +35,7 @@ interface BackendExtraUsage {
   is_enabled: boolean
   monthly_limit: number
   used_credits: number
-  utilization: number
+  utilization: number | null
 }
 
 interface BackendClaudeUsageResponse {

@@ -34,6 +34,104 @@ import { RemoteServersSettings } from "./RemoteServersSettings"
 
 type SettingsTab = "general" | "agents" | "advanced" | "updates" | "design-system"
 
+interface CommandPreset {
+  label: string
+  command: string
+}
+
+const EDITOR_PRESETS: CommandPreset[] = [
+  { label: "VS Code", command: "code" },
+  { label: "Cursor", command: "cursor" },
+  { label: "Zed", command: "zed" },
+  { label: "Windsurf", command: "windsurf" },
+]
+
+const TERMINAL_PRESETS: CommandPreset[] = [
+  { label: "iTerm2", command: "open -a iTerm" },
+  { label: "Terminal.app", command: "open -a Terminal" },
+  { label: "Warp", command: "open -a Warp" },
+  { label: "Ghostty", command: "open -a Ghostty" },
+]
+
+interface CommandSelectorProps {
+  label: string
+  value: string
+  presets: CommandPreset[]
+  onChange: (cmd: string) => void
+  testId: string
+}
+
+function CommandSelector({ label, value, presets, onChange, testId }: CommandSelectorProps) {
+  const matchesPreset = presets.some((p) => p.command === value)
+  const [forceCustom, setForceCustom] = useState(!matchesPreset)
+  const isCustom = forceCustom || !matchesPreset
+  const selectValue = isCustom ? "custom" : value
+
+  const handleSelectChange = (selected: string) => {
+    if (selected !== "custom") {
+      setForceCustom(false)
+      onChange(selected)
+    } else {
+      setForceCustom(true)
+      // Don't call onChange — just reveal the input with the current value
+    }
+  }
+
+  return (
+    <div>
+      <label className="mb-2 block text-xs text-ovr-text-muted">{label}</label>
+      <div className="flex flex-col gap-2">
+        <Select.Root value={selectValue} onValueChange={handleSelectChange}>
+          <Select.Trigger
+            className="flex w-full max-w-xs cursor-pointer items-center justify-between rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated px-3 py-2 text-xs text-ovr-text-primary focus:border-ovr-azure-500 focus:outline-none"
+            data-testid={`${testId}-trigger`}
+          >
+            <Select.Value />
+            <Select.Icon>
+              <ChevronDown className="size-3 text-ovr-text-dim" />
+            </Select.Icon>
+          </Select.Trigger>
+          <Select.Portal>
+            <Select.Content
+              className="z-[100] overflow-hidden rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated shadow-lg"
+              position="popper"
+              sideOffset={4}
+            >
+              <Select.Viewport className="p-1">
+                {presets.map((preset) => (
+                  <Select.Item
+                    key={preset.command}
+                    value={preset.command}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                  >
+                    <Select.ItemText>{preset.label}</Select.ItemText>
+                  </Select.Item>
+                ))}
+                <Select.Item
+                  value="custom"
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                >
+                  <Select.ItemText>Custom</Select.ItemText>
+                </Select.Item>
+              </Select.Viewport>
+            </Select.Content>
+          </Select.Portal>
+        </Select.Root>
+        {isCustom && (
+          <Input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Enter custom command..."
+            className="max-w-xs px-3 py-2 text-xs"
+            data-testid={`${testId}-custom-input`}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <Settings2 className="size-4" /> },
   { id: "agents", label: "Agents", icon: <Bot className="size-4" /> },
@@ -129,19 +227,77 @@ const GeneralTab = observer(function GeneralTab() {
         </p>
       </div>
 
-      {/* Animations */}
+      {/* External Tools */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-ovr-text-muted">External tools</label>
+        <div className="space-y-4">
+          <CommandSelector
+            label="Editor"
+            value={configStore.editorCommand}
+            presets={EDITOR_PRESETS}
+            onChange={(cmd) => configStore.setEditorCommand(cmd)}
+            testId="editor-command"
+          />
+          <CommandSelector
+            label="Terminal"
+            value={configStore.terminalCommand}
+            presets={TERMINAL_PRESETS}
+            onChange={(cmd) => configStore.setTerminalCommand(cmd)}
+            testId="terminal-command"
+          />
+        </div>
+      </div>
+
+      {/* Appearance */}
       <div>
         <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Appearance</label>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs text-ovr-text-primary">Animations</span>
+              <p className="text-[11px] text-ovr-text-dim">Show spinning and loading animations</p>
+            </div>
+            <Switch.Root
+              checked={configStore.animationsEnabled}
+              onCheckedChange={(checked: boolean) => configStore.setAnimationsEnabled(checked)}
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
+              data-testid="animations-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs text-ovr-text-primary">Terminal open by default</span>
+              <p className="text-[11px] text-ovr-text-dim">Show terminal panel when starting</p>
+            </div>
+            <Switch.Root
+              checked={configStore.terminalOpenByDefault}
+              onCheckedChange={(checked: boolean) => configStore.setTerminalOpenByDefault(checked)}
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
+              data-testid="terminal-open-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+          </div>
+        </div>
+      </div>
+
+      {/* Experimental Features */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Experimental</label>
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-xs text-ovr-text-primary">Animations</span>
-            <p className="text-[11px] text-ovr-text-dim">Show spinning and loading animations</p>
+            <span className="text-xs text-ovr-text-primary">Autonomous Mode</span>
+            <p className="text-[11px] text-ovr-text-dim">
+              Run agent in a loop until task completion
+            </p>
           </div>
           <Switch.Root
-            checked={configStore.animationsEnabled}
-            onCheckedChange={(checked: boolean) => configStore.setAnimationsEnabled(checked)}
+            checked={configStore.autonomousModeEnabled}
+            onCheckedChange={(checked: boolean) => configStore.setAutonomousModeEnabled(checked)}
             className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
-            data-testid="animations-toggle"
+            data-testid="autonomous-mode-toggle"
           >
             <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
           </Switch.Root>
