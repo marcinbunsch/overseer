@@ -53,7 +53,8 @@
     ],
     "macOS": {
       "signingIdentity": null,
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "infoPlist": "Info.plist"
     }
   }
 }
