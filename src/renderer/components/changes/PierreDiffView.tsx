@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { observer } from "mobx-react-lite"
 import { PatchDiff, MultiFileDiff, type FileContents } from "@pierre/diffs/react"
 import type { SelectedLineRange, FileDiffOptions } from "@pierre/diffs"
@@ -46,6 +46,19 @@ export const PierreDiffView = observer(function PierreDiffView({
   onStartReview,
 }: PierreDiffViewProps) {
   const [diffStyle, setDiffStyle] = useState<DiffStyle>("unified")
+
+  // Clear selection when diff content changes to prevent invalid line references
+  // This fixes crashes in @pierre/diffs when selectedLines points to non-existent lines
+  const prevPatchRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (prevPatchRef.current !== undefined && prevPatchRef.current !== patch) {
+      // Patch changed - clear any selection that might reference old lines
+      if (notesStore) {
+        notesStore.discardPending()
+      }
+    }
+    prevPatchRef.current = patch
+  }, [patch, notesStore])
 
   // Map DiffNotesStore selection to @pierre/diffs SelectedLineRange
   // Only show selection if it belongs to this file
