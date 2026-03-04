@@ -36,8 +36,8 @@ export function AuthTokenDialog({ open, onAuthenticated }: AuthTokenDialogProps)
       httpBackend.setAuthToken(token.trim())
 
       // Try a simple invoke to verify the token works
-      // list_projects is a lightweight command that should always work
-      await httpBackend.invoke("list_projects")
+      // load_project_registry is a lightweight command that should always work
+      await httpBackend.invoke("load_project_registry")
 
       // Success - notify parent
       onAuthenticated()
