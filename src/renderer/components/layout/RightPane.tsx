@@ -1,11 +1,32 @@
 import { observer } from "mobx-react-lite"
-import { useCallback, useRef } from "react"
+import { useCallback, useRef, useState, useEffect } from "react"
 import classNames from "classnames"
+import { ChevronDown, ChevronRight } from "lucide-react"
 import { TerminalPane } from "../terminal/TerminalPane"
 import { ChangedFilesPane } from "../changes/ChangedFilesPane"
 import { CommitsPane } from "../changes/CommitsPane"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { configStore } from "../../stores/ConfigStore"
+
+const TERMINAL_OPEN_KEY = "overseer:terminalOpen"
+
+function getTerminalOpenState(): boolean | null {
+  try {
+    const raw = localStorage.getItem(TERMINAL_OPEN_KEY)
+    if (raw === null) return null
+    return raw === "true"
+  } catch {
+    return null
+  }
+}
+
+function setTerminalOpenState(open: boolean): void {
+  try {
+    localStorage.setItem(TERMINAL_OPEN_KEY, String(open))
+  } catch {
+    // localStorage unavailable
+  }
+}
 
 type RightPaneTab = "changes" | "commits"
 
@@ -64,6 +85,27 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
   const changesHeight = useRef(configStore.changesHeight)
   const selectedTab = configStore.rightPaneTab as RightPaneTab
 
+  // Terminal open state: use localStorage if set, otherwise use default from config
+  const [terminalOpen, setTerminalOpen] = useState(() => {
+    const stored = getTerminalOpenState()
+    return stored !== null ? stored : configStore.terminalOpenByDefault
+  })
+
+  // Sync with configStore default when it loads
+  const { loaded, terminalOpenByDefault } = configStore
+  useEffect(() => {
+    const stored = getTerminalOpenState()
+    if (stored === null && loaded) {
+      setTerminalOpen(terminalOpenByDefault)
+    }
+  }, [loaded, terminalOpenByDefault])
+
+  const handleToggleTerminal = useCallback(() => {
+    const newState = !terminalOpen
+    setTerminalOpen(newState)
+    setTerminalOpenState(newState)
+  }, [terminalOpen])
+
   const handleDrag = useCallback((delta: number, isStart: boolean) => {
     if (isStart) changesHeight.current = configStore.changesHeight
     const newHeight = Math.max(80, changesHeight.current + delta)
@@ -110,8 +152,10 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
             </button>
           </div>
           <div
-            className="flex flex-col overflow-hidden"
-            style={{ height: configStore.changesHeight, minHeight: 80 }}
+            className={classNames("flex flex-col overflow-hidden", {
+              "min-h-0 flex-1": !terminalOpen,
+            })}
+            style={terminalOpen ? { height: configStore.changesHeight, minHeight: 80 } : undefined}
           >
             <div className="min-h-0 flex-1 overflow-hidden">
               {workspace?.isCreating ? (
@@ -130,29 +174,39 @@ export const RightPane = observer(function RightPane({ width }: { width: number 
                 </div>
               )}
             </div>
-            {/* Drag handle at bottom of changes pane */}
-            <HorizontalDragHandle onDrag={handleDrag} onDragEnd={handleDragEnd} />
+            {/* Drag handle at bottom of changes pane - only when terminal is open */}
+            {terminalOpen && <HorizontalDragHandle onDrag={handleDrag} onDragEnd={handleDragEnd} />}
           </div>
         </>
       )}
 
       {/* Terminal section (bottom) */}
-      <div className="flex shrink-0 items-center border-b border-ovr-border-subtle px-3 py-2">
-        <span className="text-xs font-semibold text-ovr-text-muted">TERMINAL</span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {workspace?.isCreating ? (
-          <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
-            Workspace initializing...
-          </div>
-        ) : workspace ? (
-          <TerminalPane workspacePath={workspace.path} workspaceRoot={project?.path} />
+      <button
+        onClick={handleToggleTerminal}
+        className="flex shrink-0 cursor-pointer items-center gap-1 border-b border-ovr-border-subtle px-3 py-2 transition-colors hover:bg-ovr-bg-panel-hover"
+      >
+        {terminalOpen ? (
+          <ChevronDown size={14} className="text-ovr-text-dim" />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
-            No workspace selected
-          </div>
+          <ChevronRight size={14} className="text-ovr-text-dim" />
         )}
-      </div>
+        <span className="text-xs font-semibold text-ovr-text-muted">TERMINAL</span>
+      </button>
+      {terminalOpen && (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {workspace?.isCreating ? (
+            <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
+              Workspace initializing...
+            </div>
+          ) : workspace ? (
+            <TerminalPane workspacePath={workspace.path} workspaceRoot={project?.path} />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
+              No workspace selected
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 })

@@ -45,6 +45,7 @@ interface Config {
   animationsEnabled?: boolean
   showClaudeUsageIndicator?: boolean
   autonomousModeEnabled?: boolean
+  terminalOpenByDefault?: boolean
   httpServer?: HttpServerConfig
 }
 
@@ -151,6 +152,7 @@ class ConfigStore {
   @observable animationsEnabled: boolean = false
   @observable showClaudeUsageIndicator: boolean = false
   @observable autonomousModeEnabled: boolean = false
+  @observable terminalOpenByDefault: boolean = false
   @observable agentShell: string = ""
   @observable settingsOpen: boolean = false
   @observable loaded: boolean = false
@@ -268,6 +270,7 @@ class ConfigStore {
         this.animationsEnabled = parsed.animationsEnabled ?? false
         this.showClaudeUsageIndicator = parsed.showClaudeUsageIndicator ?? false
         this.autonomousModeEnabled = parsed.autonomousModeEnabled ?? false
+        this.terminalOpenByDefault = parsed.terminalOpenByDefault ?? false
         this.agentShell = parsed.agentShell ?? ""
         // HTTP Server settings
         if (parsed.httpServer) {
@@ -323,6 +326,7 @@ class ConfigStore {
         animationsEnabled: this.animationsEnabled,
         showClaudeUsageIndicator: this.showClaudeUsageIndicator,
         autonomousModeEnabled: this.autonomousModeEnabled,
+        terminalOpenByDefault: this.terminalOpenByDefault,
         agentShell: this.agentShell || undefined,
         httpServer: {
           host: this.httpServerHost,
@@ -463,6 +467,11 @@ class ConfigStore {
 
   @action setAutonomousModeEnabled(enabled: boolean) {
     this.autonomousModeEnabled = enabled
+    this.save()
+  }
+
+  @action setTerminalOpenByDefault(enabled: boolean) {
+    this.terminalOpenByDefault = enabled
     this.save()
   }
 

@@ -509,6 +509,15 @@ export class ChatStore {
     }
   }
 
+  /**
+   * Add a system info message to the chat.
+   * Used for showing workspace setup status, errors, etc.
+   */
+  @action addSystemMessage(content: string): void {
+    this.pushMsg(content, undefined, true)
+    void this.persistLocalAssistantMessage(content, true)
+  }
+
   // --- Autonomous Mode ---
 
   @action

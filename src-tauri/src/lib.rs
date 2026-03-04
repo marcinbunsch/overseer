@@ -606,6 +606,7 @@ pub fn run() {
             persistence::load_project_registry,
             persistence::upsert_project,
             persistence::remove_project,
+            persistence::run_post_create_command,
             persistence::save_json_config,
             persistence::load_json_config,
             persistence::config_file_exists,

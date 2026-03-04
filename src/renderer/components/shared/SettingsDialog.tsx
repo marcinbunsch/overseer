@@ -52,11 +52,6 @@ const TERMINAL_PRESETS: CommandPreset[] = [
   { label: "Ghostty", command: "open -a Ghostty" },
 ]
 
-function getSelectValue(command: string, presets: CommandPreset[]): string {
-  const match = presets.find((p) => p.command === command)
-  return match ? match.command : "custom"
-}
-
 interface CommandSelectorProps {
   label: string
   value: string
@@ -252,22 +247,38 @@ const GeneralTab = observer(function GeneralTab() {
         </div>
       </div>
 
-      {/* Animations */}
+      {/* Appearance */}
       <div>
         <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Appearance</label>
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-xs text-ovr-text-primary">Animations</span>
-            <p className="text-[11px] text-ovr-text-dim">Show spinning and loading animations</p>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs text-ovr-text-primary">Animations</span>
+              <p className="text-[11px] text-ovr-text-dim">Show spinning and loading animations</p>
+            </div>
+            <Switch.Root
+              checked={configStore.animationsEnabled}
+              onCheckedChange={(checked: boolean) => configStore.setAnimationsEnabled(checked)}
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
+              data-testid="animations-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
           </div>
-          <Switch.Root
-            checked={configStore.animationsEnabled}
-            onCheckedChange={(checked: boolean) => configStore.setAnimationsEnabled(checked)}
-            className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
-            data-testid="animations-toggle"
-          >
-            <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
-          </Switch.Root>
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs text-ovr-text-primary">Terminal open by default</span>
+              <p className="text-[11px] text-ovr-text-dim">Show terminal panel when starting</p>
+            </div>
+            <Switch.Root
+              checked={configStore.terminalOpenByDefault}
+              onCheckedChange={(checked: boolean) => configStore.setTerminalOpenByDefault(checked)}
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
+              data-testid="terminal-open-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+          </div>
         </div>
       </div>
 
