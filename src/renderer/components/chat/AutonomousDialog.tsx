@@ -1,16 +1,24 @@
 import * as AlertDialog from "@radix-ui/react-alert-dialog"
+import * as Select from "@radix-ui/react-select"
 import { useState, useEffect } from "react"
+import { ChevronDown } from "lucide-react"
+import { observer } from "mobx-react-lite"
 import { Textarea } from "../shared/Textarea"
 import { Input } from "../shared/Input"
+import { Checkbox } from "../shared/Checkbox"
+import { ModelSelector } from "./ModelSelector"
+import { configStore } from "../../stores/ConfigStore"
+import { getAgentDisplayName } from "../../utils/agentDisplayName"
+import type { AgentType, AutonomousReviewConfig } from "../../types"
 
 interface AutonomousDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   initialPrompt: string
-  onStart: (prompt: string, maxIterations: number) => void
+  onStart: (prompt: string, maxIterations: number, reviewConfig?: AutonomousReviewConfig) => void
 }
 
-export function AutonomousDialog({
+export const AutonomousDialog = observer(function AutonomousDialog({
   open,
   onOpenChange,
   initialPrompt,
@@ -18,18 +26,32 @@ export function AutonomousDialog({
 }: AutonomousDialogProps) {
   const [prompt, setPrompt] = useState(initialPrompt)
   const [maxIterations, setMaxIterations] = useState(25)
+  const [useReviewAgent, setUseReviewAgent] = useState(false)
+  const [reviewAgentType, setReviewAgentType] = useState<AgentType>("claude")
+  const [reviewModelVersion, setReviewModelVersion] = useState<string | null>(null)
 
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setPrompt(initialPrompt)
       setMaxIterations(25)
+      setUseReviewAgent(false)
+      setReviewAgentType("claude")
+      setReviewModelVersion(null)
     }
   }, [open, initialPrompt])
 
+  // Reset model when agent type changes
+  useEffect(() => {
+    setReviewModelVersion(null)
+  }, [reviewAgentType])
+
   const handleStart = () => {
     if (!prompt.trim()) return
-    onStart(prompt.trim(), maxIterations)
+    const reviewConfig: AutonomousReviewConfig | undefined = useReviewAgent
+      ? { agentType: reviewAgentType, modelVersion: reviewModelVersion }
+      : undefined
+    onStart(prompt.trim(), maxIterations, reviewConfig)
     onOpenChange(false)
   }
 
@@ -92,6 +114,61 @@ export function AutonomousDialog({
                 <span>All tool requests auto-approved</span>
               </div>
             </div>
+
+            {/* Review agent configuration */}
+            <div className="flex flex-col gap-3 rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated px-3 py-2.5">
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={useReviewAgent}
+                  onChange={(e) => setUseReviewAgent(e.target.checked)}
+                  data-testid="autonomous-use-review-agent-checkbox"
+                />
+                <span className="text-xs font-medium text-ovr-text-secondary">
+                  Use a different model for review steps
+                </span>
+              </label>
+
+              {useReviewAgent && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-ovr-text-muted">Agent</label>
+                  <Select.Root
+                    value={reviewAgentType}
+                    onValueChange={(v) => setReviewAgentType(v as AgentType)}
+                  >
+                    <Select.Trigger
+                      className="flex items-center gap-1.5 rounded-lg border border-ovr-border-subtle bg-ovr-bg-panel px-3 py-2 text-xs text-ovr-text-primary outline-none"
+                      data-testid="autonomous-review-agent-select"
+                    >
+                      <Select.Value />
+                      <ChevronDown size={12} className="text-ovr-text-muted" />
+                    </Select.Trigger>
+                    <Select.Portal>
+                      <Select.Content className="z-[200] rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated shadow-lg">
+                        <Select.Viewport className="p-1">
+                          {configStore.enabledAgents.map((agent) => (
+                            <Select.Item
+                              key={agent}
+                              value={agent}
+                              className="cursor-pointer rounded px-2 py-1.5 text-xs text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                            >
+                              <Select.ItemText>{getAgentDisplayName(agent)}</Select.ItemText>
+                            </Select.Item>
+                          ))}
+                        </Select.Viewport>
+                      </Select.Content>
+                    </Select.Portal>
+                  </Select.Root>
+
+                  <label className="text-xs text-ovr-text-muted">Model</label>
+                  <ModelSelector
+                    value={reviewModelVersion}
+                    onChange={setReviewModelVersion}
+                    agentType={reviewAgentType}
+                    data-testid="autonomous-review-model-select"
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="mt-5 flex justify-end gap-3">
@@ -113,4 +190,4 @@ export function AutonomousDialog({
       </AlertDialog.Portal>
     </AlertDialog.Root>
   )
-}
+})

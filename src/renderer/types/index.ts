@@ -72,6 +72,8 @@ export interface MessageMeta {
   maxIterations?: number
   /** Phase of autonomous loop iteration */
   phase?: "implementation" | "review"
+  /** Display label for the review agent (e.g. "Gemini 2.5 Pro") when a review agent is configured */
+  reviewAgentLabel?: string
 }
 
 export interface Message {
@@ -114,6 +116,12 @@ export interface AgentQuestion {
 // --- Agent Types ---
 
 export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "opencode"
+
+/** Config for using a different agent/model during the review phase of autonomous mode */
+export interface AutonomousReviewConfig {
+  agentType: AgentType
+  modelVersion: string | null
+}
 
 // --- Model selection ---
 

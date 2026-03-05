@@ -20,9 +20,32 @@ const mockAgentService = {
   attachListeners: vi.fn(() => Promise.resolve()),
 }
 
+const mockReviewAgentService = {
+  onEvent: vi.fn(),
+  onDone: vi.fn(),
+  sendMessage: vi.fn(() => Promise.resolve()),
+  sendToolApproval: vi.fn(() => Promise.resolve()),
+  interruptTurn: vi.fn(),
+  stopChat: vi.fn(),
+  removeChat: vi.fn(),
+  isRunning: vi.fn(() => false),
+  setSessionId: vi.fn(),
+  getSessionId: vi.fn(() => null),
+  attachListeners: vi.fn(() => Promise.resolve()),
+}
+
+// Track which agent type createAgentService was last called with
+let lastCreateAgentServiceCall: string | null = null
+
 vi.mock("../../services/agentRegistry", () => ({
   getAgentService: () => mockAgentService,
-  createAgentService: () => mockAgentService,
+  // Return the primary mock for "claude" (the default test agent type),
+  // and the review mock for any other agent type (e.g. "gemini").
+  // This lets us verify review service routing in cross-agent scenarios.
+  createAgentService: (agentType: string) => {
+    lastCreateAgentServiceCall = agentType
+    return agentType === "gemini" ? mockReviewAgentService : mockAgentService
+  },
 }))
 
 // Mock ConfigStore
@@ -34,6 +57,15 @@ vi.mock("../ConfigStore", () => ({
     codexApprovalPolicy: "untrusted",
     agentShell: "zsh -l -c",
     loaded: true,
+    getModelsForAgent: (agentType: string) => {
+      if (agentType === "claude") {
+        return [{ alias: "claude-haiku-4-5", displayName: "Haiku 4.5" }]
+      }
+      if (agentType === "gemini") {
+        return [{ alias: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" }]
+      }
+      return []
+    },
   },
 }))
 
@@ -93,6 +125,7 @@ function createChatStore(
 describe("ChatStore", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    lastCreateAgentServiceCall = null
     localStorage.clear()
     vi.mocked(invoke).mockImplementation(async (command, args) => {
       switch (command) {
@@ -1753,7 +1786,7 @@ Live text.`,
       expect(store.chat.permissionMode).toBe("bypassPermissions")
     })
 
-    it("sets full-auto for codex agent", async () => {
+    it("sets never for codex agent", async () => {
       vi.mocked(invoke).mockResolvedValue({
         kind: "userMessage",
         id: "user-1",
@@ -1766,7 +1799,7 @@ Live text.`,
       await store.startAutonomousRun("test prompt", 5)
 
       // The permission mode should be set to Codex's YOLO value
-      expect(store.chat.permissionMode).toBe("full-auto")
+      expect(store.chat.permissionMode).toBe("never")
     })
 
     it("sets yolo for gemini agent", async () => {
@@ -2042,6 +2075,220 @@ Live text.`,
       expect(writeFileCalls[1].content).toContain("# Autonomous Progress")
       expect(writeFileCalls[2].path).toBe("/tmp/test-workspace/autonomous-review.md")
       expect(writeFileCalls[2].content).toContain("# Autonomous Review")
+    })
+  })
+
+  describe("Autonomous mode review config", () => {
+    beforeEach(() => {
+      vi.mocked(invoke).mockResolvedValue({
+        kind: "userMessage",
+        id: "user-1",
+        content: "test",
+        meta: null,
+      })
+    })
+
+    it("sets review agent type and model version from reviewConfig", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startAutonomousRun("test prompt", 5, {
+        agentType: "gemini",
+        modelVersion: "gemini-2.5-pro",
+      })
+
+      expect(store.autonomousReviewAgentType).toBe("gemini")
+      expect(store.autonomousReviewModelVersion).toBe("gemini-2.5-pro")
+    })
+
+    it("sets null review config when no reviewConfig provided", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startAutonomousRun("test prompt", 5)
+
+      expect(store.autonomousReviewAgentType).toBeNull()
+      expect(store.autonomousReviewModelVersion).toBeNull()
+    })
+
+    it("uses review agent YOLO mode during review phase with different agent", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      // Start with gemini review config
+      await store.startAutonomousRun("test prompt", 5, {
+        agentType: "gemini",
+        modelVersion: null,
+      })
+
+      // Iteration 1 is implementation - should use Claude's YOLO mode
+      expect(store.chat.permissionMode).toBe("bypassPermissions")
+
+      // Move to review phase and run next iteration
+      runInAction(() => {
+        store.autonomousPhase = "review"
+      })
+      await (store as any).runNextIteration()
+
+      // Review phase with Gemini should use Gemini's YOLO mode
+      expect(store.chat.permissionMode).toBe("yolo")
+    })
+
+    it("uses review model version for same-agent different-model review", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startAutonomousRun("test prompt", 5, {
+        agentType: "claude",
+        modelVersion: "claude-haiku-4-5",
+      })
+
+      expect(store.autonomousReviewAgentType).toBe("claude")
+      expect(store.autonomousReviewModelVersion).toBe("claude-haiku-4-5")
+    })
+
+    it("clears review config on new run start", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      // Start with review config
+      await store.startAutonomousRun("test prompt", 5, {
+        agentType: "gemini",
+        modelVersion: null,
+      })
+      expect(store.autonomousReviewAgentType).toBe("gemini")
+
+      // Stop and start without review config
+      store.stopAutonomousRun()
+      await store.startAutonomousRun("test prompt 2", 5)
+      expect(store.autonomousReviewAgentType).toBeNull()
+      expect(store.autonomousReviewModelVersion).toBeNull()
+    })
+
+    it("creates review service with the review agent type", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startAutonomousRun("test prompt", 5, {
+        agentType: "gemini",
+        modelVersion: null,
+      })
+
+      // Move to review phase and run next iteration to trigger review service creation
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+
+      expect(lastCreateAgentServiceCall).toBe("gemini")
+    })
+
+    it("routes review iteration sendMessage through review service", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startAutonomousRun("test prompt", 5, {
+        agentType: "gemini",
+        modelVersion: null,
+      })
+
+      // Primary service sendMessage is called for iteration 1 (impl phase)
+      const primaryCallsBefore = mockAgentService.sendMessage.mock.calls.length
+
+      // Move to review phase; reset isSending so sendMessage proceeds
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+
+      // Review service should have been called, primary service call count unchanged
+      expect(mockReviewAgentService.sendMessage).toHaveBeenCalled()
+      expect(mockAgentService.sendMessage.mock.calls.length).toBe(primaryCallsBefore)
+    })
+
+    it("passes review model version to sendMessage during review phase", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startAutonomousRun("test prompt", 5, {
+        agentType: "gemini",
+        modelVersion: "gemini-2.5-pro",
+      })
+
+      // Move to review phase; reset isSending so sendMessage proceeds
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+
+      // sendMessage positional args: chatId, prompt, workingDir, logDir, modelVersion, ...
+      // modelVersion is the 5th argument (index 4)
+      expect(mockReviewAgentService.sendMessage).toHaveBeenCalled()
+      const callArgs = mockReviewAgentService.sendMessage.mock.calls[0]
+      expect(callArgs[4]).toBe("gemini-2.5-pro")
+    })
+
+    it("stopGeneration interrupts review service when in review phase", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startAutonomousRun("test prompt", 5, {
+        agentType: "gemini",
+        modelVersion: null,
+      })
+
+      // Move to review phase; reset isSending so runNextIteration creates the review service
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+
+      // Now stop — should interrupt the review service
+      store.stopGeneration()
+
+      expect(mockReviewAgentService.interruptTurn).toHaveBeenCalled()
+      expect(mockAgentService.interruptTurn).not.toHaveBeenCalled()
+    })
+
+    it("includes reviewAgentLabel in message meta when review agent is configured", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startAutonomousRun("test prompt", 5, {
+        agentType: "gemini",
+        modelVersion: "gemini-2.5-pro",
+      })
+
+      // Move to review phase; reset isSending so sendMessage proceeds
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+
+      // The loop message sent should have reviewAgentLabel in its meta
+      const addUserMessageCalls = vi.mocked(invoke).mock.calls.filter(
+        ([cmd]) => cmd === "add_user_message"
+      )
+      const lastCall = addUserMessageCalls[addUserMessageCalls.length - 1]
+      const meta = (lastCall[1] as { meta?: Record<string, unknown> })?.meta
+      expect(meta?.reviewAgentLabel).toBe("Gemini 2.5 Pro")
+    })
+
+    it("does not include reviewAgentLabel during implementation phase", async () => {
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startAutonomousRun("test prompt", 5, {
+        agentType: "gemini",
+        modelVersion: "gemini-2.5-pro",
+      })
+
+      // Phase starts as implementation — first iteration is impl
+      const addUserMessageCalls = vi.mocked(invoke).mock.calls.filter(
+        ([cmd]) => cmd === "add_user_message"
+      )
+      const loopMessages = addUserMessageCalls.filter(([, args]) => {
+        const meta = (args as { meta?: Record<string, unknown> })?.meta
+        return meta?.autonomousType === "autonomous-loop"
+      })
+      if (loopMessages.length > 0) {
+        const meta = (loopMessages[0][1] as { meta?: Record<string, unknown> })?.meta
+        expect(meta?.reviewAgentLabel).toBeUndefined()
+      }
     })
   })
 })

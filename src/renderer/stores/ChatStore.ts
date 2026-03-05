@@ -12,6 +12,7 @@ import type {
   PendingPlanApproval,
   AgentType,
   AutonomousMessageType,
+  AutonomousReviewConfig,
 } from "../types"
 import { groupMessagesIntoTurns } from "../utils/groupMessagesIntoTurns"
 import { createAgentService } from "../services/agentRegistry"
@@ -97,6 +98,8 @@ export class ChatStore {
   @observable autonomousMaxIterations: number = 25
   @observable autonomousSessionId: string = ""
   @observable autonomousPhase: "implementation" | "review" = "implementation"
+  @observable autonomousReviewAgentType: AgentType | null = null
+  @observable autonomousReviewModelVersion: string | null = null
   /** Accumulated text from the current iteration for completion detection */
   private autonomousCurrentIterationText: string = ""
   /** Original permission mode to restore after autonomous run completes. undefined = not set */
@@ -110,6 +113,10 @@ export class ChatStore {
   private _service: AgentService | null = null
   /** Agent type the cached service was created for */
   private _serviceAgentType: AgentType | undefined = undefined
+  /** Cached review agent service (used during autonomous review phase) */
+  private _reviewService: AgentService | null = null
+  /** Agent type the cached review service was created for */
+  private _reviewServiceAgentType: AgentType | null = null
 
   constructor(chat: Chat, context: ChatStoreContext) {
     this.chat = chat
@@ -197,6 +204,24 @@ export class ChatStore {
     return this._service
   }
 
+  /**
+   * Get or create the review agent service for autonomous mode review iterations.
+   * Returns null if no review agent is configured.
+   * Registers event callbacks so review agent events flow to the same chat handlers.
+   */
+  private get reviewService(): AgentService | null {
+    if (!this.autonomousReviewAgentType) return null
+    if (this._reviewService && this._reviewServiceAgentType !== this.autonomousReviewAgentType) {
+      this._reviewService = null
+    }
+    if (!this._reviewService) {
+      this._reviewService = createAgentService(this.autonomousReviewAgentType, this.backend)
+      this._reviewServiceAgentType = this.autonomousReviewAgentType
+      this.registerCallbacksForService(this._reviewService)
+    }
+    return this._reviewService
+  }
+
   // --- Public actions ---
 
   @action async ensureLoaded(): Promise<void> {
@@ -209,15 +234,24 @@ export class ChatStore {
     content: string,
     workspacePath: string,
     meta?: MessageMeta,
-    attachments?: Attachment[]
+    attachments?: Attachment[],
+    opts?: {
+      /** Override the agent service (used for autonomous review with a different agent) */
+      service?: AgentService
+      /** Override the model version (used for autonomous review with a different model) */
+      modelVersion?: string | null
+      /** Override the permission mode (used for autonomous review with a different agent) */
+      permissionMode?: string | null
+    }
   ): Promise<void> {
+    const activeService = opts?.service ?? this.service
     // If agent is responding, queue as follow-up instead
     if (this.isSending) {
       this.pendingFollowUps.push(content)
       this.setDraft("")
       return
     }
-    if (!this.service) return // Can't send without an agent
+    if (!activeService) return // Can't send without an agent
 
     // Pass initPrompt only on the first message of a new session
     const isFirstMessage = this.chat.messages.length === 0
@@ -245,13 +279,17 @@ export class ChatStore {
 
     try {
       const logDir = (await this.context?.getChatDir()) ?? undefined
-      // Use chat's permission mode if set, otherwise fall back to global config
+      // Use opts override if provided, otherwise derive from chat's agent type and permission mode
       const permissionMode =
-        this.chat.agentType === "claude"
-          ? (this.chat.permissionMode ?? configStore.claudePermissionMode)
-          : this.chat.agentType === "codex"
-            ? configStore.codexApprovalPolicy
-            : null
+        opts?.permissionMode !== undefined
+          ? opts.permissionMode
+          : this.chat.agentType === "claude"
+            ? (this.chat.permissionMode ?? configStore.claudePermissionMode)
+            : this.chat.agentType === "codex"
+              ? configStore.codexApprovalPolicy
+              : null
+      const modelVersion =
+        opts?.modelVersion !== undefined ? opts.modelVersion : this.chat.modelVersion
       const projectName = this.context?.getProjectName() ?? ""
 
       // Prepend attachment paths to the message so the agent can read the files
@@ -261,12 +299,12 @@ export class ChatStore {
         messageContent = `[Attached files:\n${pathList}]\n\n${content}`
       }
 
-      await this.service.sendMessage(
+      await activeService.sendMessage(
         this.chat.id,
         messageContent,
         workspacePath,
         logDir,
-        this.chat.modelVersion,
+        modelVersion,
         permissionMode,
         initPrompt,
         projectName
@@ -289,8 +327,13 @@ export class ChatStore {
   }
 
   @action stopGeneration(): void {
-    if (!this.service) return
-    this.service.interruptTurn(this.chat.id)
+    // During autonomous review with a different agent, interrupt the review service
+    const activeService =
+      this.autonomousRunning && this.autonomousPhase === "review" && this._reviewService
+        ? this._reviewService
+        : this.service
+    if (!activeService) return
+    activeService.interruptTurn(this.chat.id)
     this.chat.messages.push({
       id: crypto.randomUUID(),
       role: "assistant",
@@ -545,7 +588,11 @@ export class ChatStore {
   // --- Autonomous Mode ---
 
   @action
-  async startAutonomousRun(prompt: string, maxIterations: number): Promise<void> {
+  async startAutonomousRun(
+    prompt: string,
+    maxIterations: number,
+    reviewConfig?: AutonomousReviewConfig
+  ): Promise<void> {
     const workspacePath = this.context.getWorkspacePath()
     if (!workspacePath) return
 
@@ -566,6 +613,8 @@ export class ChatStore {
     this.autonomousIteration = 0
     this.autonomousMaxIterations = maxIterations
     this.autonomousPhase = "implementation"
+    this.autonomousReviewAgentType = reviewConfig?.agentType ?? null
+    this.autonomousReviewModelVersion = reviewConfig?.modelVersion ?? null
     // Save original permission mode to restore after autonomous run completes
     this.originalPermissionMode = this.chat.permissionMode
 
@@ -634,29 +683,58 @@ export class ChatStore {
     this.autonomousCurrentIterationText = ""
 
     // Force new session for each iteration by clearing the session ID
-    // This ensures Claude CLI starts fresh without trying to --resume
+    // This ensures the agent CLI starts fresh without trying to --resume
     this.chat.agentSessionId = null
     if (this.service) {
       this.service.setSessionId(this.chat.id, null)
     }
 
-    // Force YOLO mode for autonomous runs (each agent has different YOLO value)
-    this.chat.permissionMode = this.getYoloModeValue()
+    // Determine if this review iteration should use a different agent/model
+    const isReview = this.autonomousPhase === "review"
+    const useReviewAgent = isReview && this.autonomousReviewAgentType !== null
+    const reviewService = useReviewAgent ? this.reviewService : undefined
+
+    if (useReviewAgent && reviewService) {
+      // Clear session on review service too
+      reviewService.setSessionId(this.chat.id, null)
+    }
+
+    // Force YOLO mode — use review agent's YOLO value if applicable
+    const agentTypeForYolo =
+      useReviewAgent && this.autonomousReviewAgentType
+        ? this.autonomousReviewAgentType
+        : (this.chat.agentType ?? "claude")
+    this.chat.permissionMode = this.getYoloModeValueForAgent(agentTypeForYolo)
 
     // Generate and send loop prompt (the message itself serves as the iteration marker)
-    const isReview = this.autonomousPhase === "review"
     const loopPrompt = isReview ? this.generateReviewPrompt() : this.generateLoopPrompt()
     const workspacePath = this.context.getWorkspacePath()
 
+    // Build review agent label for display (e.g. "Haiku 4.5" or "Gemini 2.5 Pro")
+    const reviewAgentLabel = useReviewAgent ? this.getReviewAgentLabel() : undefined
+
     try {
-      await this.sendMessage(loopPrompt, workspacePath, {
-        type: "system",
-        label: isReview ? "Review Step" : "Autonomous Loop",
-        autonomousType: "autonomous-loop",
-        iteration: this.autonomousIteration,
-        maxIterations: this.autonomousMaxIterations,
-        phase: this.autonomousPhase,
-      })
+      await this.sendMessage(
+        loopPrompt,
+        workspacePath,
+        {
+          type: "system",
+          label: isReview ? "Review Step" : "Autonomous Loop",
+          autonomousType: "autonomous-loop",
+          iteration: this.autonomousIteration,
+          maxIterations: this.autonomousMaxIterations,
+          phase: this.autonomousPhase,
+          reviewAgentLabel,
+        },
+        undefined,
+        useReviewAgent
+          ? {
+              service: reviewService ?? undefined,
+              modelVersion: this.autonomousReviewModelVersion,
+              permissionMode: this.getYoloModeValueForAgent(agentTypeForYolo),
+            }
+          : undefined
+      )
     } catch (err) {
       console.error("Error in autonomous iteration:", err)
       this.finishAutonomousRun("Error during iteration")
@@ -677,20 +755,19 @@ export class ChatStore {
   }
 
   /**
-   * Returns the appropriate YOLO/auto-approve permission mode value for the current agent type.
+   * Returns the appropriate YOLO/auto-approve permission mode value for the given agent type.
    * Each agent has different naming:
    * - Claude: "bypassPermissions"
-   * - Codex: "full-auto"
+   * - Codex: "never"
    * - Gemini: "yolo"
    * - Copilot/OpenCode: Don't use permission modes (value ignored)
    */
-  private getYoloModeValue(): string {
-    const agentType = this.chat.agentType ?? "claude"
+  private getYoloModeValueForAgent(agentType: AgentType): string {
     switch (agentType) {
       case "claude":
         return "bypassPermissions"
       case "codex":
-        return "full-auto"
+        return "never"
       case "gemini":
         return "yolo"
       case "copilot":
@@ -700,6 +777,27 @@ export class ChatStore {
       default:
         return "bypassPermissions"
     }
+  }
+
+  /**
+   * Returns a human-readable label for the review agent, e.g. "Haiku 4.5" or "Gemini 2.5 Pro".
+   * Used to display which agent/model is performing review in the UI.
+   */
+  private getReviewAgentLabel(): string | undefined {
+    if (!this.autonomousReviewAgentType) return undefined
+    const agentType = this.autonomousReviewAgentType
+    const modelVersion = this.autonomousReviewModelVersion
+
+    if (modelVersion) {
+      // Try to find a display name from the config's model list
+      const models = configStore.getModelsForAgent(agentType)
+      const match = models.find((m) => m.alias === modelVersion)
+      if (match) return match.displayName
+      return modelVersion
+    }
+
+    // Fall back to the agent type name
+    return agentType.charAt(0).toUpperCase() + agentType.slice(1)
   }
 
   private generateLoopPrompt(): string {
@@ -833,22 +931,25 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
   dispose(): void {
     this.sessionRegistered = false
     void this.backend.invoke("unregister_chat_session", { chatId: this.chat.id })
+    if (this._reviewService) {
+      this._reviewService.removeChat(this.chat.id)
+      this._reviewService = null
+      this._reviewServiceAgentType = null
+    }
   }
 
   // --- Agent event handling ---
 
   /**
-   * Register callbacks with the agent service.
-   * Called during construction (if agent type is set) and when agent type changes.
-   * Safe to call multiple times - agent services handle re-registration.
+   * Register event and done callbacks on the given service for this chat's ID.
+   * Can be called for both the primary service and the review service.
    */
-  registerCallbacks(): void {
-    if (!this.service) return
-    this.service.onEvent(this.chat.id, (event: AgentEvent) => {
+  private registerCallbacksForService(service: AgentService): void {
+    service.onEvent(this.chat.id, (event: AgentEvent) => {
       this.handleAgentEvent(event)
     })
 
-    this.service.onDone(this.chat.id, () => {
+    service.onDone(this.chat.id, () => {
       runInAction(() => {
         this.isSending = false
         // Show "done" status unless user is actively viewing this chat
@@ -862,6 +963,16 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
         this.pendingFollowUps = []
       })
     })
+  }
+
+  /**
+   * Register callbacks with the agent service.
+   * Called during construction (if agent type is set) and when agent type changes.
+   * Safe to call multiple times - agent services handle re-registration.
+   */
+  registerCallbacks(): void {
+    if (!this.service) return
+    this.registerCallbacksForService(this.service)
   }
 
   private handleAgentEvent(event: AgentEvent): void {

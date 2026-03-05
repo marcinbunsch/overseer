@@ -46,6 +46,49 @@ describe("AutonomousMessage", () => {
     expect(screen.getByText(/Iteration 1 of 25/)).toBeInTheDocument()
   })
 
+  it("shows review agent label in loop message header during review phase", () => {
+    const message: Message = {
+      id: "test-id",
+      role: "user",
+      content: "Review prompt content",
+      timestamp: new Date(),
+      meta: {
+        type: "system",
+        label: "Review Step",
+        autonomousType: "autonomous-loop",
+        iteration: 2,
+        maxIterations: 5,
+        phase: "review",
+        reviewAgentLabel: "Gemini 2.5 Pro",
+      },
+    }
+    render(<AutonomousMessage message={message} />)
+
+    expect(screen.getByText(/Review via Gemini 2.5 Pro/)).toBeInTheDocument()
+    expect(screen.getByText(/Iteration 2 of 5/)).toBeInTheDocument()
+  })
+
+  it("shows plain Review label when phase is review but no reviewAgentLabel", () => {
+    const message: Message = {
+      id: "test-id",
+      role: "user",
+      content: "Review prompt content",
+      timestamp: new Date(),
+      meta: {
+        type: "system",
+        label: "Review Step",
+        autonomousType: "autonomous-loop",
+        iteration: 3,
+        maxIterations: 5,
+        phase: "review",
+      },
+    }
+    render(<AutonomousMessage message={message} />)
+
+    expect(screen.getByText(/\(Review\)/)).toBeInTheDocument()
+    expect(screen.queryByText(/Review via/)).not.toBeInTheDocument()
+  })
+
   it("renders autonomous-complete message", () => {
     const message = createMessage("autonomous-complete", "Autonomous Mode Complete — Task finished")
     render(<AutonomousMessage message={message} />)

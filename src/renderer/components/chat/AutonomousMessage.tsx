@@ -22,7 +22,9 @@ export function AutonomousMessage({ message }: AutonomousMessageProps) {
 
   // Generate the header text for loop messages
   const phase = message.meta?.phase
-  const phaseLabel = phase === "review" ? " (Review)" : ""
+  const reviewAgentLabel = message.meta?.reviewAgentLabel
+  const phaseLabel =
+    phase === "review" ? (reviewAgentLabel ? ` (Review via ${reviewAgentLabel})` : " (Review)") : ""
   const headerText = isLoopMessage
     ? `🔄 **Iteration ${iteration} of ${maxIterations}${phaseLabel}**`
     : message.content

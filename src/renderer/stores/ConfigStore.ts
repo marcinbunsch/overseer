@@ -5,7 +5,7 @@ import { backend } from "../backend"
 import { remoteServerStore, type RemoteServerConfig } from "./RemoteServerStore"
 
 export type ClaudePermissionMode = "default" | "acceptEdits" | "bypassPermissions"
-export type CodexApprovalPolicy = "untrusted" | "full-auto"
+export type CodexApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never"
 export type GeminiApprovalMode = "yolo" | "auto_edit"
 
 interface HttpServerConfig {
@@ -67,6 +67,21 @@ const DEFAULT_CONFIG: Config = {
   terminalCommand: "open -a iTerm",
   enabledAgents: ALL_AGENTS,
   defaultAgent: "claude",
+}
+
+const CODEX_APPROVAL_POLICIES: CodexApprovalPolicy[] = [
+  "untrusted",
+  "on-failure",
+  "on-request",
+  "never",
+]
+
+const normalizeCodexApprovalPolicy = (value: unknown): CodexApprovalPolicy => {
+  if (value === "full-auto") return "never"
+  if (CODEX_APPROVAL_POLICIES.includes(value as CodexApprovalPolicy)) {
+    return value as CodexApprovalPolicy
+  }
+  return "untrusted"
 }
 
 const FALLBACK_CLAUDE_PATH = "claude"
@@ -262,7 +277,7 @@ class ConfigStore {
         this.defaultAgent =
           parsed.defaultAgent === undefined ? DEFAULT_CONFIG.defaultAgent : parsed.defaultAgent
         this.claudePermissionMode = parsed.claudePermissionMode ?? "default"
-        this.codexApprovalPolicy = parsed.codexApprovalPolicy ?? "untrusted"
+        this.codexApprovalPolicy = normalizeCodexApprovalPolicy(parsed.codexApprovalPolicy)
         this.geminiApprovalMode = parsed.geminiApprovalMode ?? "yolo"
         this.defaultClaudeModel = parsed.defaultClaudeModel ?? null
         this.defaultCodexModel = parsed.defaultCodexModel ?? null
@@ -438,6 +453,23 @@ class ConfigStore {
   @action setDefaultOpencodeModel(model: string | null) {
     this.defaultOpencodeModel = model
     this.save()
+  }
+
+  getModelsForAgent(agentType: AgentType): AgentModel[] {
+    switch (agentType) {
+      case "claude":
+        return this.claudeModels
+      case "codex":
+        return this.codexModels
+      case "copilot":
+        return this.copilotModels
+      case "gemini":
+        return this.geminiModels
+      case "opencode":
+        return this.opencodeModels
+      default:
+        return []
+    }
   }
 
   getDefaultModelForAgent(agentType: AgentType): string | null {

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { observer } from "mobx-react-lite"
-import type { PendingPlanApproval } from "../../types"
+import type { PendingPlanApproval, AutonomousReviewConfig } from "../../types"
 import { configStore } from "../../stores/ConfigStore"
 import { MarkdownContent } from "./MarkdownContent"
 import { Textarea } from "../shared/Textarea"
@@ -12,7 +12,11 @@ interface PlanApprovalPanelProps {
   onReject: (feedback: string) => void
   onDeny: () => void
   onReview: () => void
-  onStartAutonomous?: (prompt: string, maxIterations: number) => void
+  onStartAutonomous?: (
+    prompt: string,
+    maxIterations: number,
+    reviewConfig?: AutonomousReviewConfig
+  ) => void
 }
 
 export const PlanApprovalPanel = observer(function PlanApprovalPanel({
@@ -126,8 +130,8 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
           open={autonomousDialogOpen}
           onOpenChange={setAutonomousDialogOpen}
           initialPrompt={`Execute the following plan:\n\n${pending.planContent ?? ""}`}
-          onStart={(prompt, maxIterations) => {
-            onStartAutonomous(prompt, maxIterations)
+          onStart={(prompt, maxIterations, reviewConfig) => {
+            onStartAutonomous(prompt, maxIterations, reviewConfig)
             onDeny() // Close the plan approval after starting autonomous run
           }}
         />

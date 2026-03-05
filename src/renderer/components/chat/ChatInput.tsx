@@ -16,7 +16,7 @@ import { AttachmentChip } from "./AttachmentChip"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 import { Textarea } from "../shared/Textarea"
 import { saveAttachment } from "../../services/attachmentService"
-import type { Attachment } from "../../types"
+import type { Attachment, AutonomousReviewConfig } from "../../types"
 
 // Detect touch-only devices (mobile/tablet without keyboard)
 const isTouchDevice =
@@ -41,7 +41,11 @@ interface ChatInputProps {
   autonomousRunning?: boolean
   autonomousIteration?: number
   autonomousMaxIterations?: number
-  onStartAutonomous?: (prompt: string, maxIterations: number) => void
+  onStartAutonomous?: (
+    prompt: string,
+    maxIterations: number,
+    reviewConfig?: AutonomousReviewConfig
+  ) => void
   onStopAutonomous?: () => void
 }
 
@@ -439,8 +443,8 @@ export const ChatInput = observer(function ChatInput({
           open={autonomousDialogOpen}
           onOpenChange={setAutonomousDialogOpen}
           initialPrompt={input}
-          onStart={(prompt, maxIterations) => {
-            onStartAutonomous(prompt, maxIterations)
+          onStart={(prompt, maxIterations, reviewConfig) => {
+            onStartAutonomous(prompt, maxIterations, reviewConfig)
             workspaceStore?.setDraft(workspaceStore.activeChatId ?? "", "")
           }}
         />

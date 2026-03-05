@@ -11,6 +11,7 @@ import type {
   PendingPlanApproval,
   AgentType,
   Workspace,
+  AutonomousReviewConfig,
 } from "../types"
 import type { Backend } from "../backend/types"
 import { GitService } from "../services/git"
@@ -562,8 +563,12 @@ export class WorkspaceStore {
   // --- Autonomous mode ---
 
   @action
-  async startAutonomousRun(prompt: string, maxIterations: number): Promise<void> {
-    await this.activeChat?.startAutonomousRun(prompt, maxIterations)
+  async startAutonomousRun(
+    prompt: string,
+    maxIterations: number,
+    reviewConfig?: AutonomousReviewConfig
+  ): Promise<void> {
+    await this.activeChat?.startAutonomousRun(prompt, maxIterations, reviewConfig)
   }
 
   @action
