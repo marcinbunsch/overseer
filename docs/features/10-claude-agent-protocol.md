@@ -70,7 +70,7 @@ This gives immediate visual feedback that a tool call is starting. The full deta
 
 ## Configurable Permission Mode
 
-Users can now configure the Claude permission mode (`default`, `acceptEdits`, `plan`) and Codex approval policy (`untrusted`, `full-auto`) via `ConfigStore`.
+Users can now configure the Claude permission mode (`default`, `acceptEdits`, `plan`) and Codex approval policy (`untrusted`, `on-failure`, `on-request`, `never`) via `ConfigStore`.
 
 ### Implementation
 
@@ -88,7 +88,7 @@ Added permission mode settings for both Claude and Codex:
 
 ```typescript
 export type ClaudePermissionMode = "default" | "acceptEdits" | "plan"
-export type CodexApprovalPolicy = "untrusted" | "full-auto"
+export type CodexApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never"
 
 @observable claudePermissionMode: ClaudePermissionMode = "default"
 @observable codexApprovalPolicy: CodexApprovalPolicy = "untrusted"

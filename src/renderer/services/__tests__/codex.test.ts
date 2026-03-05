@@ -249,8 +249,8 @@ describe("CodexAgentService", () => {
       return undefined
     })
 
-    // Pass "full-auto" as permission mode
-    void service.sendMessage("chat-1", "hello", "/tmp/workdir", undefined, null, "full-auto")
+    // Pass "never" as permission mode
+    void service.sendMessage("chat-1", "hello", "/tmp/workdir", undefined, null, "never")
 
     // Wait for the initialize request to be sent
     await vi.waitFor(() => {

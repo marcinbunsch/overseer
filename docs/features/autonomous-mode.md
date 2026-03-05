@@ -95,11 +95,11 @@ Autonomous mode forces **YOLO mode** for all agent types. All tool requests are 
 
 Each agent type has a different YOLO mode value:
 - **Claude**: `bypassPermissions`
-- **Codex**: `full-auto`
+- **Codex**: `never`
 - **Gemini**: `yolo`
 - **Copilot/OpenCode**: Value ignored (these agents don't use permission modes)
 
-The `getYoloModeValue()` helper in ChatStore automatically selects the correct value based on the current agent type.
+The `getYoloModeValueForAgent()` helper in ChatStore automatically selects the correct value based on the current agent type.
 
 ## UI Components
 
