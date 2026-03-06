@@ -1337,4 +1337,184 @@ describe("ProjectRegistry", () => {
       await expect(projectRegistry.flushAllChats()).resolves.toBeUndefined()
     })
   })
+
+  describe("addRemoteProject", () => {
+    const serverUrl = "http://remote-server:6767"
+
+    function makeRemoteBackend(overrides: Record<string, unknown> = {}) {
+      return {
+        invoke: vi.fn(async (cmd: string) => {
+          if (cmd === "validate_project_path") return { exists: true, isGitRepo: false }
+          if (cmd === "list_workspaces") return []
+          if (cmd === "upsert_project") return undefined
+          return undefined
+        }),
+        ...overrides,
+      }
+    }
+
+    function makeRemoteServerStore(backend: ReturnType<typeof makeRemoteBackend>) {
+      return {
+        getBackend: vi.fn(() => backend),
+        getServerByUrl: vi.fn(() => ({ id: "server-1", url: serverUrl })),
+        refreshProjects: vi.fn(() => Promise.resolve()),
+        remoteProjects: [],
+      }
+    }
+
+    it("throws when the remote server is not connected", async () => {
+      vi.resetModules()
+      vi.doMock("../RemoteServerStore", () => ({
+        remoteServerStore: {
+          getBackend: vi.fn(() => undefined),
+          getServerByUrl: vi.fn(() => undefined),
+          refreshProjects: vi.fn(),
+          remoteProjects: [],
+        },
+      }))
+
+      const { projectRegistry } = await import("../ProjectRegistry")
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
+      })
+
+      await expect(
+        projectRegistry.addRemoteProject("/remote/path/myproject", serverUrl)
+      ).rejects.toThrow("Remote server not connected")
+    })
+
+    it("throws when the path does not exist on the remote server", async () => {
+      vi.resetModules()
+      const backend = makeRemoteBackend({
+        invoke: vi.fn(async (cmd: string) => {
+          if (cmd === "validate_project_path") return { exists: false, isGitRepo: false }
+          return undefined
+        }),
+      })
+      vi.doMock("../RemoteServerStore", () => ({
+        remoteServerStore: makeRemoteServerStore(backend),
+      }))
+
+      const { projectRegistry } = await import("../ProjectRegistry")
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
+      })
+
+      await expect(
+        projectRegistry.addRemoteProject("/remote/path/missing", serverUrl)
+      ).rejects.toThrow("Path does not exist on the remote server")
+    })
+
+    it("calls upsert_project on the remote backend", async () => {
+      vi.resetModules()
+      const backend = makeRemoteBackend()
+      const store = makeRemoteServerStore(backend)
+      vi.doMock("../RemoteServerStore", () => ({ remoteServerStore: store }))
+
+      const { projectRegistry } = await import("../ProjectRegistry")
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
+      })
+
+      await projectRegistry.addRemoteProject("/remote/path/myproject", serverUrl)
+
+      expect(backend.invoke).toHaveBeenCalledWith(
+        "upsert_project",
+        expect.objectContaining({
+          project: expect.objectContaining({
+            name: "myproject",
+            path: "/remote/path/myproject",
+            isGitRepo: false,
+          }),
+        })
+      )
+    })
+
+    it("does NOT call local save_project_registry", async () => {
+      vi.resetModules()
+      const backend = makeRemoteBackend()
+      const store = makeRemoteServerStore(backend)
+      vi.doMock("../RemoteServerStore", () => ({ remoteServerStore: store }))
+
+      const { projectRegistry } = await import("../ProjectRegistry")
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
+      })
+
+      vi.mocked(invoke).mockClear()
+      await projectRegistry.addRemoteProject("/remote/path/myproject", serverUrl)
+
+      expect(invoke).not.toHaveBeenCalledWith("save_project_registry", expect.anything())
+    })
+
+    it("does NOT add the project to the local _projects list", async () => {
+      vi.resetModules()
+      const backend = makeRemoteBackend()
+      const store = makeRemoteServerStore(backend)
+      vi.doMock("../RemoteServerStore", () => ({ remoteServerStore: store }))
+
+      const { projectRegistry } = await import("../ProjectRegistry")
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
+      })
+
+      await projectRegistry.addRemoteProject("/remote/path/myproject", serverUrl)
+
+      expect(projectRegistry.projects).toHaveLength(0)
+    })
+
+    it("refreshes the remote server projects after upserting", async () => {
+      vi.resetModules()
+      const backend = makeRemoteBackend()
+      const store = makeRemoteServerStore(backend)
+      vi.doMock("../RemoteServerStore", () => ({ remoteServerStore: store }))
+
+      const { projectRegistry } = await import("../ProjectRegistry")
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
+      })
+
+      await projectRegistry.addRemoteProject("/remote/path/myproject", serverUrl)
+
+      expect(store.refreshProjects).toHaveBeenCalledWith("server-1")
+    })
+
+    it("creates workspaces from remote list_workspaces for git repos", async () => {
+      vi.resetModules()
+      const backend = makeRemoteBackend({
+        invoke: vi.fn(async (cmd: string) => {
+          if (cmd === "validate_project_path") return { exists: true, isGitRepo: true }
+          if (cmd === "list_workspaces")
+            return [
+              { branch: "main", path: "/remote/path/myrepo" },
+              { branch: "feature", path: "/remote/path/myrepo-feature" },
+            ]
+          if (cmd === "upsert_project") return undefined
+          return undefined
+        }),
+      })
+      const store = makeRemoteServerStore(backend)
+      vi.doMock("../RemoteServerStore", () => ({ remoteServerStore: store }))
+
+      const { projectRegistry } = await import("../ProjectRegistry")
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
+      })
+
+      await projectRegistry.addRemoteProject("/remote/path/myrepo", serverUrl)
+
+      expect(backend.invoke).toHaveBeenCalledWith(
+        "upsert_project",
+        expect.objectContaining({
+          project: expect.objectContaining({
+            isGitRepo: true,
+            workspaces: expect.arrayContaining([
+              expect.objectContaining({ branch: "main" }),
+              expect.objectContaining({ branch: "feature" }),
+            ]),
+          }),
+        })
+      )
+    })
+  })
 })

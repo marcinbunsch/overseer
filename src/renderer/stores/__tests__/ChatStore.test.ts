@@ -2219,7 +2219,7 @@ Live text.`,
       // sendMessage positional args: chatId, prompt, workingDir, logDir, modelVersion, ...
       // modelVersion is the 5th argument (index 4)
       expect(mockReviewAgentService.sendMessage).toHaveBeenCalled()
-      const callArgs = mockReviewAgentService.sendMessage.mock.calls[0]
+      const callArgs = mockReviewAgentService.sendMessage.mock.calls[0] as unknown[]
       expect(callArgs[4]).toBe("gemini-2.5-pro")
     })
 
@@ -2261,9 +2261,9 @@ Live text.`,
       await (store as any).runNextIteration()
 
       // The loop message sent should have reviewAgentLabel in its meta
-      const addUserMessageCalls = vi.mocked(invoke).mock.calls.filter(
-        ([cmd]) => cmd === "add_user_message"
-      )
+      const addUserMessageCalls = vi
+        .mocked(invoke)
+        .mock.calls.filter(([cmd]) => cmd === "add_user_message")
       const lastCall = addUserMessageCalls[addUserMessageCalls.length - 1]
       const meta = (lastCall[1] as { meta?: Record<string, unknown> })?.meta
       expect(meta?.reviewAgentLabel).toBe("Gemini 2.5 Pro")
@@ -2278,9 +2278,9 @@ Live text.`,
       })
 
       // Phase starts as implementation — first iteration is impl
-      const addUserMessageCalls = vi.mocked(invoke).mock.calls.filter(
-        ([cmd]) => cmd === "add_user_message"
-      )
+      const addUserMessageCalls = vi
+        .mocked(invoke)
+        .mock.calls.filter(([cmd]) => cmd === "add_user_message")
       const loopMessages = addUserMessageCalls.filter(([, args]) => {
         const meta = (args as { meta?: Record<string, unknown> })?.meta
         return meta?.autonomousType === "autonomous-loop"

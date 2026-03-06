@@ -14,7 +14,8 @@ vi.mock("../../../stores/ConfigStore", () => ({
     copilotModels: [],
     opencodeModels: [],
     getModelsForAgent: (agentType: string) => {
-      if (agentType === "gemini") return [{ alias: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" }]
+      if (agentType === "gemini")
+        return [{ alias: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" }]
       return [{ alias: "claude-haiku-4-5", displayName: "Haiku 4.5" }]
     },
   },
