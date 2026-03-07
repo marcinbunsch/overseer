@@ -67,11 +67,12 @@ export function parseOverseerBlocks(content: string): ParsedOverseerBlock[] {
     const endIndex = startIndex + rawBlock.length
 
     try {
-      const parsed = JSON.parse(jsonContent) as { action?: string; params?: unknown }
+      const parsed = JSON.parse(jsonContent) as Record<string, unknown>
+      const action = toValidAction(parsed)
 
-      if (isValidAction(parsed)) {
+      if (action) {
         blocks.push({
-          action: parsed as OverseerAction,
+          action,
           startIndex,
           endIndex,
           rawBlock,
@@ -118,24 +119,36 @@ export function extractOverseerBlocks(content: string): {
 }
 
 /**
- * Type guard to validate action structure
+ * Validate and normalize a parsed JSON object into an OverseerAction.
+ * Returns null if the object is not a valid action.
+ *
+ * Handles both the standard format:
+ *   {"action": "rename_chat", "params": {"title": "..."}}
+ * and the flat format that agents sometimes emit:
+ *   {"action": "rename_chat", "title": "..."}
  */
-function isValidAction(obj: unknown): obj is OverseerAction {
-  if (typeof obj !== "object" || obj === null) return false
+function toValidAction(obj: Record<string, unknown>): OverseerAction | null {
+  if (typeof obj.action !== "string") return null
 
-  const { action, params } = obj as { action?: unknown; params?: unknown }
+  const { action, params: rawParams, ...rest } = obj
 
-  if (typeof action !== "string") return false
-  if (typeof params !== "object" || params === null) return false
+  // Prefer explicit params object; fall back to remaining top-level keys
+  const params =
+    typeof rawParams === "object" && rawParams !== null ? rawParams : rest
+
+  if (typeof params !== "object" || params === null) return null
 
   switch (action) {
     case "open_pr":
-      return typeof (params as OpenPrParams).title === "string"
+      if (typeof (params as OpenPrParams).title !== "string") return null
+      return { action, params: params as OpenPrParams }
     case "merge_branch":
-      return typeof (params as MergeBranchParams).into === "string"
+      if (typeof (params as MergeBranchParams).into !== "string") return null
+      return { action, params: params as MergeBranchParams }
     case "rename_chat":
-      return typeof (params as RenameChatParams).title === "string"
+      if (typeof (params as RenameChatParams).title !== "string") return null
+      return { action, params: params as RenameChatParams }
     default:
-      return false
+      return null
   }
 }

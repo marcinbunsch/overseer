@@ -104,6 +104,45 @@ Some explanation here.
       expect(blocks).toHaveLength(0)
     })
 
+    it("parses flat rename_chat without params wrapper (agent format variation)", () => {
+      const content = `\`\`\`overseer
+{"action": "rename_chat", "title": "rehydrate-room: single user + grading"}
+\`\`\``
+
+      const blocks = parseOverseerBlocks(content)
+      expect(blocks).toHaveLength(1)
+      expect(blocks[0].action).toEqual({
+        action: "rename_chat",
+        params: { title: "rehydrate-room: single user + grading" },
+      })
+    })
+
+    it("parses flat open_pr without params wrapper", () => {
+      const content = `\`\`\`overseer
+{"action": "open_pr", "title": "My PR", "body": "Description here"}
+\`\`\``
+
+      const blocks = parseOverseerBlocks(content)
+      expect(blocks).toHaveLength(1)
+      expect(blocks[0].action).toEqual({
+        action: "open_pr",
+        params: { title: "My PR", body: "Description here" },
+      })
+    })
+
+    it("parses flat merge_branch without params wrapper", () => {
+      const content = `\`\`\`overseer
+{"action": "merge_branch", "into": "main"}
+\`\`\``
+
+      const blocks = parseOverseerBlocks(content)
+      expect(blocks).toHaveLength(1)
+      expect(blocks[0].action).toEqual({
+        action: "merge_branch",
+        params: { into: "main" },
+      })
+    })
+
     it("returns empty array for content without overseer blocks", () => {
       const content = `Just regular text here.
 
