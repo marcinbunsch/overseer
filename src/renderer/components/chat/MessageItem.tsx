@@ -1,6 +1,6 @@
 import { observer } from "mobx-react-lite"
 import { useState } from "react"
-import { ChevronRight, ChevronDown } from "lucide-react"
+import { ChevronRight, ChevronDown, Copy, Check } from "lucide-react"
 import type { Message } from "../../types"
 import {
   parseToolCall,
@@ -24,6 +24,28 @@ interface MessageItemProps {
   message: Message
   /** Render in compact style (smaller, dimmer) for work/thinking messages */
   compact?: boolean
+}
+
+function CopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy() {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      data-testid="copy-message-button"
+      className="flex items-center justify-center rounded p-1 text-ovr-text-muted opacity-0 transition hover:bg-ovr-bg-panel hover:text-ovr-text-primary group-hover:opacity-100"
+      title="Copy message"
+    >
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+    </button>
+  )
 }
 
 const BASH_OUTPUT_LINE_THRESHOLD = 3
@@ -154,7 +176,8 @@ export const MessageItem = observer(function MessageItem({ message, compact }: M
     }
 
     return (
-      <div className="mb-3 flex justify-end">
+      <div className="group mb-3 flex items-start justify-end gap-1">
+        <CopyButton content={message.content} />
         <div className="max-w-[80%] overflow-hidden rounded-lg border-r-2 border-ovr-azure-500 bg-ovr-bg-elevated px-3 py-4 text-sm text-white">
           <MarkdownContent content={message.content} />
           {message.attachments && message.attachments.length > 0 && (
@@ -213,9 +236,12 @@ export const MessageItem = observer(function MessageItem({ message, compact }: M
   }
 
   return (
-    <div className="mb-3">
+    <div className="group mb-3">
       <div className="border-l-2 border-ovr-border-strong px-3 py-2 text-sm text-ovr-text-primary">
         <MarkdownContent content={message.content} />
+      </div>
+      <div className="flex justify-start pl-3">
+        <CopyButton content={message.content} />
       </div>
     </div>
   )
