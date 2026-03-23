@@ -1,7 +1,7 @@
 import { observer } from "mobx-react-lite"
 import { useRef, useEffect, useState, useCallback } from "react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
-import { ChevronDown, Play, StopCircle, RotateCw, Paperclip } from "lucide-react"
+import { ChevronDown, Play, StopCircle, RotateCw, Paperclip, ListChecks } from "lucide-react"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { configStore } from "../../stores/ConfigStore"
 import { debugStore } from "../../stores/DebugStore"
@@ -348,9 +348,11 @@ export const ChatInput = observer(function ChatInput({
           }
           rows={1}
           className={`min-h-20 resize-none text-sm placeholder:text-ovr-text-muted disabled:opacity-50 ${
-            debugStore.showDevUI
-              ? "border-ovr-dev focus:border-ovr-dev"
-              : "focus:border-ovr-azure-500"
+            permissionMode === "plan"
+              ? "border-dashed border-ovr-azure-500/50 focus:border-ovr-azure-500"
+              : debugStore.showDevUI
+                ? "border-ovr-dev focus:border-ovr-dev"
+                : "focus:border-ovr-azure-500"
           }`}
         />
         <div className="flex items-center justify-between">
@@ -364,11 +366,27 @@ export const ChatInput = observer(function ChatInput({
               />
             )}
             {agentType === "claude" && onPermissionModeChange && (
-              <ClaudePermissionModeSelector
-                value={permissionMode ?? null}
-                onChange={onPermissionModeChange}
-                disabled={autonomousRunning}
-              />
+              <>
+                <ClaudePermissionModeSelector
+                  value={permissionMode ?? null}
+                  onChange={onPermissionModeChange}
+                  disabled={autonomousRunning || permissionMode === "plan"}
+                />
+                <button
+                  onClick={() => onPermissionModeChange(permissionMode === "plan" ? null : "plan")}
+                  disabled={autonomousRunning}
+                  className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    permissionMode === "plan"
+                      ? "bg-ovr-azure-500/20 text-ovr-azure-400"
+                      : "text-ovr-text-muted hover:bg-ovr-bg-elevated hover:text-ovr-text-primary"
+                  }`}
+                  title={permissionMode === "plan" ? "Disable plan mode" : "Enable plan mode"}
+                  data-testid="plan-mode-toggle"
+                >
+                  <ListChecks size={14} />
+                  <span>Plan</span>
+                </button>
+              </>
             )}
             {agentType === "claude" && <ClaudeUsageIndicator />}
             <WebSocketConnectionIndicator />

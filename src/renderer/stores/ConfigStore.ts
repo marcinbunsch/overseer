@@ -4,7 +4,7 @@ import { listOpencodeModels } from "../services/opencode"
 import { backend } from "../backend"
 import { remoteServerStore, type RemoteServerConfig } from "./RemoteServerStore"
 
-export type ClaudePermissionMode = "default" | "acceptEdits" | "bypassPermissions"
+export type ClaudePermissionMode = "default" | "plan" | "acceptEdits" | "bypassPermissions"
 export type CodexApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never"
 export type GeminiApprovalMode = "yolo" | "auto_edit"
 
