@@ -33,7 +33,6 @@ interface ChatInputProps {
   onModelChange?: (model: string | null) => void
   permissionMode?: string | null
   onPermissionModeChange?: (mode: string | null) => void
-  hasMessages?: boolean
   workspacePath: string
   /** External attachments to add (e.g. from Tauri drag-drop on parent container) */
   externalAttachments?: Attachment[] | null
@@ -91,7 +90,6 @@ export const ChatInput = observer(function ChatInput({
   onModelChange,
   permissionMode,
   onPermissionModeChange,
-  hasMessages,
   workspacePath,
   externalAttachments,
   autonomousRunning,
@@ -361,7 +359,7 @@ export const ChatInput = observer(function ChatInput({
               <ModelSelector
                 value={modelVersion ?? null}
                 onChange={onModelChange}
-                disabled={isSending || hasMessages}
+                disabled={autonomousRunning}
                 agentType={agentType}
               />
             )}
@@ -369,7 +367,7 @@ export const ChatInput = observer(function ChatInput({
               <ClaudePermissionModeSelector
                 value={permissionMode ?? null}
                 onChange={onPermissionModeChange}
-                disabled={isSending || hasMessages}
+                disabled={autonomousRunning}
               />
             )}
             {agentType === "claude" && <ClaudeUsageIndicator />}

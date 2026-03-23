@@ -2291,4 +2291,99 @@ Live text.`,
       }
     })
   })
+
+  // ---------------------------------------------------------------------------
+  // Mid-session config changes
+  // ---------------------------------------------------------------------------
+
+  describe("mid-session config changes", () => {
+    it("allows model changes while agent is running without immediately restarting", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("hello", "/home/user/wt")
+      expect(store.isSending).toBe(true)
+
+      // Change model while running — should just update the value, not stop yet
+      store.setModelVersion("claude-haiku-4-5")
+
+      expect(store.modelVersion).toBe("claude-haiku-4-5")
+      expect(mockAgentService.stopChat).not.toHaveBeenCalled()
+    })
+
+    it("allows permission mode changes while agent is running without immediately restarting", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("hello", "/home/user/wt")
+      expect(store.isSending).toBe(true)
+
+      // Change permission mode while running — should just update the value, not stop yet
+      store.setPermissionMode("bypassPermissions")
+
+      expect(store.permissionMode).toBe("bypassPermissions")
+      expect(mockAgentService.stopChat).not.toHaveBeenCalled()
+    })
+
+    it("stops process on turnComplete after model change so next message uses new config", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("hello", "/home/user/wt")
+      store.setModelVersion("claude-haiku-4-5")
+
+      // Simulate turnComplete
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+      eventCallback({ kind: "turnComplete" })
+
+      // Process should be stopped so next sendMessage spawns fresh with new model
+      expect(mockAgentService.stopChat).toHaveBeenCalledWith("test-chat-id")
+    })
+
+    it("stops process on turnComplete after permission mode change", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("hello", "/home/user/wt")
+      store.setPermissionMode("bypassPermissions")
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+      eventCallback({ kind: "turnComplete" })
+
+      expect(mockAgentService.stopChat).toHaveBeenCalledWith("test-chat-id")
+    })
+
+    it("does not stop process on turnComplete if config did not change", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("hello", "/home/user/wt")
+      // No config change
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+      eventCallback({ kind: "turnComplete" })
+
+      expect(mockAgentService.stopChat).not.toHaveBeenCalled()
+    })
+
+    it("does not set configChanged when setting the same value", async () => {
+      const store = createChatStore()
+
+      await store.sendMessage("hello", "/home/user/wt")
+      // Set to the same default value (null)
+      store.setModelVersion(null)
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1]
+      eventCallback({ kind: "turnComplete" })
+
+      expect(mockAgentService.stopChat).not.toHaveBeenCalled()
+    })
+  })
 })

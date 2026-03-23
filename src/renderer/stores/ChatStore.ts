@@ -104,7 +104,8 @@ export class ChatStore {
   private autonomousCurrentIterationText: string = ""
   /** Original permission mode to restore after autonomous run completes. undefined = not set */
   private originalPermissionMode: string | null | undefined = undefined
-
+  /** When true, stop the process on next turnComplete so it restarts with new config */
+  private _configChanged: boolean = false
   private context: ChatStoreContext
   private sessionRegistered: boolean = false
   /** True during loadFromDisk - prevents re-executing overseer actions on replay */
@@ -546,14 +547,20 @@ export class ChatStore {
 
   @action
   setModelVersion(model: string | null): void {
-    this.chat.modelVersion = model
-    void this.persistMetadata()
+    if (this.chat.modelVersion !== model) {
+      this.chat.modelVersion = model
+      if (this.isSending) this._configChanged = true
+      void this.persistMetadata()
+    }
   }
 
   @action
   setPermissionMode(mode: string | null): void {
-    this.chat.permissionMode = mode
-    void this.persistMetadata()
+    if (this.chat.permissionMode !== mode) {
+      this.chat.permissionMode = mode
+      if (this.isSending) this._configChanged = true
+      void this.persistMetadata()
+    }
   }
 
   @action
@@ -1075,6 +1082,13 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
               }
             }, 500)
             break // Skip normal follow-up handling in autonomous mode
+          }
+
+          // If config changed mid-session, stop the process so the next
+          // sendMessage spawns a new one with --resume and updated config
+          if (this._configChanged) {
+            this._configChanged = false
+            void this.service?.stopChat(this.chat.id)
           }
 
           // If there are pending follow-ups, combine and send them
