@@ -101,6 +101,7 @@ export const PierreDiffView = observer(function PierreDiffView({
     disableFileHeader: true, // We handle our own header
     diffIndicators: "classic", // +/- indicators
     lineDiffType: "word", // Word-level highlighting
+    overflow: "wrap",
     enableLineSelection: !!notesStore,
     onLineSelected: handleLineSelected,
   }
