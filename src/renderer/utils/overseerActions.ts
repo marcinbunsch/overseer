@@ -133,8 +133,7 @@ function toValidAction(obj: Record<string, unknown>): OverseerAction | null {
   const { action, params: rawParams, ...rest } = obj
 
   // Prefer explicit params object; fall back to remaining top-level keys
-  const params =
-    typeof rawParams === "object" && rawParams !== null ? rawParams : rest
+  const params = typeof rawParams === "object" && rawParams !== null ? rawParams : rest
 
   if (typeof params !== "object" || params === null) return null
 
