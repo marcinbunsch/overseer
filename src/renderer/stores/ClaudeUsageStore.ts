@@ -9,8 +9,8 @@ export interface UsagePeriod {
 
 export interface ExtraUsage {
   isEnabled: boolean
-  monthlyLimit: number
-  usedCredits: number
+  monthlyLimit: number | null
+  usedCredits: number | null
   utilization: number | null
 }
 
@@ -33,8 +33,8 @@ interface BackendUsagePeriod {
 
 interface BackendExtraUsage {
   is_enabled: boolean
-  monthly_limit: number
-  used_credits: number
+  monthly_limit: number | null
+  used_credits: number | null
   utilization: number | null
 }
 

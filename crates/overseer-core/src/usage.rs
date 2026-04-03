@@ -20,8 +20,8 @@ pub struct UsagePeriod {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtraUsage {
     pub is_enabled: bool,
-    pub monthly_limit: u32,
-    pub used_credits: f64,
+    pub monthly_limit: Option<u32>,
+    pub used_credits: Option<f64>,
     pub utilization: Option<f64>,
 }
 
