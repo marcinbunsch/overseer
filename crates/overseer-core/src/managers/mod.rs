@@ -13,6 +13,7 @@ pub mod codex_agent;
 pub mod copilot_agent;
 pub mod gemini_agent;
 pub mod opencode_agent;
+pub mod pi_agent;
 pub mod pty;
 
 pub use approvals::ProjectApprovalManager;
@@ -21,6 +22,7 @@ pub use claude_agent::{ClaudeAgentManager, ClaudeStartConfig};
 pub use codex_agent::{CodexAgentManager, CodexStartConfig};
 pub use copilot_agent::{CopilotAgentManager, CopilotStartConfig};
 pub use gemini_agent::{GeminiAgentManager, GeminiStartConfig};
+pub use pi_agent::{PiAgentManager, PiStartConfig};
 pub use opencode_agent::{
     list_models_from_cli as opencode_list_models_cli, OpenCodeAgentManager, OpenCodeEvent,
     OpenCodeModel, OpenCodeServerInfo, OpenCodeStartConfig,

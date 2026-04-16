@@ -12,6 +12,7 @@ pub mod codex;
 pub mod copilot;
 pub mod gemini;
 pub mod opencode;
+pub mod pi;
 
 pub use event::AgentEvent;
 pub use turn::{Decision, EventResolution, Turn, TurnEvent, TurnId, TurnStatus};

@@ -6,6 +6,7 @@ import { codexAgentService } from "./codex"
 import { copilotAgentService } from "./copilot"
 import { geminiAgentService } from "./gemini"
 import { opencodeAgentService } from "./opencode"
+import { piAgentService } from "./pi"
 
 /** Singleton instances (use default Tauri backend) */
 const services: Record<AgentType, AgentService> = {
@@ -14,6 +15,7 @@ const services: Record<AgentType, AgentService> = {
   copilot: copilotAgentService,
   gemini: geminiAgentService,
   opencode: opencodeAgentService,
+  pi: piAgentService,
 }
 
 /**
@@ -42,5 +44,7 @@ export function createAgentService(agentType: AgentType, backend: Backend): Agen
       return geminiAgentService
     case "opencode":
       return opencodeAgentService
+    case "pi":
+      return piAgentService
   }
 }

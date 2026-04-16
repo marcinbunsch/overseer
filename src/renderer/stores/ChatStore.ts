@@ -779,6 +779,7 @@ export class ChatStore {
         return "yolo"
       case "copilot":
       case "opencode":
+      case "pi":
         // These agents don't use permission modes, but we return a value for consistency
         return "yolo"
       default:

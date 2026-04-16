@@ -33,7 +33,7 @@
 use crate::event_bus::EventBus;
 use crate::managers::{
     ChatSessionManager, ClaudeAgentManager, CodexAgentManager, CopilotAgentManager,
-    GeminiAgentManager, OpenCodeAgentManager, ProjectApprovalManager, PtyManager,
+    GeminiAgentManager, OpenCodeAgentManager, PiAgentManager, ProjectApprovalManager, PtyManager,
 };
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -50,6 +50,7 @@ pub struct OverseerContextBuilder {
     copilot_agents: Option<Arc<CopilotAgentManager>>,
     gemini_agents: Option<Arc<GeminiAgentManager>>,
     opencode_agents: Option<Arc<OpenCodeAgentManager>>,
+    pi_agents: Option<Arc<PiAgentManager>>,
     pty_manager: Option<Arc<PtyManager>>,
 }
 
@@ -113,6 +114,12 @@ impl OverseerContextBuilder {
         self
     }
 
+    /// Use an existing PiAgentManager (for testing or custom configurations).
+    pub fn pi_agents(mut self, manager: Arc<PiAgentManager>) -> Self {
+        self.pi_agents = Some(manager);
+        self
+    }
+
     /// Use an existing PtyManager (for testing or custom configurations).
     pub fn pty_manager(mut self, manager: Arc<PtyManager>) -> Self {
         self.pty_manager = Some(manager);
@@ -143,6 +150,9 @@ impl OverseerContextBuilder {
         let opencode_agents = self
             .opencode_agents
             .unwrap_or_else(|| Arc::new(OpenCodeAgentManager::new()));
+        let pi_agents = self
+            .pi_agents
+            .unwrap_or_else(|| Arc::new(PiAgentManager::new()));
         let pty_manager = self
             .pty_manager
             .unwrap_or_else(|| Arc::new(PtyManager::new()));
@@ -157,6 +167,7 @@ impl OverseerContextBuilder {
             copilot_agents,
             gemini_agents,
             opencode_agents,
+            pi_agents,
             pty_manager,
         }
     }
@@ -190,6 +201,8 @@ pub struct OverseerContext {
     pub gemini_agents: Arc<GeminiAgentManager>,
     /// OpenCode agent manager.
     pub opencode_agents: Arc<OpenCodeAgentManager>,
+    /// Pi agent manager.
+    pub pi_agents: Arc<PiAgentManager>,
     /// PTY manager.
     pub pty_manager: Arc<PtyManager>,
 }

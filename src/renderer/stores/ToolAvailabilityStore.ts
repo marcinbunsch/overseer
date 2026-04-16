@@ -15,6 +15,7 @@ type ToolName =
   | "copilot"
   | "gemini"
   | "opencode"
+  | "pi"
   | "gh"
   | "editor"
   | "terminal"
@@ -34,6 +35,9 @@ class ToolAvailabilityStore {
 
   @observable
   opencode: ToolStatus | null = null
+
+  @observable
+  pi: ToolStatus | null = null
 
   @observable
   gh: ToolStatus | null = null
@@ -90,6 +94,14 @@ class ToolAvailabilityStore {
       return this.opencode
     }
     return this.recheckOpencode()
+  }
+
+  @action
+  async ensurePi(): Promise<ToolStatus> {
+    if (this.pi !== null) {
+      return this.pi
+    }
+    return this.recheckPi()
   }
 
   @action
@@ -172,6 +184,16 @@ class ToolAvailabilityStore {
   }
 
   @action
+  async recheckPi(): Promise<ToolStatus> {
+    await configStore.whenLoaded()
+    const status = await this.checkCommand(configStore.piPath)
+    runInAction(() => {
+      this.pi = status
+    })
+    return status
+  }
+
+  @action
   async recheckGh(): Promise<ToolStatus> {
     const status = await this.checkCommand("gh")
     runInAction(() => {
@@ -222,6 +244,7 @@ class ToolAvailabilityStore {
     this.copilot = null
     this.gemini = null
     this.opencode = null
+    this.pi = null
     this.gh = null
     this.editor = null
     this.terminal = null

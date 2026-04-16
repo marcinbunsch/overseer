@@ -197,6 +197,15 @@ export const ChatTabs = observer(function ChatTabs() {
                   <BetaBadge />
                 </button>
               )}
+              {configStore.isAgentEnabled("pi") && (
+                <button
+                  onClick={() => handleNewChat("pi")}
+                  className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs text-ovr-text-primary hover:bg-ovr-bg-panel"
+                >
+                  <AgentIcon agentType="pi" size={14} showWarning /> New Pi chat
+                  <BetaBadge />
+                </button>
+              )}
               {configStore.enabledAgents.length === 0 && (
                 <div className="px-3 py-1.5 text-xs text-ovr-text-dim">No agents enabled</div>
               )}

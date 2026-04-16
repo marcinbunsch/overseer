@@ -9,4 +9,5 @@ export const AGENT_TITLES: Record<AgentType, string> = {
   copilot: "Copilot",
   gemini: "Gemini",
   opencode: "OpenCode",
+  pi: "Pi",
 }

@@ -487,6 +487,7 @@ describe("ConfigStore", () => {
         "copilot",
         "gemini",
         "opencode",
+        "pi",
       ])
       expect(configStore.isAgentEnabled("claude")).toBe(true)
       expect(configStore.isAgentEnabled("codex")).toBe(true)

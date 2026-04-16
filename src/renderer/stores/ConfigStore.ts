@@ -21,6 +21,7 @@ interface Config {
   copilotPath: string
   geminiPath: string
   opencodePath: string
+  piPath: string
   agentShell?: string
   leftPaneWidth: number
   rightPaneWidth: number
@@ -33,6 +34,7 @@ interface Config {
   copilotModels?: AgentModel[]
   geminiModels?: AgentModel[]
   opencodeModels?: AgentModel[]
+  piModels?: AgentModel[]
   enabledAgents?: AgentType[]
   defaultAgent: AgentType | null
   defaultClaudeModel?: string | null
@@ -40,6 +42,7 @@ interface Config {
   defaultCopilotModel?: string | null
   defaultGeminiModel?: string | null
   defaultOpencodeModel?: string | null
+  defaultPiModel?: string | null
   claudePermissionMode?: ClaudePermissionMode
   codexApprovalPolicy?: CodexApprovalPolicy
   geminiApprovalMode?: GeminiApprovalMode
@@ -51,7 +54,7 @@ interface Config {
   remoteServers?: RemoteServerConfig[]
 }
 
-const ALL_AGENTS: AgentType[] = ["claude", "codex", "copilot", "gemini", "opencode"]
+const ALL_AGENTS: AgentType[] = ["claude", "codex", "copilot", "gemini", "opencode", "pi"]
 
 const DEFAULT_CONFIG: Config = {
   claudePath: "$HOME/.local/bin/claude",
@@ -59,6 +62,7 @@ const DEFAULT_CONFIG: Config = {
   copilotPath: "copilot",
   geminiPath: "gemini",
   opencodePath: "opencode",
+  piPath: "pi",
   leftPaneWidth: 250,
   rightPaneWidth: 300,
   changesHeight: 250,
@@ -89,6 +93,7 @@ const FALLBACK_CODEX_PATH = "codex"
 const FALLBACK_COPILOT_PATH = "copilot"
 const FALLBACK_GEMINI_PATH = "gemini"
 const FALLBACK_OPENCODE_PATH = "opencode"
+const FALLBACK_PI_PATH = "pi"
 
 const DEFAULT_CLAUDE_MODELS: AgentModel[] = [
   { alias: "claude-opus-4-6", displayName: "Opus 4.6" },
@@ -139,12 +144,20 @@ const DEFAULT_OPENCODE_MODELS: AgentModel[] = [
   { alias: "google/gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
 ]
 
+const DEFAULT_PI_MODELS: AgentModel[] = [
+  { alias: "claude-sonnet-4-5-20250514", displayName: "Claude Sonnet 4.5" },
+  { alias: "claude-opus-4-5-20250414", displayName: "Claude Opus 4.5" },
+  { alias: "gpt-4.1-2025-04-14", displayName: "GPT-4.1" },
+  { alias: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
+]
+
 class ConfigStore {
   @observable claudePath: string = FALLBACK_CLAUDE_PATH
   @observable codexPath: string = FALLBACK_CODEX_PATH
   @observable copilotPath: string = FALLBACK_COPILOT_PATH
   @observable geminiPath: string = FALLBACK_GEMINI_PATH
   @observable opencodePath: string = FALLBACK_OPENCODE_PATH
+  @observable piPath: string = FALLBACK_PI_PATH
   @observable leftPaneWidth: number = DEFAULT_CONFIG.leftPaneWidth
   @observable rightPaneWidth: number = DEFAULT_CONFIG.rightPaneWidth
   @observable changesHeight: number = DEFAULT_CONFIG.changesHeight
@@ -156,6 +169,7 @@ class ConfigStore {
   @observable copilotModels: AgentModel[] = DEFAULT_COPILOT_MODELS
   @observable geminiModels: AgentModel[] = DEFAULT_GEMINI_MODELS
   @observable opencodeModels: AgentModel[] = DEFAULT_OPENCODE_MODELS
+  @observable piModels: AgentModel[] = DEFAULT_PI_MODELS
   @observable enabledAgents: AgentType[] = ALL_AGENTS
   @observable defaultAgent: AgentType | null = DEFAULT_CONFIG.defaultAgent
   @observable claudePermissionMode: ClaudePermissionMode = "default"
@@ -166,6 +180,7 @@ class ConfigStore {
   @observable defaultCopilotModel: string | null = null
   @observable defaultGeminiModel: string | null = null
   @observable defaultOpencodeModel: string | null = null
+  @observable defaultPiModel: string | null = null
   @observable animationsEnabled: boolean = false
   @observable showClaudeUsageIndicator: boolean = false
   @observable autonomousModeEnabled: boolean = false
@@ -187,6 +202,7 @@ class ConfigStore {
   private rawCopilotPath: string = DEFAULT_CONFIG.copilotPath
   private rawGeminiPath: string = DEFAULT_CONFIG.geminiPath
   private rawOpencodePath: string = DEFAULT_CONFIG.opencodePath
+  private rawPiPath: string = DEFAULT_CONFIG.piPath
 
   constructor() {
     makeObservable(this)
@@ -238,11 +254,13 @@ class ConfigStore {
       this.rawCopilotPath = parsed.copilotPath ?? DEFAULT_CONFIG.copilotPath
       this.rawGeminiPath = parsed.geminiPath ?? DEFAULT_CONFIG.geminiPath
       this.rawOpencodePath = parsed.opencodePath ?? DEFAULT_CONFIG.opencodePath
+      this.rawPiPath = parsed.piPath ?? DEFAULT_CONFIG.piPath
       const resolved = this.expandEnvVars(this.rawClaudePath)
       const resolvedCodex = this.expandEnvVars(this.rawCodexPath)
       const resolvedCopilot = this.expandEnvVars(this.rawCopilotPath)
       const resolvedGemini = this.expandEnvVars(this.rawGeminiPath)
       const resolvedOpencode = this.expandEnvVars(this.rawOpencodePath)
+      const resolvedPi = this.expandEnvVars(this.rawPiPath)
 
       runInAction(() => {
         this.claudePath = resolved
@@ -250,6 +268,7 @@ class ConfigStore {
         this.copilotPath = resolvedCopilot
         this.geminiPath = resolvedGemini
         this.opencodePath = resolvedOpencode
+        this.piPath = resolvedPi
         this.leftPaneWidth = parsed.leftPaneWidth ?? DEFAULT_CONFIG.leftPaneWidth
         this.rightPaneWidth = parsed.rightPaneWidth ?? DEFAULT_CONFIG.rightPaneWidth
         this.changesHeight = parsed.changesHeight ?? DEFAULT_CONFIG.changesHeight
@@ -271,6 +290,9 @@ class ConfigStore {
         if (Array.isArray(parsed.opencodeModels) && parsed.opencodeModels.length > 0) {
           this.opencodeModels = parsed.opencodeModels
         }
+        if (Array.isArray(parsed.piModels) && parsed.piModels.length > 0) {
+          this.piModels = parsed.piModels
+        }
         if (Array.isArray(parsed.enabledAgents)) {
           this.enabledAgents = parsed.enabledAgents
         }
@@ -284,6 +306,7 @@ class ConfigStore {
         this.defaultCopilotModel = parsed.defaultCopilotModel ?? null
         this.defaultGeminiModel = parsed.defaultGeminiModel ?? null
         this.defaultOpencodeModel = parsed.defaultOpencodeModel ?? null
+        this.defaultPiModel = parsed.defaultPiModel ?? null
         this.animationsEnabled = parsed.animationsEnabled ?? false
         this.showClaudeUsageIndicator = parsed.showClaudeUsageIndicator ?? false
         this.autonomousModeEnabled = parsed.autonomousModeEnabled ?? false
@@ -328,6 +351,7 @@ class ConfigStore {
         copilotPath: this.rawCopilotPath,
         geminiPath: this.rawGeminiPath,
         opencodePath: this.rawOpencodePath,
+        piPath: this.rawPiPath,
         leftPaneWidth: this.leftPaneWidth,
         rightPaneWidth: this.rightPaneWidth,
         changesHeight: this.changesHeight,
@@ -339,6 +363,7 @@ class ConfigStore {
         copilotModels: this.copilotModels,
         geminiModels: this.geminiModels,
         opencodeModels: this.opencodeModels,
+        piModels: this.piModels,
         enabledAgents: this.enabledAgents,
         defaultAgent: this.defaultAgent,
         defaultClaudeModel: this.defaultClaudeModel,
@@ -346,6 +371,7 @@ class ConfigStore {
         defaultCopilotModel: this.defaultCopilotModel,
         defaultGeminiModel: this.defaultGeminiModel,
         defaultOpencodeModel: this.defaultOpencodeModel,
+        defaultPiModel: this.defaultPiModel,
         claudePermissionMode: this.claudePermissionMode,
         codexApprovalPolicy: this.codexApprovalPolicy,
         geminiApprovalMode: this.geminiApprovalMode,
@@ -455,6 +481,11 @@ class ConfigStore {
     this.save()
   }
 
+  @action setDefaultPiModel(model: string | null) {
+    this.defaultPiModel = model
+    this.save()
+  }
+
   getModelsForAgent(agentType: AgentType): AgentModel[] {
     switch (agentType) {
       case "claude":
@@ -467,6 +498,8 @@ class ConfigStore {
         return this.geminiModels
       case "opencode":
         return this.opencodeModels
+      case "pi":
+        return this.piModels
       default:
         return []
     }
@@ -484,6 +517,8 @@ class ConfigStore {
         return this.defaultGeminiModel
       case "opencode":
         return this.defaultOpencodeModel
+      case "pi":
+        return this.defaultPiModel
       default:
         return null
     }

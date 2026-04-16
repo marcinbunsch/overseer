@@ -14,6 +14,8 @@ export function getAgentDisplayName(agentType?: string): string {
       return "Gemini"
     case "opencode":
       return "OpenCode"
+    case "pi":
+      return "Pi"
     case "claude":
     default:
       return "Claude"

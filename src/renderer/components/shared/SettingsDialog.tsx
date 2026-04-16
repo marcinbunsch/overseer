@@ -166,6 +166,7 @@ const AGENTS: { type: AgentType; label: string; description: string }[] = [
   { type: "copilot", label: "Copilot", description: "GitHub's AI pair programmer" },
   { type: "gemini", label: "Gemini", description: "Google's AI model" },
   { type: "opencode", label: "OpenCode", description: "Open-source coding agent" },
+  { type: "pi", label: "Pi", description: "Multi-provider coding agent" },
 ]
 
 // ============================================================================
@@ -368,6 +369,7 @@ const AgentsTab = observer(function AgentsTab() {
   const [checkingCopilot, setCheckingCopilot] = useState(false)
   const [checkingGemini, setCheckingGemini] = useState(false)
   const [checkingOpencode, setCheckingOpencode] = useState(false)
+  const [checkingPi, setCheckingPi] = useState(false)
 
   const handleCheckClaude = async () => {
     setCheckingClaude(true)
@@ -411,6 +413,15 @@ const AgentsTab = observer(function AgentsTab() {
       await toolAvailabilityStore.recheckOpencode()
     } finally {
       setCheckingOpencode(false)
+    }
+  }
+
+  const handleCheckPi = async () => {
+    setCheckingPi(true)
+    try {
+      await toolAvailabilityStore.recheckPi()
+    } finally {
+      setCheckingPi(false)
     }
   }
 
@@ -545,6 +556,19 @@ const AgentsTab = observer(function AgentsTab() {
               onCheck={handleCheckOpencode}
               defaultModel={configStore.defaultOpencodeModel}
               onModelChange={(model) => configStore.setDefaultOpencodeModel(model)}
+            />
+          )}
+
+          {configStore.isAgentEnabled("pi") && (
+            <AgentSettings
+              type="pi"
+              label="Pi"
+              cliPath={configStore.piPath}
+              status={toolAvailabilityStore.pi}
+              isChecking={checkingPi}
+              onCheck={handleCheckPi}
+              defaultModel={configStore.defaultPiModel}
+              onModelChange={(model) => configStore.setDefaultPiModel(model)}
             />
           )}
 

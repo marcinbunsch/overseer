@@ -47,6 +47,8 @@ export const ModelSelector = observer(function ModelSelector({
         return configStore.geminiModels
       case "opencode":
         return configStore.opencodeModels
+      case "pi":
+        return configStore.piModels
       default:
         return configStore.claudeModels
     }

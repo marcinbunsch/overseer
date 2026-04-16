@@ -5,7 +5,14 @@ import { projectRegistry } from "../../stores/ProjectRegistry"
 import { configStore } from "../../stores/ConfigStore"
 import { toolAvailabilityStore } from "../../stores/ToolAvailabilityStore"
 import type { AgentType } from "../../types"
-import { ClaudeIcon, OpenAIIcon, GitHubCopilotIcon, GeminiIcon, OpenCodeIcon } from "./AgentIcon"
+import {
+  ClaudeIcon,
+  OpenAIIcon,
+  GitHubCopilotIcon,
+  GeminiIcon,
+  OpenCodeIcon,
+  PiIcon,
+} from "./AgentIcon"
 import { BetaBadge } from "../shared/BetaBadge"
 import { ChatHistoryDialog } from "./ChatHistoryDialog"
 
@@ -75,6 +82,7 @@ export const NewChatScreen = observer(function NewChatScreen({
   const copilotStatus = toolAvailabilityStore.copilot
   const geminiStatus = toolAvailabilityStore.gemini
   const opencodeStatus = toolAvailabilityStore.opencode
+  const piStatus = toolAvailabilityStore.pi
   const hasArchivedChats = workspaceStore?.hasArchivedChats ?? false
   const [showHistoryDialog, setShowHistoryDialog] = useState(false)
 
@@ -152,6 +160,18 @@ export const NewChatScreen = observer(function NewChatScreen({
             onClick={() => handleSelectAgent("opencode")}
             unavailable={opencodeStatus !== null && !opencodeStatus.available}
             unavailableMessage={opencodeStatus?.error}
+            beta
+          />
+        )}
+        {!isRemote && configStore.isAgentEnabled("pi") && (
+          <AgentButton
+            agentType="pi"
+            title="Pi"
+            description="Multi-provider coding agent"
+            icon={<PiIcon size={48} />}
+            onClick={() => handleSelectAgent("pi")}
+            unavailable={piStatus !== null && !piStatus.available}
+            unavailableMessage={piStatus?.error}
             beta
           />
         )}

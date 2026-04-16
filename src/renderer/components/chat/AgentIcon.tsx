@@ -95,6 +95,22 @@ export function OpenCodeIcon({ size = 14, className }: { size?: number; classNam
   )
 }
 
+export function PiIcon({ size = 14, className }: { size?: number; className?: string }) {
+  // Pi symbol (π) rendered as an SVG
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-label="Pi"
+    >
+      <path d="M4 7h16v2H14v12h-2V9H8v12H6V9H4V7z" />
+    </svg>
+  )
+}
+
 function WarningIcon({ size = 10 }: { size?: number }) {
   return (
     <svg
@@ -129,6 +145,8 @@ export const AgentIcon = observer(function AgentIcon({
         return toolAvailabilityStore.gemini
       case "opencode":
         return toolAvailabilityStore.opencode
+      case "pi":
+        return toolAvailabilityStore.pi
       default:
         return null
     }
@@ -147,6 +165,8 @@ export const AgentIcon = observer(function AgentIcon({
         return <GeminiIcon size={size} className={className} />
       case "opencode":
         return <OpenCodeIcon size={size} className={className} />
+      case "pi":
+        return <PiIcon size={size} className={className} />
       default:
         return null
     }
