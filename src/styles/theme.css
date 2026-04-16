@@ -368,7 +368,6 @@
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.75rem;
   line-height: 1.5;
-  overflow-x: auto; /* Enable horizontal scrolling for wide content */
   max-width: 100%; /* Prevent expanding beyond container */
 }
 

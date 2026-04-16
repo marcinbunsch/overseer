@@ -358,7 +358,7 @@ export const DiffDialog = observer(function DiffDialog({
             )}
 
             {/* Diff content */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-x-auto bg-ovr-bg-app">
+            <div className="flex min-h-0 flex-1 flex-col bg-ovr-bg-app">
               {diffStore.status === "loading" && (
                 <div className="flex h-full items-center justify-center text-sm text-ovr-text-muted">
                   Loading diff...
