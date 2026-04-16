@@ -213,9 +213,19 @@ class PiAgentService implements AgentService {
         this.emitEvent(chatId, { kind: "turnComplete" })
         break
 
-      case "done":
+      case "done": {
+        // Pi's RPC process is persistent, so agent_end (→ done) signals the end
+        // of this prompt cycle, not process exit. The UI's isSending flag is
+        // cleared via doneCallbacks, so we must fire them here (pi:close only
+        // fires on actual process shutdown).
+        const chat = this.chats.get(chatId)
+        if (chat) {
+          chat.running = false
+        }
         this.emitEvent(chatId, { kind: "done" })
+        this.doneCallbacks.get(chatId)?.()
         break
+      }
 
       default:
         console.warn(`Unknown Pi event kind: ${rustEvent.kind}`)

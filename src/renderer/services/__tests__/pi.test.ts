@@ -352,11 +352,18 @@ describe("PiAgentService", () => {
     })
 
     it("handles Rust Done event", async () => {
-      const { eventCb, eventHandler } = await setupWithEventCapture()
+      const { service, eventCb, eventHandler } = await setupWithEventCapture()
+      const doneCb = vi.fn()
+      service.onDone("chat-1", doneCb)
 
       eventHandler({ payload: { kind: "done" } })
 
       expect(eventCb).toHaveBeenCalledWith({ kind: "done" })
+      // Pi's RPC process is persistent — agent_end (→ done) ends the prompt
+      // cycle, so we must fire the done callback to clear the UI "sending"
+      // state and flip isRunning off.
+      expect(doneCb).toHaveBeenCalledTimes(1)
+      expect(service.isRunning("chat-1")).toBe(false)
     })
 
     it("logs warning for unknown event kinds", async () => {
