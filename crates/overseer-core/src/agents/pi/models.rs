@@ -33,7 +33,9 @@ pub fn list_pi_models_from_cli(
 ) -> Result<Vec<PiModel>, String> {
     let args = vec!["--list-models".to_string()];
     let mut cmd = build_login_shell_command(pi_path, &args, None, agent_shell)?;
-    cmd.stdout(Stdio::piped()).stderr(Stdio::null());
+    // Pi writes the table to stderr, not stdout — pipe both so we pick up
+    // the data wherever it lands.
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let output = cmd
         .output()
@@ -44,7 +46,12 @@ pub fn list_pi_models_from_cli(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(parse_list_models_output(&stdout))
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut models = parse_list_models_output(&stdout);
+    if models.is_empty() {
+        models = parse_list_models_output(&stderr);
+    }
+    Ok(models)
 }
 
 /// Parse the text table emitted by `pi --list-models`.
