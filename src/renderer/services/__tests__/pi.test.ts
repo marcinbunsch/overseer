@@ -102,12 +102,40 @@ describe("PiAgentService", () => {
   it("sendMessage sets model via set_model command when modelVersion provided", async () => {
     const service = await freshService()
 
-    void service.sendMessage("chat-1", "hello", "/tmp/workdir", undefined, "claude-sonnet-4-5")
+    // Aliases are "provider/modelId"; the first slash is the separator.
+    void service.sendMessage(
+      "chat-1",
+      "hello",
+      "/tmp/workdir",
+      undefined,
+      "anthropic/claude-sonnet-4-5"
+    )
 
     await vi.waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("pi_stdin", {
         serverId: "chat-1",
-        data: expect.stringContaining("set_model"),
+        data: expect.stringMatching(
+          /"type":"set_model".*"provider":"anthropic".*"modelId":"claude-sonnet-4-5"/
+        ),
+      })
+    })
+
+    service.stopChat("chat-1")
+  })
+
+  it("sendMessage splits provider from modelId on the first slash only", async () => {
+    const service = await freshService()
+
+    // Ollama model IDs can themselves contain "/", so the split must only
+    // consume the first slash (the provider separator).
+    void service.sendMessage("chat-1", "hello", "/tmp/workdir", undefined, "ollama/qwen/qwen3.5-9b")
+
+    await vi.waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("pi_stdin", {
+        serverId: "chat-1",
+        data: expect.stringMatching(
+          /"type":"set_model".*"provider":"ollama".*"modelId":"qwen\/qwen3\.5-9b"/
+        ),
       })
     })
 

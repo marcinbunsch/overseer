@@ -4,6 +4,7 @@
 //! All business logic lives in overseer-core; this module just exposes Tauri commands.
 
 use crate::OverseerContextState;
+use overseer_core::agents::pi::{list_pi_models_from_cli, PiModel};
 use overseer_core::managers::PiStartConfig;
 use std::sync::Arc;
 
@@ -54,4 +55,13 @@ pub fn stop_pi_server(
 ) -> Result<(), String> {
     context_state.0.pi_agents.stop(&server_id);
     Ok(())
+}
+
+/// Fetch available models by running `pi --list-models`.
+#[tauri::command(async)]
+pub fn pi_list_models(
+    pi_path: String,
+    agent_shell: Option<String>,
+) -> Result<Vec<PiModel>, String> {
+    list_pi_models_from_cli(&pi_path, agent_shell.as_deref())
 }

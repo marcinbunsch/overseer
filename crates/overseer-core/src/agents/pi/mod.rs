@@ -20,8 +20,10 @@
 //! - `response` — Command acknowledgments
 //! - Session-specific: `compaction_start/end`, `auto_retry_start/end`, `queue_update`
 
+mod models;
 mod parser;
 pub mod spawn;
 
+pub use models::{list_pi_models_from_cli, PiModel};
 pub use parser::PiParser;
 pub use spawn::PiConfig;

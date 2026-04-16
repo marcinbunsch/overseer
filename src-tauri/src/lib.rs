@@ -566,6 +566,7 @@ pub fn run() {
             agents::pi::start_pi_server,
             agents::pi::stop_pi_server,
             agents::pi::pi_stdin,
+            agents::pi::pi_list_models,
             agents::opencode::start_opencode_server,
             agents::opencode::stop_opencode_server,
             agents::opencode::get_opencode_port,

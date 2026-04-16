@@ -1,6 +1,7 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
 import type { AgentModel, AgentType } from "../types"
 import { listOpencodeModels } from "../services/opencode"
+import { listPiModels } from "../services/pi"
 import { backend } from "../backend"
 import { remoteServerStore, type RemoteServerConfig } from "./RemoteServerStore"
 
@@ -144,12 +145,10 @@ const DEFAULT_OPENCODE_MODELS: AgentModel[] = [
   { alias: "google/gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
 ]
 
-const DEFAULT_PI_MODELS: AgentModel[] = [
-  { alias: "claude-sonnet-4-5-20250514", displayName: "Claude Sonnet 4.5" },
-  { alias: "claude-opus-4-5-20250414", displayName: "Claude Opus 4.5" },
-  { alias: "gpt-4.1-2025-04-14", displayName: "GPT-4.1" },
-  { alias: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
-]
+// Pi's model list is environment-dependent (local ollama, configured API keys,
+// installed providers). We populate it at runtime via `pi --list-models` —
+// see refreshPiModels() — and start empty until that resolves.
+const DEFAULT_PI_MODELS: AgentModel[] = []
 
 class ConfigStore {
   @observable claudePath: string = FALLBACK_CLAUDE_PATH
@@ -577,6 +576,21 @@ class ConfigStore {
       }
     } catch (err) {
       console.error("Failed to refresh OpenCode models:", err)
+    }
+  }
+
+  /**
+   * Refresh Pi models by running `pi --list-models`.
+   * Updates the piModels observable with fresh data.
+   */
+  async refreshPiModels(): Promise<void> {
+    try {
+      const models = await listPiModels(this.piPath, this.agentShell || null)
+      runInAction(() => {
+        this.piModels = models
+      })
+    } catch (err) {
+      console.error("Failed to refresh Pi models:", err)
     }
   }
 

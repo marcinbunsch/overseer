@@ -30,10 +30,13 @@ export const ModelSelector = observer(function ModelSelector({
     return () => document.removeEventListener("mousedown", handleClick)
   }, [open])
 
-  // Lazy-load OpenCode models on mount when selector is enabled
+  // Lazy-load dynamic model lists on mount when selector is enabled
   useEffect(() => {
-    if (!disabled && agentType === "opencode") {
+    if (disabled) return
+    if (agentType === "opencode") {
       configStore.refreshOpencodeModels()
+    } else if (agentType === "pi") {
+      configStore.refreshPiModels()
     }
   }, [disabled, agentType])
 

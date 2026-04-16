@@ -1,8 +1,52 @@
 import { backend, type Unsubscribe } from "../backend"
-import type { ToolMeta } from "../types"
+import type { AgentModel, ToolMeta } from "../types"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
 import { configStore } from "../stores/ConfigStore"
 import { toolAvailabilityStore } from "../stores/ToolAvailabilityStore"
+
+/** Model info returned from `pi --list-models`. */
+interface PiModelInfo {
+  id: string
+  name: string
+  provider: string
+}
+
+/**
+ * Pi model aliases encode the provider as a prefix:
+ * `"<provider>/<modelId>"`. The provider is everything before the first `/`;
+ * the model id is the rest (which may itself contain `/`).
+ */
+function splitPiModelAlias(alias: string): { provider: string; modelId: string } {
+  const slash = alias.indexOf("/")
+  if (slash <= 0) return { provider: "", modelId: alias }
+  return {
+    provider: alias.substring(0, slash),
+    modelId: alias.substring(slash + 1),
+  }
+}
+
+/**
+ * Fetch available Pi models by running `pi --list-models`.
+ * Used by ConfigStore to populate the model selector.
+ */
+export async function listPiModels(
+  piPath: string,
+  agentShell: string | null
+): Promise<AgentModel[]> {
+  try {
+    const models = await backend.invoke<PiModelInfo[]>("pi_list_models", {
+      piPath,
+      agentShell,
+    })
+    return models.map((m) => ({
+      alias: m.id,
+      displayName: m.provider ? `${m.provider} · ${m.name}` : m.name,
+    }))
+  } catch (err) {
+    console.error("Failed to list Pi models:", err)
+    return []
+  }
+}
 
 /**
  * Detect if an error indicates the CLI tool is not installed.
@@ -210,12 +254,15 @@ class PiAgentService implements AgentService {
         throw new Error(formatSpawnError(err, configStore.piPath))
       }
 
-      // If a model was specified, set it before sending the prompt
+      // If a model was specified, set it before sending the prompt.
+      // Pi requires provider + modelId separately; the alias encodes both as
+      // "provider/modelId".
       if (modelVersion) {
+        const { provider, modelId } = splitPiModelAlias(modelVersion)
         await this.sendRpcCommand(chatId, {
           type: "set_model",
-          provider: "",
-          modelId: modelVersion,
+          provider,
+          modelId,
         })
       }
     }
