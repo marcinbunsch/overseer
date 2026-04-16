@@ -142,6 +142,66 @@ describe("PiAgentService", () => {
     service.stopChat("chat-1")
   })
 
+  it("sendMessage resends set_model when the model changes mid-session", async () => {
+    const service = await freshService()
+
+    // First message with model A — triggers set_model + prompt.
+    await service.sendMessage(
+      "chat-1",
+      "hi",
+      "/tmp/workdir",
+      undefined,
+      "anthropic/claude-opus-4-5"
+    )
+    // Allow the fire-and-forget fallthrough to complete.
+    await vi.waitFor(() => {
+      expect(
+        (invoke as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+          (c) => c[0] === "pi_stdin" && /"type":"prompt"/.test((c[1] as { data: string }).data)
+        )
+      ).toBe(true)
+    })
+
+    const setModelCallsBefore = (invoke as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .filter((c) => c[0] === "pi_stdin")
+      .filter((c) => /"type":"set_model"/.test((c[1] as { data: string }).data)).length
+    expect(setModelCallsBefore).toBe(1)
+
+    // Second message with a different model — must send a new set_model.
+    await service.sendMessage(
+      "chat-1",
+      "follow up",
+      "/tmp/workdir",
+      undefined,
+      "anthropic/claude-sonnet-4-5"
+    )
+
+    await vi.waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("pi_stdin", {
+        serverId: "chat-1",
+        data: expect.stringMatching(
+          /"type":"set_model".*"provider":"anthropic".*"modelId":"claude-sonnet-4-5"/
+        ),
+      })
+    })
+
+    // Third message with the same model — must NOT send another set_model.
+    await service.sendMessage(
+      "chat-1",
+      "again",
+      "/tmp/workdir",
+      undefined,
+      "anthropic/claude-sonnet-4-5"
+    )
+
+    const setModelCallsAfter = (invoke as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .filter((c) => c[0] === "pi_stdin")
+      .filter((c) => /"type":"set_model"/.test((c[1] as { data: string }).data)).length
+    expect(setModelCallsAfter).toBe(2)
+
+    service.stopChat("chat-1")
+  })
+
   it("sendMessage prepends initPrompt on first message", async () => {
     const service = await freshService()
 

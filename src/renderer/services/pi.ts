@@ -111,6 +111,12 @@ interface PiChat {
   running: boolean
   serverStarted: boolean
   workingDir: string
+  /**
+   * The model alias last sent to Pi via `set_model`. Used to detect when the
+   * user changes the model mid-session so we can push a new `set_model` RPC
+   * before the next prompt.
+   */
+  currentModel: string | null
   unlistenEvent: Unsubscribe | null
   unlistenStderr: Unsubscribe | null
   unlistenClose: Unsubscribe | null
@@ -138,6 +144,7 @@ class PiAgentService implements AgentService {
         running: false,
         serverStarted: false,
         workingDir: "",
+        currentModel: null,
         unlistenEvent: null,
         unlistenStderr: null,
         unlistenClose: null,
@@ -263,18 +270,23 @@ class PiAgentService implements AgentService {
       } catch (err) {
         throw new Error(formatSpawnError(err, configStore.piPath))
       }
+    }
 
-      // If a model was specified, set it before sending the prompt.
-      // Pi requires provider + modelId separately; the alias encodes both as
-      // "provider/modelId".
-      if (modelVersion) {
-        const { provider, modelId } = splitPiModelAlias(modelVersion)
-        await this.sendRpcCommand(chatId, {
-          type: "set_model",
-          provider,
-          modelId,
-        })
-      }
+    // Push set_model whenever the requested model differs from the one Pi is
+    // currently configured with — covers both the first message (currentModel
+    // is null) and user-driven changes mid-session.
+    //
+    // Pi requires provider + modelId separately; the alias encodes both as
+    // "provider/modelId".
+    const requestedModel = modelVersion ?? null
+    if (requestedModel && requestedModel !== chat.currentModel) {
+      const { provider, modelId } = splitPiModelAlias(requestedModel)
+      await this.sendRpcCommand(chatId, {
+        type: "set_model",
+        provider,
+        modelId,
+      })
+      chat.currentModel = requestedModel
     }
 
     // Build the prompt message
