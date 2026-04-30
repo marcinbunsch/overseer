@@ -97,6 +97,7 @@ const FALLBACK_OPENCODE_PATH = "opencode"
 const FALLBACK_PI_PATH = "pi"
 
 const DEFAULT_CLAUDE_MODELS: AgentModel[] = [
+  { alias: "claude-opus-4-7", displayName: "Opus 4.7" },
   { alias: "claude-opus-4-6", displayName: "Opus 4.6" },
   { alias: "claude-opus-4-5", displayName: "Opus 4.5" },
   { alias: "claude-sonnet-4-6", displayName: "Sonnet 4.6" },
