@@ -55,6 +55,10 @@ pub mod worktree;
 use std::path::Path;
 use std::process::Stdio;
 use tokio::process::Command;
+use tokio::time::{timeout, Duration};
+
+const GIT_TIMEOUT: Duration = Duration::from_secs(30);
+const GIT_REF_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
 // Re-export commonly used items
 pub use branch::{delete_branch, rename_branch};
@@ -163,13 +167,16 @@ impl GitOutput {
 ///
 /// The `GitOutput` from the command, or `GitError` if the command failed to run.
 pub async fn run_git(args: &[&str], cwd: &Path) -> Result<GitOutput, GitError> {
-    let output = Command::new("git")
+    let fut = Command::new("git")
         .args(args)
         .current_dir(cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
+        .output();
+
+    let output = timeout(GIT_TIMEOUT, fut)
         .await
+        .map_err(|_| GitError::Other(format!("git {} timed out after 30s", args.join(" "))))?
         .map_err(GitError::CommandFailed)?;
 
     Ok(GitOutput {
@@ -218,15 +225,17 @@ pub async fn run_git_success(args: &[&str], cwd: &Path) -> Result<String, GitErr
 ///
 /// `true` if the ref exists, `false` otherwise.
 pub async fn ref_exists(ref_name: &str, cwd: &Path) -> bool {
-    let output = Command::new("git")
+    let fut = Command::new("git")
         .args(["rev-parse", "--verify", ref_name])
         .current_dir(cwd)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .await;
+        .status();
 
-    output.map(|s| s.success()).unwrap_or(false)
+    match timeout(GIT_REF_CHECK_TIMEOUT, fut).await {
+        Ok(Ok(status)) => status.success(),
+        _ => false,
+    }
 }
 
 /// Get the current branch name (async).
