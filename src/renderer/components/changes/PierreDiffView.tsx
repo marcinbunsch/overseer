@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { observer } from "mobx-react-lite"
 import { PatchDiff, MultiFileDiff, type FileContents } from "@pierre/diffs/react"
 import type { SelectedLineRange, FileDiffOptions } from "@pierre/diffs"
@@ -94,17 +94,29 @@ export const PierreDiffView = observer(function PierreDiffView({
     [notesStore, filePath]
   )
 
-  // Common options for both diff types
-  const options: FileDiffOptions<undefined> = {
-    diffStyle,
-    theme: "one-dark-pro",
-    disableFileHeader: true, // We handle our own header
-    diffIndicators: "classic", // +/- indicators
-    lineDiffType: "word", // Word-level highlighting
-    overflow: "wrap",
-    enableLineSelection: !!notesStore,
-    onLineSelected: handleLineSelected,
-  }
+  // Word-level diff is O(n²) on token count — long lines (env secrets, JWTs, base64
+  // strings) can freeze the main thread for several seconds. Fall back to "none" when
+  // any line in the diff exceeds the threshold.
+  const MAX_LINE_LENGTH_FOR_WORD_DIFF = 300
+  const hasLongLines = useMemo(() => {
+    const content = patch ?? (oldFile?.contents ?? "") + (newFile?.contents ?? "")
+    return content.split("\n").some((line: string) => line.length > MAX_LINE_LENGTH_FOR_WORD_DIFF)
+  }, [patch, oldFile, newFile])
+
+  // Memoize options so PatchDiff/MultiFileDiff don't see a new object every render
+  const options: FileDiffOptions<undefined> = useMemo(
+    () => ({
+      diffStyle,
+      theme: "one-dark-pro",
+      disableFileHeader: true, // We handle our own header
+      diffIndicators: "classic", // +/- indicators
+      lineDiffType: hasLongLines ? "none" : "word",
+      overflow: "wrap",
+      enableLineSelection: !!notesStore,
+      onLineSelected: handleLineSelected,
+    }),
+    [diffStyle, hasLongLines, notesStore, handleLineSelected]
+  )
 
   const showCommentBox = notesStore?.hasPendingNote && pendingForThisFile !== null
 
