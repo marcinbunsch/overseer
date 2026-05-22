@@ -64,7 +64,8 @@ describe("DiffViewStore", () => {
     expect(mockGitService.getFileDiff).toHaveBeenCalledWith(
       workspacePath,
       mockFile.path,
-      mockFile.status
+      mockFile.status,
+      undefined
     )
     expect(store.status).toBe("done")
     expect(store.diff).toBe("diff content here")
@@ -109,7 +110,8 @@ describe("DiffViewStore", () => {
     expect(mockGitService.getFileDiff).toHaveBeenCalledWith(
       workspacePath,
       mockFile2.path,
-      mockFile2.status
+      mockFile2.status,
+      undefined
     )
   })
 
@@ -166,7 +168,8 @@ describe("DiffViewStore", () => {
       expect(mockGitService.getFileDiff).toHaveBeenCalledWith(
         workspacePath,
         mockFile.path,
-        mockFile.status
+        mockFile.status,
+        undefined
       )
       expect(mockGitService.getUncommittedDiff).not.toHaveBeenCalled()
       expect(store.diff).toBe("branch diff content")

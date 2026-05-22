@@ -39,9 +39,12 @@ export class GitService {
     return this.backend.invoke<void>("archive_workspace", { repoPath, workspacePath })
   }
 
-  async listChangedFiles(workspacePath: string): Promise<ChangedFilesResult> {
+  async listChangedFiles(workspacePath: string, mainBranch?: string): Promise<ChangedFilesResult> {
     try {
-      return await this.backend.invoke<ChangedFilesResult>("list_changed_files", { workspacePath })
+      return await this.backend.invoke<ChangedFilesResult>("list_changed_files", {
+        workspacePath,
+        mainBranch,
+      })
     } catch (err) {
       console.error("[Git listChangedFiles error] Debug info:", {
         error: err,
@@ -55,24 +58,38 @@ export class GitService {
     return this.backend.invoke<string[]>("list_files", { workspacePath })
   }
 
-  async checkMerge(workspacePath: string): Promise<MergeResult> {
-    return this.backend.invoke<MergeResult>("check_merge", { workspacePath })
+  async checkMerge(workspacePath: string, mainBranch?: string): Promise<MergeResult> {
+    return this.backend.invoke<MergeResult>("check_merge", { workspacePath, mainBranch })
   }
 
-  async mergeIntoMain(workspacePath: string): Promise<MergeResult> {
-    return this.backend.invoke<MergeResult>("merge_into_main", { workspacePath })
+  async mergeIntoMain(workspacePath: string, mainBranch?: string): Promise<MergeResult> {
+    return this.backend.invoke<MergeResult>("merge_into_main", { workspacePath, mainBranch })
   }
 
-  async renameBranch(workspacePath: string, newName: string): Promise<void> {
-    return this.backend.invoke<void>("rename_branch", { workspacePath, newName })
+  async renameBranch(workspacePath: string, newName: string, mainBranch?: string): Promise<void> {
+    return this.backend.invoke<void>("rename_branch", { workspacePath, newName, mainBranch })
   }
 
   async deleteBranch(repoPath: string, branchName: string): Promise<void> {
     return this.backend.invoke<void>("delete_branch", { repoPath, branchName })
   }
 
-  async getFileDiff(workspacePath: string, filePath: string, fileStatus: string): Promise<string> {
-    return this.backend.invoke<string>("get_file_diff", { workspacePath, filePath, fileStatus })
+  async getFileDiff(
+    workspacePath: string,
+    filePath: string,
+    fileStatus: string,
+    mainBranch?: string
+  ): Promise<string> {
+    return this.backend.invoke<string>("get_file_diff", {
+      workspacePath,
+      filePath,
+      fileStatus,
+      mainBranch,
+    })
+  }
+
+  async detectDefaultBranch(repoPath: string): Promise<string> {
+    return this.backend.invoke<string>("detect_default_branch", { repoPath })
   }
 
   async getUncommittedDiff(
@@ -115,8 +132,8 @@ export class GitService {
     })
   }
 
-  async listCommits(workspacePath: string): Promise<Commit[]> {
-    return this.backend.invoke<Commit[]>("list_commits", { workspacePath })
+  async listCommits(workspacePath: string, mainBranch?: string): Promise<Commit[]> {
+    return this.backend.invoke<Commit[]>("list_commits", { workspacePath, mainBranch })
   }
 
   async listCommitFiles(workspacePath: string, commitSha: string): Promise<ChangedFile[]> {

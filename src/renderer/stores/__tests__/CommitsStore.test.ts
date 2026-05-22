@@ -60,7 +60,7 @@ describe("CommitsStore", () => {
 
       await store.refresh()
 
-      expect(mockGitService.listCommits).toHaveBeenCalledWith("/test/workspace")
+      expect(mockGitService.listCommits).toHaveBeenCalledWith("/test/workspace", undefined)
       expect(store.commits).toEqual(mockCommits)
       expect(store.loading).toBe(false)
       expect(store.error).toBeNull()

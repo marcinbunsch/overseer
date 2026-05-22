@@ -17,12 +17,19 @@ export class DiffViewStore {
   private cache = new Map<string, string>()
   private workspacePath: string
   private gitService: GitService
+  private mainBranch: string | undefined
 
-  constructor(workspacePath: string, initialFile: ChangedFile, gitService: GitService) {
+  constructor(
+    workspacePath: string,
+    initialFile: ChangedFile,
+    gitService: GitService,
+    mainBranch?: string
+  ) {
     makeObservable(this)
     this.workspacePath = workspacePath
     this.selectedFile = initialFile
     this.gitService = gitService
+    this.mainBranch = mainBranch
   }
 
   @action
@@ -65,7 +72,12 @@ export class DiffViewStore {
         // Regular file - use standard diff commands
         result = file.isUncommitted
           ? await this.gitService.getUncommittedDiff(this.workspacePath, file.path, file.status)
-          : await this.gitService.getFileDiff(this.workspacePath, file.path, file.status)
+          : await this.gitService.getFileDiff(
+              this.workspacePath,
+              file.path,
+              file.status,
+              this.mainBranch
+            )
       }
 
       runInAction(() => {
@@ -106,7 +118,8 @@ export class DiffViewStore {
 export function createDiffViewStore(
   workspacePath: string,
   initialFile: ChangedFile,
-  gitService: GitService
+  gitService: GitService,
+  mainBranch?: string
 ): DiffViewStore {
-  return new DiffViewStore(workspacePath, initialFile, gitService)
+  return new DiffViewStore(workspacePath, initialFile, gitService, mainBranch)
 }

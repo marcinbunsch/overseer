@@ -27,7 +27,9 @@
 //! When merges fail due to conflicts, the module automatically aborts
 //! the merge to leave the repository in a clean state.
 
-use super::{get_current_branch, get_default_branch, run_git, GitError};
+use super::{
+    get_current_branch, is_default_branch_name, resolve_default_branch, run_git, GitError,
+};
 use serde::Serialize;
 use std::path::Path;
 
@@ -90,12 +92,15 @@ pub struct MergeResult {
 ///     println!("Conflicts in: {:?}", result.conflicts);
 /// }
 /// ```
-pub async fn check_merge(workspace_path: &Path) -> Result<MergeResult, GitError> {
+pub async fn check_merge(
+    workspace_path: &Path,
+    main_branch: Option<&str>,
+) -> Result<MergeResult, GitError> {
     // Get current branch (the feature branch)
     let feature_branch = get_current_branch(workspace_path).await?;
 
     // Check if already on default branch
-    if feature_branch == "main" || feature_branch == "master" {
+    if is_default_branch_name(&feature_branch, main_branch) {
         return Ok(MergeResult {
             success: false,
             conflicts: vec![],
@@ -104,7 +109,7 @@ pub async fn check_merge(workspace_path: &Path) -> Result<MergeResult, GitError>
     }
 
     // Get default branch, stripping origin/ prefix if present
-    let default_remote = get_default_branch(workspace_path).await;
+    let default_remote = resolve_default_branch(workspace_path, main_branch).await;
     let default_branch = default_remote
         .strip_prefix("origin/")
         .unwrap_or(&default_remote)
@@ -211,12 +216,15 @@ pub async fn check_merge(workspace_path: &Path) -> Result<MergeResult, GitError>
 ///
 /// If the merge fails due to conflicts, the function automatically
 /// runs `git merge --abort` to leave the main workspace clean.
-pub async fn merge_into_main(workspace_path: &Path) -> Result<MergeResult, GitError> {
+pub async fn merge_into_main(
+    workspace_path: &Path,
+    main_branch: Option<&str>,
+) -> Result<MergeResult, GitError> {
     // Get current branch (the feature branch)
     let feature_branch = get_current_branch(workspace_path).await?;
 
     // Check if already on default branch
-    if feature_branch == "main" || feature_branch == "master" {
+    if is_default_branch_name(&feature_branch, main_branch) {
         return Ok(MergeResult {
             success: false,
             conflicts: vec![],
@@ -225,7 +233,7 @@ pub async fn merge_into_main(workspace_path: &Path) -> Result<MergeResult, GitEr
     }
 
     // Get default branch name (without origin/ prefix)
-    let default_remote = get_default_branch(workspace_path).await;
+    let default_remote = resolve_default_branch(workspace_path, main_branch).await;
     let default_branch = default_remote
         .strip_prefix("origin/")
         .unwrap_or(&default_remote)

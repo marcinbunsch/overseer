@@ -120,7 +120,7 @@ describe("ChangedFilesStore", () => {
     const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.refresh()
 
-    expect(mockGitService.listChangedFiles).toHaveBeenCalledWith(workspacePath)
+    expect(mockGitService.listChangedFiles).toHaveBeenCalledWith(workspacePath, undefined)
     expect(store.files).toEqual(mockBranchFiles)
     // Uncommitted files should have isUncommitted flag set
     expect(store.uncommitted).toEqual([{ path: "src/new.ts", status: "?", isUncommitted: true }])
@@ -640,7 +640,7 @@ describe("ChangedFilesStore", () => {
 
       // Wait for checkMerge to be called
       await vi.waitFor(() => {
-        expect(mockGitService.checkMerge).toHaveBeenCalledWith(workspacePath)
+        expect(mockGitService.checkMerge).toHaveBeenCalledWith(workspacePath, undefined)
       })
     })
 

@@ -38,7 +38,10 @@ export class CommitsStore {
     this.error = null
 
     try {
-      const result = await this.gitService.listCommits(this.workspacePath)
+      const result = await this.gitService.listCommits(
+        this.workspacePath,
+        projectRegistry.selectedProject?.mainBranch
+      )
       runInAction(() => {
         this.commits = result
         this.lastLoadTime = Date.now()

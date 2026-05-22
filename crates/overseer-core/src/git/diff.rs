@@ -30,7 +30,9 @@
 //! | `R`  | Renamed |
 //! | `?`  | Untracked (not in git) |
 
-use super::{get_current_branch, get_default_branch, run_git, GitError};
+use super::{
+    get_current_branch, is_default_branch_name, resolve_default_branch, run_git, GitError,
+};
 use serde::Serialize;
 use std::path::Path;
 
@@ -248,6 +250,9 @@ fn is_submodule_initialized(workspace_path: &Path, submodule_path: &str) -> bool
 ///
 /// Recursively calls list_changed_files on the submodule directory.
 /// Uses Box::pin to handle async recursion (Rust requires this for recursive async fns).
+///
+/// Submodules don't have access to the parent project's configured main branch,
+/// so we use auto-detection for them (pass `None`).
 fn list_submodule_changes(
     workspace_path: std::path::PathBuf,
     name: String,
@@ -269,8 +274,9 @@ fn list_submodule_changes(
 
         let full_submodule_path = workspace_path.join(&submodule_path);
 
-        // Get changes inside the submodule (recursive call handles nested submodules)
-        match list_changed_files_internal(&full_submodule_path).await {
+        // Get changes inside the submodule (recursive call handles nested submodules).
+        // Submodules use their own default-branch auto-detection.
+        match list_changed_files_internal(&full_submodule_path, None).await {
             Ok(result) => SubmoduleResult {
                 name,
                 path: submodule_path,
@@ -314,31 +320,36 @@ fn list_submodule_changes(
 ///
 /// # Branch Detection
 ///
-/// The function automatically detects the default branch (main, master,
-/// origin/main, origin/master) and uses `git merge-base` to find the
-/// common ancestor for comparison.
+/// When `main_branch` is `Some`, that name is used as the default branch.
+/// Otherwise the function auto-detects (main, master, origin/main, origin/master).
+/// `git merge-base` is used to find the common ancestor for comparison.
 ///
 /// # Sorting
 ///
 /// - Branch changes (`files`) are sorted alphabetically by path
 /// - Uncommitted changes are sorted with tracked changes first, then
 ///   untracked files, both groups sorted alphabetically
-pub async fn list_changed_files(workspace_path: &Path) -> Result<ChangedFilesResult, GitError> {
-    list_changed_files_internal(workspace_path).await
+pub async fn list_changed_files(
+    workspace_path: &Path,
+    main_branch: Option<&str>,
+) -> Result<ChangedFilesResult, GitError> {
+    list_changed_files_internal(workspace_path, main_branch).await
 }
 
 /// Internal implementation of list_changed_files.
 ///
 /// This is separated to allow recursive calls for submodules.
-async fn list_changed_files_internal(workspace_path: &Path) -> Result<ChangedFilesResult, GitError> {
+async fn list_changed_files_internal(
+    workspace_path: &Path,
+    main_branch: Option<&str>,
+) -> Result<ChangedFilesResult, GitError> {
     let mut files: Vec<ChangedFile> = Vec::new();
     let mut uncommitted: Vec<ChangedFile> = Vec::new();
 
     // Get current branch
     let current_branch = get_current_branch(workspace_path).await?;
 
-    let is_default_branch =
-        current_branch == "main" || current_branch == "master" || current_branch == "HEAD";
+    let is_default_branch = is_default_branch_name(&current_branch, main_branch);
 
     // === Get list of submodules ===
     let submodule_list = list_submodules(workspace_path).await;
@@ -385,7 +396,7 @@ async fn list_changed_files_internal(workspace_path: &Path) -> Result<ChangedFil
 
     // === Branch changes (committed changes vs default branch) ===
     if !is_default_branch {
-        let default_branch = get_default_branch(workspace_path).await;
+        let default_branch = resolve_default_branch(workspace_path, main_branch).await;
 
         // Find the merge base (common ancestor)
         let merge_base = run_git(&["merge-base", "HEAD", &default_branch], workspace_path).await?;
@@ -465,6 +476,7 @@ pub async fn get_file_diff(
     workspace_path: &Path,
     file_path: &str,
     file_status: &str,
+    main_branch: Option<&str>,
 ) -> Result<String, GitError> {
     // Untracked and newly added files: diff against /dev/null
     if file_status == "?" || file_status == "A" {
@@ -481,13 +493,12 @@ pub async fn get_file_diff(
     // Get current branch to determine base ref
     let current_branch = get_current_branch(workspace_path).await?;
 
-    let is_default_branch =
-        current_branch == "main" || current_branch == "master" || current_branch == "HEAD";
+    let is_default_branch = is_default_branch_name(&current_branch, main_branch);
 
     let base_ref = if is_default_branch {
         "HEAD".to_string()
     } else {
-        let default_branch = get_default_branch(workspace_path).await;
+        let default_branch = resolve_default_branch(workspace_path, main_branch).await;
 
         // Get merge-base for comparison
         let merge_base = run_git(&["merge-base", "HEAD", &default_branch], workspace_path).await?;
@@ -572,7 +583,8 @@ pub async fn get_submodule_file_diff(
     file_status: &str,
 ) -> Result<String, GitError> {
     let full_submodule_path = workspace_path.join(submodule_path);
-    get_file_diff(&full_submodule_path, file_path, file_status).await
+    // Submodules don't inherit the parent project's main branch override.
+    get_file_diff(&full_submodule_path, file_path, file_status, None).await
 }
 
 /// Get the diff for uncommitted changes to a file inside a submodule.
@@ -614,18 +626,18 @@ pub async fn get_submodule_uncommitted_diff(
 /// # Returns
 ///
 /// A vector of `Commit` with short SHA and message.
-pub async fn list_commits_on_branch(workspace_path: &Path) -> Result<Vec<Commit>, GitError> {
+pub async fn list_commits_on_branch(
+    workspace_path: &Path,
+    main_branch: Option<&str>,
+) -> Result<Vec<Commit>, GitError> {
     // Get current branch
     let current_branch = get_current_branch(workspace_path).await?;
 
-    let is_default_branch =
-        current_branch == "main" || current_branch == "master" || current_branch == "HEAD";
-
-    if is_default_branch {
+    if is_default_branch_name(&current_branch, main_branch) {
         return Ok(Vec::new());
     }
 
-    let default_branch = get_default_branch(workspace_path).await;
+    let default_branch = resolve_default_branch(workspace_path, main_branch).await;
 
     // Find the merge base (common ancestor)
     let merge_base = run_git(&["merge-base", "HEAD", &default_branch], workspace_path).await?;

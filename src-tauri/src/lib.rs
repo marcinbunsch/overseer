@@ -550,6 +550,7 @@ pub fn run() {
             git::delete_branch,
             git::is_git_repo,
             git::validate_project_path,
+            git::detect_default_branch,
             agents::claude::stop_agent,
             agents::claude::agent_stdin,
             agents::claude::list_running,

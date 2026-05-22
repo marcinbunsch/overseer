@@ -47,6 +47,9 @@ export class ProjectStore {
   @observable
   remoteServerUrl?: string
 
+  @observable
+  mainBranch?: string
+
   // --- Approval storage (shared across all workspaces in this project) ---
 
   @observable
@@ -74,6 +77,7 @@ export class ProjectStore {
     this.useGithub = project.useGithub
     this.allowMergeToMain = project.allowMergeToMain
     this.remoteServerUrl = project.remoteServerUrl
+    this.mainBranch = project.mainBranch
     makeObservable(this)
   }
 
@@ -225,6 +229,7 @@ export class ProjectStore {
     workspaceFilter?: string
     useGithub?: boolean
     allowMergeToMain?: boolean
+    mainBranch?: string
   }): void {
     if (updates.initPrompt !== undefined) this.initPrompt = updates.initPrompt || undefined
     if (updates.prPrompt !== undefined) this.prPrompt = updates.prPrompt || undefined
@@ -233,6 +238,7 @@ export class ProjectStore {
       this.workspaceFilter = updates.workspaceFilter || undefined
     if (updates.useGithub !== undefined) this.useGithub = updates.useGithub
     if (updates.allowMergeToMain !== undefined) this.allowMergeToMain = updates.allowMergeToMain
+    if (updates.mainBranch !== undefined) this.mainBranch = updates.mainBranch || undefined
   }
 
   // --- Approval persistence ---
@@ -331,6 +337,7 @@ export class ProjectStore {
       workspaceFilter: this.workspaceFilter,
       useGithub: this.useGithub,
       allowMergeToMain: this.allowMergeToMain,
+      mainBranch: this.mainBranch,
     }
   }
 }

@@ -15,6 +15,8 @@ export interface Project {
   allowMergeToMain?: boolean
   /** If set, this project is from a remote Overseer server at this URL */
   remoteServerUrl?: string
+  /** Name of the main/default branch (e.g., "main", "master", "develop"). Auto-detected at project add time, editable in settings. */
+  mainBranch?: string
 }
 
 export interface Workspace {
