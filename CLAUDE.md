@@ -75,10 +75,18 @@ Do not consider a task complete until tests pass.
 - **Tool item rendering**: Each tool type has a component in `chat/tools/`. `parseToolCall.ts` extracts tool name and JSON input.
 - **Toast notifications**: `toastStore.show("message")` from anywhere.
 
-## Finding Current Models
+## Updating Model Lists
 
-When updating model lists in `src/renderer/stores/ConfigStore.ts`, check these sources for the latest available models:
+Model lists live in **`models.json`** at the repo root. On startup, the app fetches this file from GitHub (`main` branch) and uses it to populate the model selectors. The hardcoded constants in `ConfigStore.ts` are fallbacks for offline use only — **always edit `models.json`**, not the constants.
 
+To add or update models:
+1. Edit `models.json` — it has keys `claude`, `codex`, `copilot`, `gemini`, `opencode`
+2. Each entry is `{ "alias": "...", "displayName": "..." }` where `alias` is the model ID passed to the CLI
+3. Commit and push to `main` — changes are live for all users on next app launch, no release needed
+
+Keep the hardcoded constants in `ConfigStore.ts` roughly in sync with `models.json` as a reasonable offline fallback.
+
+Reference sources for current model IDs:
 - **Claude**: [Claude models overview](https://platform.claude.com/docs/en/about-claude/models/overview)
 - **Codex**: [OpenAI Models](https://platform.openai.com/docs/models) or [Codex Models](https://developers.openai.com/codex/models/)
 - **Copilot**: [Supported AI models for GitHub Copilot](https://docs.github.com/en/copilot/reference/ai-models/supported-models)
