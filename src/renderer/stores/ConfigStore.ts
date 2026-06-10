@@ -1,4 +1,5 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
+import { z } from "zod"
 import type { AgentModel, AgentType } from "../types"
 import { listOpencodeModels } from "../services/opencode"
 import { listPiModels } from "../services/pi"
@@ -44,6 +45,7 @@ interface Config {
   animationsEnabled?: boolean
   showClaudeUsageIndicator?: boolean
   autonomousModeEnabled?: boolean
+  remoteModelsEnabled?: boolean
   terminalOpenByDefault?: boolean
   httpServer?: HttpServerConfig
   remoteServers?: RemoteServerConfig[]
@@ -89,6 +91,19 @@ const FALLBACK_COPILOT_PATH = "copilot"
 const FALLBACK_GEMINI_PATH = "gemini"
 const FALLBACK_OPENCODE_PATH = "opencode"
 const FALLBACK_PI_PATH = "pi"
+
+const AgentModelSchema = z.object({
+  alias: z.string().min(1),
+  displayName: z.string().min(1),
+})
+
+const RemoteModelsSchema = z.object({
+  claude: z.array(AgentModelSchema).optional(),
+  codex: z.array(AgentModelSchema).optional(),
+  copilot: z.array(AgentModelSchema).optional(),
+  gemini: z.array(AgentModelSchema).optional(),
+  opencode: z.array(AgentModelSchema).optional(),
+})
 
 export const DEFAULT_CLAUDE_MODELS: AgentModel[] = [
   { alias: "claude-fable-5", displayName: "Fable 5" },
@@ -182,6 +197,7 @@ class ConfigStore {
   @observable animationsEnabled: boolean = false
   @observable showClaudeUsageIndicator: boolean = false
   @observable autonomousModeEnabled: boolean = false
+  @observable remoteModelsEnabled: boolean = false
   @observable terminalOpenByDefault: boolean = false
   @observable agentShell: string = ""
   @observable settingsOpen: boolean = false
@@ -290,6 +306,7 @@ class ConfigStore {
         this.animationsEnabled = parsed.animationsEnabled ?? false
         this.showClaudeUsageIndicator = parsed.showClaudeUsageIndicator ?? false
         this.autonomousModeEnabled = parsed.autonomousModeEnabled ?? false
+        this.remoteModelsEnabled = parsed.remoteModelsEnabled ?? false
         this.terminalOpenByDefault = parsed.terminalOpenByDefault ?? false
         this.agentShell = parsed.agentShell ?? ""
         // HTTP Server settings
@@ -311,10 +328,10 @@ class ConfigStore {
         console.error("Failed to auto-connect to remote servers:", err)
       })
 
-      // Fetch latest models from GitHub in the background
-      this.refreshRemoteModels().catch((err) => {
-        console.error("Failed to refresh remote models:", err)
-      })
+      // Fetch latest models from GitHub in the background (opt-in)
+      if (this.remoteModelsEnabled) {
+        void this.refreshRemoteModels()
+      }
     } catch (err) {
       console.error("Failed to load config, falling back to bare 'claude':", err)
       runInAction(() => {
@@ -357,6 +374,7 @@ class ConfigStore {
         animationsEnabled: this.animationsEnabled,
         showClaudeUsageIndicator: this.showClaudeUsageIndicator,
         autonomousModeEnabled: this.autonomousModeEnabled,
+        remoteModelsEnabled: this.remoteModelsEnabled,
         terminalOpenByDefault: this.terminalOpenByDefault,
         agentShell: this.agentShell || undefined,
         httpServer: {
@@ -542,9 +560,15 @@ class ConfigStore {
     this.settingsOpen = open
   }
 
+  @action setRemoteModelsEnabled(enabled: boolean) {
+    this.remoteModelsEnabled = enabled
+    this.save()
+  }
+
   /**
    * Fetch the latest model lists from GitHub and update the observables.
-   * Falls back to hardcoded defaults silently if the fetch fails.
+   * Only called when remoteModelsEnabled is true. Falls back to hardcoded
+   * defaults silently if the fetch fails or the response is invalid.
    */
   async refreshRemoteModels(): Promise<void> {
     try {
@@ -552,23 +576,15 @@ class ConfigStore {
         "https://raw.githubusercontent.com/marcinbunsch/overseer/main/models.json"
       )
       if (!response.ok) return
-      const data = (await response.json()) as Record<string, AgentModel[]>
+      const parsed = RemoteModelsSchema.safeParse(await response.json())
+      if (!parsed.success) return
+      const data = parsed.data
       runInAction(() => {
-        if (Array.isArray(data.claude) && data.claude.length > 0) {
-          this.claudeModels = data.claude
-        }
-        if (Array.isArray(data.codex) && data.codex.length > 0) {
-          this.codexModels = data.codex
-        }
-        if (Array.isArray(data.copilot) && data.copilot.length > 0) {
-          this.copilotModels = data.copilot
-        }
-        if (Array.isArray(data.gemini) && data.gemini.length > 0) {
-          this.geminiModels = data.gemini
-        }
-        if (Array.isArray(data.opencode) && data.opencode.length > 0) {
-          this.opencodeModels = data.opencode
-        }
+        if (data.claude && data.claude.length > 0) this.claudeModels = data.claude
+        if (data.codex && data.codex.length > 0) this.codexModels = data.codex
+        if (data.copilot && data.copilot.length > 0) this.copilotModels = data.copilot
+        if (data.gemini && data.gemini.length > 0) this.geminiModels = data.gemini
+        if (data.opencode && data.opencode.length > 0) this.opencodeModels = data.opencode
       })
     } catch {
       // Network unavailable — silently keep hardcoded defaults

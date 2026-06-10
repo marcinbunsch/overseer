@@ -828,6 +828,31 @@ describe("ConfigStore", () => {
       expect(configStore.claudeModels).toEqual(DEFAULT_CLAUDE_MODELS)
     })
 
+    it("keeps defaults when response fails schema validation", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") return Promise.resolve({ claudePath: "claude" })
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore, DEFAULT_CLAUDE_MODELS } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        // Invalid: alias is missing, displayName is a number
+        json: () => Promise.resolve({ claude: [{ displayName: 123 }] }),
+      } as Response)
+
+      await configStore.refreshRemoteModels()
+
+      expect(configStore.claudeModels).toEqual(DEFAULT_CLAUDE_MODELS)
+    })
+
     it("only updates agents present in the response", async () => {
       mockInvoke((cmd: string) => {
         if (cmd === "config_file_exists") return Promise.resolve(true)
@@ -858,6 +883,53 @@ describe("ConfigStore", () => {
       ])
       // Codex falls back to defaults since it wasn't in the response
       expect(configStore.codexModels).toEqual(DEFAULT_CODEX_MODELS)
+    })
+  })
+
+  describe("remoteModelsEnabled", () => {
+    it("does not fetch on startup when disabled (default)", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") return Promise.resolve({ claudePath: "claude" })
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it("fetches on startup when enabled", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude", remoteModelsEnabled: true })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ claude: [{ alias: "remote", displayName: "Remote" }] }),
+      } as Response)
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      await vi.waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith(
+          "https://raw.githubusercontent.com/marcinbunsch/overseer/main/models.json"
+        )
+      })
     })
   })
 

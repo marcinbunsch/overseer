@@ -77,14 +77,16 @@ Do not consider a task complete until tests pass.
 
 ## Updating Model Lists
 
-Model lists live in **`models.json`** at the repo root. On startup, the app fetches this file from GitHub (`main` branch) and uses it to populate the model selectors. The hardcoded constants in `ConfigStore.ts` are fallbacks for offline use only — **always edit `models.json`**, not the constants.
+Model lists live in **`models.json`** at the repo root. When the user enables "Auto-refresh model lists" in Settings, the app fetches this file from GitHub (`main` branch) on startup. The remote fetch is **opt-in and disabled by default**. The hardcoded constants in `ConfigStore.ts` are the fallback used when the feature is off or the fetch fails.
 
 To add or update models:
 1. Edit `models.json` — it has keys `claude`, `codex`, `copilot`, `gemini`, `opencode`
 2. Each entry is `{ "alias": "...", "displayName": "..." }` where `alias` is the model ID passed to the CLI
-3. Commit and push to `main` — changes are live for all users on next app launch, no release needed
+3. Commit and push to `main` — changes are live for users with auto-refresh enabled, no release needed
 
-Keep the hardcoded constants in `ConfigStore.ts` roughly in sync with `models.json` as a reasonable offline fallback.
+Note: **Pi models are not in `models.json`** — they're discovered at runtime via `pi --list-models` through `ConfigStore.refreshPiModels()`.
+
+Keep the hardcoded constants in `ConfigStore.ts` roughly in sync with `models.json` as a reasonable fallback.
 
 Reference sources for current model IDs:
 - **Claude**: [Claude models overview](https://platform.claude.com/docs/en/about-claude/models/overview)
