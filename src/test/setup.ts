@@ -82,3 +82,9 @@ let uuidCounter = 0
 vi.stubGlobal("crypto", {
   randomUUID: vi.fn(() => `test-uuid-${++uuidCounter}`),
 })
+
+// Mock fetch — default returns a network error so remote model refreshes fail silently
+vi.stubGlobal(
+  "fetch",
+  vi.fn(() => Promise.reject(new Error("fetch not available in tests")))
+)
