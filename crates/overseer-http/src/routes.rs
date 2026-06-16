@@ -4335,6 +4335,7 @@ async fn dispatch_send_message(
         log_id,
         permission_mode,
         agent_shell,
+        effort_level: None,
     };
 
     // Events will flow through EventBus -> WebSocket automatically
