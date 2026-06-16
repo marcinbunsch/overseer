@@ -42,6 +42,7 @@ pub fn send_message(
     log_id: Option<String>,
     permission_mode: Option<String>,
     agent_shell: Option<String>,
+    effort_level: Option<String>,
 ) -> Result<(), String> {
     // Get config directory for reading defaults
     let config_dir = persistence_config.get_config_dir().ok();
@@ -74,6 +75,7 @@ pub fn send_message(
         log_id,
         permission_mode,
         agent_shell: resolved_agent_shell,
+        effort_level,
     };
 
     context_state.0.claude_agents.send_message(

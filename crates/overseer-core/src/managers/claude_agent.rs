@@ -49,6 +49,7 @@ pub struct ClaudeStartConfig {
     pub log_id: Option<String>,
     pub permission_mode: Option<String>,
     pub agent_shell: Option<String>,
+    pub effort_level: Option<String>,
 }
 
 /// Manages Claude CLI processes.
@@ -102,6 +103,7 @@ impl ClaudeAgentManager {
             model: config.model_version,
             permission_mode: config.permission_mode,
             shell_prefix: config.agent_shell,
+            effort: config.effort_level,
         };
 
         // Log the initial prompt

@@ -63,7 +63,8 @@ export interface AgentService {
     modelVersion?: string | null,
     permissionMode?: string | null,
     initPrompt?: string,
-    projectName?: string
+    projectName?: string,
+    effortLevel?: string | null
   ): Promise<void>
   sendToolApproval(
     chatId: string,

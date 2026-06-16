@@ -74,6 +74,7 @@ type BackendChatMetadata = {
   agentSessionId?: string | null
   modelVersion?: string | null
   permissionMode?: string | null
+  effortLevel?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -186,6 +187,10 @@ export class ChatStore {
     return this.chat.permissionMode
   }
 
+  @computed get effortLevel(): string | null {
+    return this.chat.effortLevel
+  }
+
   // --- Private: service accessor ---
 
   /**
@@ -291,6 +296,7 @@ export class ChatStore {
               : null
       const modelVersion =
         opts?.modelVersion !== undefined ? opts.modelVersion : this.chat.modelVersion
+      const effortLevel = this.chat.agentType === "claude" ? this.chat.effortLevel : null
       const projectName = this.context?.getProjectName() ?? ""
 
       // Prepend attachment paths to the message so the agent can read the files
@@ -308,7 +314,8 @@ export class ChatStore {
         modelVersion,
         permissionMode,
         initPrompt,
-        projectName
+        projectName,
+        effortLevel
       )
     } catch (err) {
       console.error("Error sending message:", err)
@@ -558,6 +565,15 @@ export class ChatStore {
   setPermissionMode(mode: string | null): void {
     if (this.chat.permissionMode !== mode) {
       this.chat.permissionMode = mode
+      if (this.isSending) this._configChanged = true
+      void this.persistMetadata()
+    }
+  }
+
+  @action
+  setEffortLevel(level: string | null): void {
+    if (this.chat.effortLevel !== level) {
+      this.chat.effortLevel = level
       if (this.isSending) this._configChanged = true
       void this.persistMetadata()
     }
@@ -1263,6 +1279,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
       agentSessionId: this.chat.agentSessionId,
       modelVersion: this.chat.modelVersion,
       permissionMode: this.chat.permissionMode,
+      effortLevel: this.chat.effortLevel,
       createdAt: this.chat.createdAt.toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -1415,6 +1432,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
           this.chat.agentSessionId = metadata.agentSessionId ?? this.chat.agentSessionId
           this.chat.modelVersion = metadata.modelVersion ?? this.chat.modelVersion
           this.chat.permissionMode = metadata.permissionMode ?? this.chat.permissionMode
+          this.chat.effortLevel = metadata.effortLevel ?? this.chat.effortLevel
           if (needsReregister) {
             this.registerCallbacks()
           }

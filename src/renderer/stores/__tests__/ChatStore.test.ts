@@ -109,6 +109,7 @@ function createTestChat(overrides?: Partial<Chat>): Chat {
     agentSessionId: null,
     modelVersion: null,
     permissionMode: null,
+    effortLevel: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -853,7 +854,8 @@ describe("ChatStore", () => {
       "opus",
       "default", // permission mode
       undefined, // initPrompt
-      "test-project"
+      "test-project",
+      null // effortLevel
     )
   })
 
@@ -870,7 +872,8 @@ describe("ChatStore", () => {
       null,
       "default", // permission mode
       undefined, // initPrompt
-      "test-project"
+      "test-project",
+      null // effortLevel
     )
   })
 
@@ -1164,7 +1167,8 @@ describe("ChatStore", () => {
         null,
         "default",
         undefined,
-        "test-project"
+        "test-project",
+        null // effortLevel
       )
     })
 
@@ -1663,7 +1667,8 @@ Live text.`,
         null, // modelVersion
         "acceptEdits", // permission mode from chat
         undefined, // initPrompt
-        "test-project"
+        "test-project",
+        null // effortLevel
       )
     })
 
@@ -1680,7 +1685,8 @@ Live text.`,
         null, // modelVersion
         "default", // fallback to configStore.claudePermissionMode which is mocked as "default"
         undefined, // initPrompt
-        "test-project"
+        "test-project",
+        null // effortLevel
       )
     })
 
@@ -1700,7 +1706,8 @@ Live text.`,
         null,
         "untrusted",
         expect.stringContaining("Custom init prompt"),
-        "test-project"
+        "test-project",
+        null // effortLevel (null for non-claude agents)
       )
 
       // Verify the shell instruction is included
