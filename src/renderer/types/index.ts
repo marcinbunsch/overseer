@@ -146,6 +146,7 @@ export interface Chat {
   agentSessionId: string | null
   modelVersion: string | null
   permissionMode: string | null // Claude permission mode (default, acceptEdits, bypassPermissions)
+  effortLevel: string | null // Claude effort level (low, medium, high, max)
   createdAt: Date
   updatedAt: Date
   isArchived?: boolean
@@ -163,6 +164,7 @@ export interface ChatFile {
   claudeSessionId?: string | null
   modelVersion?: string | null
   permissionMode?: string | null
+  effortLevel?: string | null
   createdAt: string
   updatedAt: string
 }

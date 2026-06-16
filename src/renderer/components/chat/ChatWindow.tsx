@@ -346,6 +346,8 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                 onModelChange={(model) => workspaceStore.setModelVersion(model)}
                 permissionMode={workspaceStore.activeChat?.permissionMode ?? null}
                 onPermissionModeChange={(mode) => workspaceStore.setPermissionMode(mode)}
+                effortLevel={workspaceStore.activeChat?.effortLevel ?? null}
+                onEffortLevelChange={(level) => workspaceStore.setEffortLevel(level)}
                 workspacePath={workspace.path}
                 externalAttachments={droppedAttachments}
                 autonomousRunning={workspaceStore.autonomousRunning}

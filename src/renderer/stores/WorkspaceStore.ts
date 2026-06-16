@@ -560,6 +560,11 @@ export class WorkspaceStore {
     this.activeChat?.setPermissionMode(mode)
   }
 
+  @action
+  setEffortLevel(level: string | null): void {
+    this.activeChat?.setEffortLevel(level)
+  }
+
   // --- Autonomous mode ---
 
   @action
@@ -630,6 +635,7 @@ export class WorkspaceStore {
       agentSessionId: null,
       modelVersion: defaultModel,
       permissionMode: null,
+      effortLevel: null,
       createdAt: now,
       updatedAt: now,
     }
@@ -722,6 +728,7 @@ export class WorkspaceStore {
           agentSessionId: null,
           modelVersion: null,
           permissionMode: null,
+          effortLevel: null,
           createdAt: new Date(entry.createdAt),
           updatedAt: new Date(entry.updatedAt),
           isArchived: entry.isArchived ?? false,

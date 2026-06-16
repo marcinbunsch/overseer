@@ -12,6 +12,7 @@ pub struct ClaudeConfig {
     pub model: Option<String>,
     pub permission_mode: Option<String>,
     pub shell_prefix: Option<String>,
+    pub effort: Option<String>,
 }
 
 impl ClaudeConfig {
@@ -36,6 +37,13 @@ impl ClaudeConfig {
             if !model.is_empty() {
                 args.push("--model".to_string());
                 args.push(model.clone());
+            }
+        }
+
+        if let Some(ref effort) = self.effort {
+            if !effort.is_empty() {
+                args.push("--effort".to_string());
+                args.push(effort.clone());
             }
         }
 
@@ -79,6 +87,7 @@ mod tests {
             model: Some("opus".to_string()),
             permission_mode: Some("plan".to_string()),
             shell_prefix: None,
+            effort: None,
         };
 
         let spawn = config.build();
@@ -93,5 +102,57 @@ mod tests {
         assert!(spawn.args.contains(&"plan".to_string()));
         assert!(spawn.initial_stdin.is_some());
         assert!(spawn.uses_stdin);
+    }
+
+    #[test]
+    fn claude_config_with_effort_builds_correct_args() {
+        let config = ClaudeConfig {
+            binary_path: "/usr/bin/claude".to_string(),
+            working_dir: "/tmp".to_string(),
+            prompt: "Hello".to_string(),
+            session_id: None,
+            model: None,
+            permission_mode: None,
+            shell_prefix: None,
+            effort: Some("high".to_string()),
+        };
+
+        let spawn = config.build();
+        assert!(spawn.args.contains(&"--effort".to_string()));
+        assert!(spawn.args.contains(&"high".to_string()));
+    }
+
+    #[test]
+    fn claude_config_without_effort_omits_flag() {
+        let config = ClaudeConfig {
+            binary_path: "/usr/bin/claude".to_string(),
+            working_dir: "/tmp".to_string(),
+            prompt: "Hello".to_string(),
+            session_id: None,
+            model: None,
+            permission_mode: None,
+            shell_prefix: None,
+            effort: None,
+        };
+
+        let spawn = config.build();
+        assert!(!spawn.args.contains(&"--effort".to_string()));
+    }
+
+    #[test]
+    fn claude_config_with_empty_effort_omits_flag() {
+        let config = ClaudeConfig {
+            binary_path: "/usr/bin/claude".to_string(),
+            working_dir: "/tmp".to_string(),
+            prompt: "Hello".to_string(),
+            session_id: None,
+            model: None,
+            permission_mode: None,
+            shell_prefix: None,
+            effort: Some("".to_string()),
+        };
+
+        let spawn = config.build();
+        assert!(!spawn.args.contains(&"--effort".to_string()));
     }
 }
