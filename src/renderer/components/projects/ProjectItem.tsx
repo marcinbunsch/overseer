@@ -127,6 +127,9 @@ export const ProjectItem = observer(function ProjectItem({ project }: ProjectIte
         open={newWorkspaceOpen}
         onOpenChange={setNewWorkspaceOpen}
         onCreate={handleCreateWorkspace}
+        repoPath={project.isRemote ? undefined : project.path}
+        existingBranches={project.activeWorkspaces.map((w) => w.branch)}
+        mainBranch={project.mainBranch}
       />
     </>
   )

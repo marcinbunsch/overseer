@@ -1,13 +1,17 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import * as AlertDialog from "@radix-ui/react-alert-dialog"
-import { X } from "lucide-react"
+import { X, Loader2 } from "lucide-react"
 import { faker } from "@faker-js/faker"
 import { Input } from "../shared/Input"
+import { gitService } from "../../services/git"
 
 interface NewWorkspaceDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreate: (branch: string) => void
+  repoPath?: string
+  existingBranches?: string[]
+  mainBranch?: string
 }
 
 function generateRandomName(): string {
@@ -17,27 +21,67 @@ function generateRandomName(): string {
   return `${animal}-${adjective}-${noun}`
 }
 
-export function NewWorkspaceDialog({ open, onOpenChange, onCreate }: NewWorkspaceDialogProps) {
+export function NewWorkspaceDialog({
+  open,
+  onOpenChange,
+  onCreate,
+  repoPath,
+  existingBranches = [],
+  mainBranch,
+}: NewWorkspaceDialogProps) {
   const [branchName, setBranchName] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
+  // null = loading, string[] = fetched raw from git (may be empty)
+  const [rawBranches, setRawBranches] = useState<string[] | null>(null)
 
-  // Generate random name and select it when dialog opens
+  // Generate a random name and select it when the dialog opens
   useEffect(() => {
-    if (open) {
-      const randomName = generateRandomName()
-      setBranchName(randomName)
-      // Select the input content after it's rendered
-      requestAnimationFrame(() => {
-        inputRef.current?.select()
-      })
-    }
+    if (!open) return
+    setBranchName(generateRandomName())
+    requestAnimationFrame(() => {
+      inputRef.current?.select()
+    })
   }, [open])
+
+  // Fetch recent remote branches when the dialog opens (or repoPath changes)
+  useEffect(() => {
+    if (!open || !repoPath) {
+      setRawBranches(null)
+      return
+    }
+    setRawBranches(null)
+    let cancelled = false
+    gitService
+      .listRecentBranches(repoPath)
+      .then((branches) => {
+        if (!cancelled) setRawBranches(branches)
+      })
+      .catch(() => {
+        if (!cancelled) setRawBranches([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, repoPath])
+
+  // Filter during render so changes to existingBranches/mainBranch are always current
+  // without needing to re-fetch
+  const recentBranches = useMemo(() => {
+    if (rawBranches === null) return null
+    const existingSet = new Set(existingBranches)
+    return rawBranches.filter((b) => !existingSet.has(b) && b !== mainBranch).slice(0, 10)
+  }, [rawBranches, existingBranches, mainBranch])
 
   const handleCreate = () => {
     if (!branchName.trim()) return
     onCreate(branchName.trim())
     onOpenChange(false)
     setBranchName("")
+  }
+
+  const handleSelectBranch = (branch: string) => {
+    onCreate(branch)
+    onOpenChange(false)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -78,6 +122,36 @@ export function NewWorkspaceDialog({ open, onOpenChange, onCreate }: NewWorkspac
               className="w-full text-xs"
             />
           </div>
+
+          {repoPath && (
+            <div className="mt-4">
+              {recentBranches === null ? (
+                <div
+                  className="flex items-center gap-1.5 text-xs text-ovr-text-dim"
+                  data-testid="recent-branches-loading"
+                >
+                  <Loader2 className="size-3 animate-spin" />
+                  <span>Loading recent branches…</span>
+                </div>
+              ) : recentBranches.length > 0 ? (
+                <div data-testid="recent-branches-list">
+                  <p className="mb-1.5 text-xs font-medium text-ovr-text-muted">Recent branches</p>
+                  <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
+                    {recentBranches.map((branch) => (
+                      <button
+                        key={branch}
+                        onClick={() => handleSelectBranch(branch)}
+                        className="truncate rounded px-2 py-1 text-left text-xs text-ovr-text-primary transition-colors hover:bg-ovr-bg-elevated hover:text-ovr-text-strong"
+                        data-testid="recent-branch-item"
+                      >
+                        {branch}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
 
           <div className="mt-5 flex justify-end gap-3">
             <AlertDialog.Cancel asChild>

@@ -233,6 +233,16 @@ pub async fn validate_project_path(path: String) -> ValidateProjectPathResult {
     ValidateProjectPathResult { exists, is_git_repo }
 }
 
+/// List recent remote branches (from origin), sorted by most recently updated.
+/// Returns branch names with the "origin/" prefix stripped.
+#[tauri::command]
+pub async fn list_recent_branches(repo_path: String) -> Result<Vec<String>, String> {
+    let path = std::path::PathBuf::from(&repo_path);
+    overseer_core::git::list_recent_branches(&path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ============================================================================
 // PR STATUS (uses gh CLI, not in overseer-core)
 // ============================================================================
