@@ -238,34 +238,9 @@ pub async fn validate_project_path(path: String) -> ValidateProjectPathResult {
 #[tauri::command]
 pub async fn list_recent_branches(repo_path: String) -> Result<Vec<String>, String> {
     let path = std::path::PathBuf::from(&repo_path);
-
-    let output = std::process::Command::new("git")
-        .args(["branch", "-r", "--sort=-committerdate", "--format=%(refname:short)"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| format!("Failed to run git: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git branch failed: {stderr}"));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let branches: Vec<String> = stdout
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim();
-            // Only process origin/ refs
-            let branch = trimmed.strip_prefix("origin/")?;
-            // Skip HEAD pointer
-            if branch == "HEAD" {
-                return None;
-            }
-            Some(branch.to_string())
-        })
-        .collect();
-
-    Ok(branches)
+    overseer_core::git::list_recent_branches(&path)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ============================================================================

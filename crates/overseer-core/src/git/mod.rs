@@ -61,7 +61,7 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 const GIT_REF_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
 // Re-export commonly used items
-pub use branch::{delete_branch, rename_branch};
+pub use branch::{delete_branch, list_recent_branches, rename_branch};
 pub use diff::{
     get_commit_diff, get_file_diff, get_submodule_file_diff, get_submodule_uncommitted_diff,
     get_uncommitted_diff, list_changed_files, list_commit_files, list_commits_on_branch,

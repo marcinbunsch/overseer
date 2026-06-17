@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import * as AlertDialog from "@radix-ui/react-alert-dialog"
 import { X, Loader2 } from "lucide-react"
 import { faker } from "@faker-js/faker"
@@ -31,38 +31,46 @@ export function NewWorkspaceDialog({
 }: NewWorkspaceDialogProps) {
   const [branchName, setBranchName] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
-  // null = loading, string[] = loaded (may be empty)
-  const [recentBranches, setRecentBranches] = useState<string[] | null>(null)
+  // null = loading, string[] = fetched raw from git (may be empty)
+  const [rawBranches, setRawBranches] = useState<string[] | null>(null)
 
-  // Generate random name, select it, and fetch recent branches when dialog opens
+  // Generate a random name and select it when the dialog opens
   useEffect(() => {
-    if (open) {
-      const randomName = generateRandomName()
-      setBranchName(randomName)
-      // Select the input content after it's rendered
-      requestAnimationFrame(() => {
-        inputRef.current?.select()
-      })
+    if (!open) return
+    setBranchName(generateRandomName())
+    requestAnimationFrame(() => {
+      inputRef.current?.select()
+    })
+  }, [open])
 
-      if (repoPath) {
-        setRecentBranches(null)
-        gitService
-          .listRecentBranches(repoPath)
-          .then((branches) => {
-            const existingSet = new Set(existingBranches)
-            const filtered = branches
-              .filter((b) => !existingSet.has(b) && b !== mainBranch)
-              .slice(0, 10)
-            setRecentBranches(filtered)
-          })
-          .catch(() => {
-            setRecentBranches([])
-          })
-      }
-    } else {
-      setRecentBranches(null)
+  // Fetch recent remote branches when the dialog opens (or repoPath changes)
+  useEffect(() => {
+    if (!open || !repoPath) {
+      setRawBranches(null)
+      return
     }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+    setRawBranches(null)
+    let cancelled = false
+    gitService
+      .listRecentBranches(repoPath)
+      .then((branches) => {
+        if (!cancelled) setRawBranches(branches)
+      })
+      .catch(() => {
+        if (!cancelled) setRawBranches([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, repoPath])
+
+  // Filter during render so changes to existingBranches/mainBranch are always current
+  // without needing to re-fetch
+  const recentBranches = useMemo(() => {
+    if (rawBranches === null) return null
+    const existingSet = new Set(existingBranches)
+    return rawBranches.filter((b) => !existingSet.has(b) && b !== mainBranch).slice(0, 10)
+  }, [rawBranches, existingBranches, mainBranch])
 
   const handleCreate = () => {
     if (!branchName.trim()) return
