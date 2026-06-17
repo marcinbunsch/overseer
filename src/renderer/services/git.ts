@@ -162,6 +162,10 @@ export class GitService {
     })
   }
 
+  async listRecentBranches(repoPath: string): Promise<string[]> {
+    return this.backend.invoke<string[]>("list_recent_branches", { repoPath })
+  }
+
   async isGitRepo(path: string): Promise<boolean> {
     return this.backend.invoke<boolean>("is_git_repo", { path })
   }
