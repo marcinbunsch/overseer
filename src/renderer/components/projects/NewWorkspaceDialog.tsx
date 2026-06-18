@@ -136,7 +136,7 @@ export function NewWorkspaceDialog({
               ) : recentBranches.length > 0 ? (
                 <div data-testid="recent-branches-list">
                   <p className="mb-1.5 text-xs font-medium text-ovr-text-muted">Recent branches</p>
-                  <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
+                  <div className="flex max-h-52 flex-col gap-0.5 overflow-y-auto">
                     {recentBranches.map((branch) => (
                       <button
                         key={branch}

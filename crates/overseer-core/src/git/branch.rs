@@ -107,8 +107,9 @@ pub async fn delete_branch(repo_path: &Path, branch_name: &str) -> Result<(), Gi
 
 /// List recently-updated remote branches from `origin`, sorted newest first.
 ///
-/// Runs `git branch -r --sort=-committerdate` and strips the `origin/` prefix.
-/// The `origin/HEAD` sentinel entry is filtered out automatically.
+/// First runs `git fetch origin --prune` to ensure we have the latest remote refs
+/// and cleaned-up tracking branches, then runs `git branch -r --sort=-committerdate`
+/// and strips the `origin/` prefix. The `origin/HEAD` sentinel entry is filtered out automatically.
 ///
 /// # Arguments
 ///
@@ -118,6 +119,9 @@ pub async fn delete_branch(repo_path: &Path, branch_name: &str) -> Result<(), Gi
 ///
 /// A list of branch names (without `origin/` prefix), sorted newest first.
 pub async fn list_recent_branches(repo_path: &Path) -> Result<Vec<String>, GitError> {
+    // Fetch latest remote refs and prune deleted branches
+    run_git_success(&["fetch", "origin", "--prune"], repo_path).await?;
+
     let stdout = run_git_success(
         &["branch", "-r", "--sort=-committerdate", "--format=%(refname:short)"],
         repo_path,
