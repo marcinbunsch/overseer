@@ -18,6 +18,7 @@ pub fn start_pi_server(
     log_dir: Option<String>,
     log_id: Option<String>,
     agent_shell: Option<String>,
+    session_id: Option<String>,
 ) -> Result<(), String> {
     let config = PiStartConfig {
         server_id,
@@ -26,6 +27,7 @@ pub fn start_pi_server(
         log_dir,
         log_id,
         agent_shell,
+        session_id,
     };
 
     context_state.0.pi_agents.start(
