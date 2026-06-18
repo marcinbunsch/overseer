@@ -3,7 +3,7 @@
 if (typeof crypto !== "undefined" && typeof crypto.randomUUID !== "function") {
   crypto.randomUUID = function () {
     return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0
+      const r = crypto.getRandomValues(new Uint8Array(1))[0] & 0x0f
       const v = c === "x" ? r : (r & 0x3) | 0x8
       return v.toString(16)
     }) as `${string}-${string}-${string}-${string}-${string}`
