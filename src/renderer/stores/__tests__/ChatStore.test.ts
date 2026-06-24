@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { invoke } from "@tauri-apps/api/core"
 import { runInAction } from "mobx"
 import type { Chat } from "../../types"
@@ -57,6 +57,8 @@ vi.mock("../ConfigStore", () => ({
     codexApprovalPolicy: "untrusted",
     agentShell: "zsh -l -c",
     loaded: true,
+    soundNotificationEnabled: true,
+    systemNotificationEnabled: false,
     getModelsForAgent: (agentType: string) => {
       if (agentType === "claude") {
         return [{ alias: "claude-haiku-4-5", displayName: "Haiku 4.5" }]
@@ -67,6 +69,16 @@ vi.mock("../ConfigStore", () => ({
       return []
     },
   },
+}))
+
+// Mock notification service
+const mockPlayCompletionSound = vi.fn()
+const mockSendSystemNotification = vi.fn((_wsName: string, _wsId: string, _chatId: string) =>
+  Promise.resolve()
+)
+vi.mock("../../services/notificationService", () => ({
+  playCompletionSound: () => mockPlayCompletionSound(),
+  sendSystemNotification: (a: string, b: string, c: string) => mockSendSystemNotification(a, b, c),
 }))
 
 // Mock eventBus
@@ -88,6 +100,7 @@ function createTestContext(overrides?: TestContextOverrides): ChatStoreContext {
     getInitPrompt: overrides?.getInitPrompt ?? (() => undefined),
     getProjectName: overrides?.getProjectName ?? (() => "test-project"),
     getWorkspaceName: overrides?.getWorkspaceName ?? (() => "test-workspace"),
+    getWorkspaceId: overrides?.getWorkspaceId ?? (() => "test-workspace-id"),
     saveIndex: overrides?.saveIndex ?? vi.fn(),
     getActiveChatId: overrides?.getActiveChatId ?? (() => "test-chat-id"),
     getWorkspacePath: overrides?.getWorkspacePath ?? (() => "/tmp/test-workspace"),
@@ -128,6 +141,9 @@ describe("ChatStore", () => {
     vi.clearAllMocks()
     lastCreateAgentServiceCall = null
     localStorage.clear()
+    // Default: window is focused (tests run in Node env where document is undefined;
+    // stub it so ChatStore's typeof document check sees a focused window)
+    vi.stubGlobal("document", { hasFocus: () => true })
     vi.mocked(invoke).mockImplementation(async (command, args) => {
       switch (command) {
         case "add_user_message": {
@@ -148,6 +164,10 @@ describe("ChatStore", () => {
           return undefined
       }
     })
+  })
+
+  afterEach(() => {
+    vi.stubGlobal("document", undefined)
   })
 
   it("initializes with correct defaults", () => {
@@ -2391,6 +2411,83 @@ Live text.`,
       eventCallback({ kind: "turnComplete" })
 
       expect(mockAgentService.stopChat).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("completion notifications", () => {
+    function getEventCallback(store: ChatStore) {
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === store.chat.id
+      )
+      return eventCall![1]
+    }
+
+    it("plays sound when user is not viewing", async () => {
+      const store = createChatStore(undefined, {
+        isWorkspaceSelected: () => false,
+      })
+
+      await store.sendMessage("hello", "/home/user/wt")
+      getEventCallback(store)({ kind: "turnComplete" })
+
+      expect(mockPlayCompletionSound).toHaveBeenCalledTimes(1)
+    })
+
+    it("does not play sound when user is actively viewing", async () => {
+      const store = createChatStore(undefined, {
+        isWorkspaceSelected: () => true,
+        getActiveChatId: () => "test-chat-id",
+      })
+
+      await store.sendMessage("hello", "/home/user/wt")
+      getEventCallback(store)({ kind: "turnComplete" })
+
+      expect(mockPlayCompletionSound).not.toHaveBeenCalled()
+    })
+
+    it("plays sound when window is not focused even if workspace/chat match", async () => {
+      vi.stubGlobal("document", { hasFocus: () => false })
+      const store = createChatStore(undefined, {
+        isWorkspaceSelected: () => true,
+        getActiveChatId: () => "test-chat-id",
+      })
+
+      await store.sendMessage("hello", "/home/user/wt")
+      getEventCallback(store)({ kind: "turnComplete" })
+
+      expect(mockPlayCompletionSound).toHaveBeenCalledTimes(1)
+    })
+
+    it("sends system notification when systemNotificationEnabled and user is not viewing", async () => {
+      const { configStore } = await import("../ConfigStore")
+      ;(configStore as unknown as Record<string, unknown>).systemNotificationEnabled = true
+
+      const store = createChatStore(undefined, {
+        isWorkspaceSelected: () => false,
+        getWorkspaceName: () => "my-workspace",
+        getWorkspaceId: () => "ws-42",
+      })
+
+      await store.sendMessage("hello", "/home/user/wt")
+      getEventCallback(store)({ kind: "turnComplete" })
+
+      expect(mockSendSystemNotification).toHaveBeenCalledWith(
+        "my-workspace",
+        "ws-42",
+        "test-chat-id"
+      )
+      ;(configStore as unknown as Record<string, unknown>).systemNotificationEnabled = false
+    })
+
+    it("does not send system notification when systemNotificationEnabled is false", async () => {
+      const store = createChatStore(undefined, {
+        isWorkspaceSelected: () => false,
+      })
+
+      await store.sendMessage("hello", "/home/user/wt")
+      getEventCallback(store)({ kind: "turnComplete" })
+
+      expect(mockSendSystemNotification).not.toHaveBeenCalled()
     })
   })
 })

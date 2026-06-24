@@ -47,6 +47,8 @@ interface Config {
   autonomousModeEnabled?: boolean
   remoteModelsEnabled?: boolean
   terminalOpenByDefault?: boolean
+  soundNotificationEnabled?: boolean
+  systemNotificationEnabled?: boolean
   httpServer?: HttpServerConfig
   remoteServers?: RemoteServerConfig[]
 }
@@ -199,6 +201,8 @@ class ConfigStore {
   @observable autonomousModeEnabled: boolean = false
   @observable remoteModelsEnabled: boolean = false
   @observable terminalOpenByDefault: boolean = false
+  @observable soundNotificationEnabled: boolean = true
+  @observable systemNotificationEnabled: boolean = false
   @observable agentShell: string = ""
   @observable settingsOpen: boolean = false
   @observable loaded: boolean = false
@@ -308,6 +312,8 @@ class ConfigStore {
         this.autonomousModeEnabled = parsed.autonomousModeEnabled ?? false
         this.remoteModelsEnabled = parsed.remoteModelsEnabled ?? false
         this.terminalOpenByDefault = parsed.terminalOpenByDefault ?? false
+        this.soundNotificationEnabled = parsed.soundNotificationEnabled ?? true
+        this.systemNotificationEnabled = parsed.systemNotificationEnabled ?? false
         this.agentShell = parsed.agentShell ?? ""
         // HTTP Server settings
         if (parsed.httpServer) {
@@ -376,6 +382,8 @@ class ConfigStore {
         autonomousModeEnabled: this.autonomousModeEnabled,
         remoteModelsEnabled: this.remoteModelsEnabled,
         terminalOpenByDefault: this.terminalOpenByDefault,
+        soundNotificationEnabled: this.soundNotificationEnabled,
+        systemNotificationEnabled: this.systemNotificationEnabled,
         agentShell: this.agentShell || undefined,
         httpServer: {
           host: this.httpServerHost,
@@ -548,6 +556,16 @@ class ConfigStore {
 
   @action setTerminalOpenByDefault(enabled: boolean) {
     this.terminalOpenByDefault = enabled
+    this.save()
+  }
+
+  @action setSoundNotificationEnabled(enabled: boolean) {
+    this.soundNotificationEnabled = enabled
+    this.save()
+  }
+
+  @action setSystemNotificationEnabled(enabled: boolean) {
+    this.systemNotificationEnabled = enabled
     this.save()
   }
 

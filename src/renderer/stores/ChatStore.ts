@@ -21,12 +21,14 @@ import { configStore } from "./ConfigStore"
 import { extractOverseerBlocks, type OverseerAction } from "../utils/overseerActions"
 import { executeOverseerAction } from "../services/overseerActionExecutor"
 import { eventBus } from "../utils/eventBus"
+import { playCompletionSound, sendSystemNotification } from "../services/notificationService"
 
 export interface ChatStoreContext {
   getChatDir: () => Promise<string | null>
   getInitPrompt: () => string | undefined
   getProjectName: () => string
   getWorkspaceName: () => string
+  getWorkspaceId: () => string
   saveIndex: () => void
   getActiveChatId: () => string | null
   getWorkspacePath: () => string
@@ -977,9 +979,12 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
       runInAction(() => {
         this.isSending = false
         // Show "done" status unless user is actively viewing this chat
-        // (both workspace selected AND this chat is active)
+        // (window focused + this workspace selected + this chat active)
+        const windowFocused = typeof document !== "undefined" ? document.hasFocus() : true
         const isViewing =
-          this.context.isWorkspaceSelected() && this.context.getActiveChatId() === this.chat.id
+          windowFocused &&
+          this.context.isWorkspaceSelected() &&
+          this.context.getActiveChatId() === this.chat.id
         this.chat.status = isViewing ? "idle" : "done"
 
         // Clear pending follow-ups since the process has exited
@@ -1072,9 +1077,31 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
         case "turnComplete": {
           this.isSending = false
           // Show "done" status unless user is actively viewing this chat
+          // (window focused + this workspace selected + this chat active)
+          const windowFocused = typeof document !== "undefined" ? document.hasFocus() : true
           const isViewing =
-            this.context.isWorkspaceSelected() && this.context.getActiveChatId() === this.chat.id
+            windowFocused &&
+            this.context.isWorkspaceSelected() &&
+            this.context.getActiveChatId() === this.chat.id
           this.chat.status = isViewing ? "idle" : "done"
+
+          // Fire notifications if user is not watching
+          console.log(
+            `[notifications] turnComplete — isViewing=${isViewing}, sound=${configStore.soundNotificationEnabled}, system=${configStore.systemNotificationEnabled}`
+          )
+          if (!isViewing) {
+            const workspaceName = this.context.getWorkspaceName()
+            const workspaceId = this.context.getWorkspaceId()
+            if (configStore.soundNotificationEnabled) {
+              console.log("[notifications] Playing completion sound")
+              playCompletionSound()
+            }
+            if (configStore.systemNotificationEnabled) {
+              console.log("[notifications] Sending system notification")
+              void sendSystemNotification(workspaceName, workspaceId, this.chat.id)
+            }
+          }
+
           // Check for overseer blocks in messages that were built up via delta streaming
           // (Claude sends complete messages, but Gemini streams deltas that accumulate)
           this.processOverseerBlocksFromRecentMessages()
