@@ -291,6 +291,70 @@ pub async fn get_pr_status(
 }
 
 // ============================================================================
+// PR REVIEW LIST (uses gh CLI, not in overseer-core)
+// ============================================================================
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewPr {
+    pub number: i64,
+    pub title: String,
+    pub head_ref_name: String,
+    pub author_login: String,
+}
+
+#[tauri::command]
+pub async fn list_review_prs(
+    repo_path: String,
+    agent_shell: Option<String>,
+) -> Result<Vec<ReviewPr>, String> {
+    let args = vec![
+        "pr".to_string(),
+        "list".to_string(),
+        "--review-requested".to_string(),
+        "@me".to_string(),
+        "--json".to_string(),
+        "number,title,headRefName,author".to_string(),
+        "--limit".to_string(),
+        "20".to_string(),
+    ];
+
+    let mut cmd =
+        build_login_shell_command("gh", &args, Some(&repo_path), agent_shell.as_deref())?;
+
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(_) => return Ok(vec![]),
+    };
+
+    if !output.status.success() {
+        return Ok(vec![]);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = match serde_json::from_str(&stdout) {
+        Ok(v) => v,
+        Err(_) => return Ok(vec![]),
+    };
+
+    let prs = parsed
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|item| {
+            Some(ReviewPr {
+                number: item["number"].as_i64()?,
+                title: item["title"].as_str()?.to_string(),
+                head_ref_name: item["headRefName"].as_str()?.to_string(),
+                author_login: item["author"]["login"].as_str().unwrap_or("").to_string(),
+            })
+        })
+        .collect();
+
+    Ok(prs)
+}
+
+// ============================================================================
 // FILE LISTING (uses ignore crate, not in overseer-core)
 // ============================================================================
 

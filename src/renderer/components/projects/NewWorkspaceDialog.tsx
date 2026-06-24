@@ -4,6 +4,7 @@ import { X, Loader2 } from "lucide-react"
 import { faker } from "@faker-js/faker"
 import { Input } from "../shared/Input"
 import { gitService } from "../../services/git"
+import type { ReviewPr } from "../../services/git"
 
 interface NewWorkspaceDialogProps {
   open: boolean
@@ -33,6 +34,8 @@ export function NewWorkspaceDialog({
   const inputRef = useRef<HTMLInputElement>(null)
   // null = loading, string[] = fetched raw from git (may be empty)
   const [rawBranches, setRawBranches] = useState<string[] | null>(null)
+  // null = loading, ReviewPr[] = fetched (may be empty)
+  const [reviewPrs, setReviewPrs] = useState<ReviewPr[] | null>(null)
 
   // Generate a random name and select it when the dialog opens
   useEffect(() => {
@@ -58,6 +61,27 @@ export function NewWorkspaceDialog({
       })
       .catch(() => {
         if (!cancelled) setRawBranches([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, repoPath])
+
+  // Fetch PRs waiting for review when the dialog opens (or repoPath changes)
+  useEffect(() => {
+    if (!open || !repoPath) {
+      setReviewPrs(null)
+      return
+    }
+    setReviewPrs(null)
+    let cancelled = false
+    gitService
+      .listReviewPrs(repoPath)
+      .then((prs) => {
+        if (!cancelled) setReviewPrs(prs)
+      })
+      .catch(() => {
+        if (!cancelled) setReviewPrs([])
       })
     return () => {
       cancelled = true
@@ -124,7 +148,7 @@ export function NewWorkspaceDialog({
           </div>
 
           {repoPath && (
-            <div className="mt-4">
+            <div className="mt-4 flex flex-col gap-4">
               {recentBranches === null ? (
                 <div
                   className="flex items-center gap-1.5 text-xs text-ovr-text-dim"
@@ -145,6 +169,39 @@ export function NewWorkspaceDialog({
                         data-testid="recent-branch-item"
                       >
                         {branch}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {reviewPrs === null ? (
+                <div
+                  className="flex items-center gap-1.5 text-xs text-ovr-text-dim"
+                  data-testid="review-prs-loading"
+                >
+                  <Loader2 className="size-3 animate-spin" />
+                  <span>Loading PRs waiting for review…</span>
+                </div>
+              ) : reviewPrs.length > 0 ? (
+                <div data-testid="review-prs-list">
+                  <p className="mb-1.5 text-xs font-medium text-ovr-text-muted">
+                    PRs waiting for review
+                  </p>
+                  <div className="flex max-h-52 flex-col gap-0.5 overflow-y-auto">
+                    {reviewPrs.map((pr) => (
+                      <button
+                        key={pr.number}
+                        onClick={() => handleSelectBranch(pr.headRefName)}
+                        className="rounded px-2 py-1 text-left transition-colors hover:bg-ovr-bg-elevated"
+                        data-testid="review-pr-item"
+                      >
+                        <span className="block truncate text-xs text-ovr-text-primary hover:text-ovr-text-strong">
+                          <span className="text-ovr-text-dim">#{pr.number}</span> {pr.title}
+                        </span>
+                        <span className="block truncate text-xs text-ovr-text-dim">
+                          {pr.headRefName} · by {pr.authorLogin}
+                        </span>
                       </button>
                     ))}
                   </div>

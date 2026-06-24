@@ -553,6 +553,7 @@ pub fn run() {
             git::validate_project_path,
             git::detect_default_branch,
             git::list_recent_branches,
+            git::list_review_prs,
             agents::claude::stop_agent,
             agents::claude::agent_stdin,
             agents::claude::list_running,
