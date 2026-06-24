@@ -29,6 +29,7 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
   const [workspaceFilter, setWorkspaceFilter] = useState(project.workspaceFilter || "")
   const [useGithub, setUseGithub] = useState(project.useGithub !== false)
   const [allowMergeToMain, setAllowMergeToMain] = useState(project.allowMergeToMain !== false)
+  const [mainBranch, setMainBranch] = useState(project.mainBranch || "")
   const [pendingArchive, setPendingArchive] = useState(false)
 
   // Load fresh approvals from Rust when dialog opens
@@ -57,6 +58,7 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
         workspaceFilter,
         useGithub,
         allowMergeToMain,
+        mainBranch,
       })
       toastStore.show("Settings saved")
       onOpenChange(false)
@@ -146,6 +148,23 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
                       />
                       <p className="mt-1 text-[11px] text-ovr-text-dim">
                         Regex pattern to hide workspaces. Matches against the full path.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-ovr-text-muted">
+                        Main branch
+                      </label>
+                      <Input
+                        type="text"
+                        value={mainBranch}
+                        onChange={(e) => setMainBranch(e.target.value)}
+                        placeholder="e.g. main"
+                        className="w-full font-mono text-xs"
+                      />
+                      <p className="mt-1 text-[11px] text-ovr-text-dim">
+                        Branch used for merges, diffs, and commit history. Auto-detected when the
+                        project was added.
                       </p>
                     </div>
 

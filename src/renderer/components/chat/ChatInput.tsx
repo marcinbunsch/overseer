@@ -8,6 +8,7 @@ import { debugStore } from "../../stores/DebugStore"
 import { eventBus } from "../../utils/eventBus"
 import { ModelSelector } from "./ModelSelector"
 import { ClaudePermissionModeSelector } from "./ClaudePermissionModeSelector"
+import { EffortLevelSelector } from "./EffortLevelSelector"
 import { ClaudeUsageIndicator } from "./ClaudeUsageIndicator"
 import { WebSocketConnectionIndicator } from "./WebSocketConnectionIndicator"
 import { AtSearch } from "./AtSearch"
@@ -33,6 +34,8 @@ interface ChatInputProps {
   onModelChange?: (model: string | null) => void
   permissionMode?: string | null
   onPermissionModeChange?: (mode: string | null) => void
+  effortLevel?: string | null
+  onEffortLevelChange?: (level: string | null) => void
   workspacePath: string
   /** External attachments to add (e.g. from Tauri drag-drop on parent container) */
   externalAttachments?: Attachment[] | null
@@ -90,6 +93,8 @@ export const ChatInput = observer(function ChatInput({
   onModelChange,
   permissionMode,
   onPermissionModeChange,
+  effortLevel,
+  onEffortLevelChange,
   workspacePath,
   externalAttachments,
   autonomousRunning,
@@ -387,6 +392,13 @@ export const ChatInput = observer(function ChatInput({
                   <span>Plan</span>
                 </button>
               </>
+            )}
+            {agentType === "claude" && onEffortLevelChange && (
+              <EffortLevelSelector
+                value={effortLevel ?? null}
+                onChange={onEffortLevelChange}
+                disabled={autonomousRunning}
+              />
             )}
             {agentType === "claude" && <ClaudeUsageIndicator />}
             <WebSocketConnectionIndicator />

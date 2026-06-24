@@ -133,6 +133,7 @@ class ProjectRegistry {
 
     const isGitRepo = await gitService.isGitRepo(path)
     const gitWorkspaces = isGitRepo ? await gitService.listWorkspaces(path) : []
+    const mainBranch = isGitRepo ? await gitService.detectDefaultBranch(path) : undefined
 
     // For non-git projects, create a single workspace with the project name
     const workspaces = isGitRepo
@@ -162,6 +163,7 @@ class ProjectRegistry {
         path,
         isGitRepo,
         workspaces,
+        mainBranch,
       })
     })
     await this.saveToFile()
@@ -198,6 +200,10 @@ class ProjectRegistry {
         })
       : []
 
+    const mainBranch = result.isGitRepo
+      ? await backend.invoke<string>("detect_default_branch", { repoPath: path })
+      : undefined
+
     const workspaces = result.isGitRepo
       ? gitWorkspaces.map((wt) => ({
           id: crypto.randomUUID(),
@@ -220,7 +226,7 @@ class ProjectRegistry {
 
     // Register the project on the remote server
     await backend.invoke("upsert_project", {
-      project: { id, name, path, isGitRepo: result.isGitRepo, workspaces },
+      project: { id, name, path, isGitRepo: result.isGitRepo, workspaces, mainBranch },
     })
 
     // Refresh the remote server's project list so the UI reflects the new project
@@ -239,6 +245,7 @@ class ProjectRegistry {
       workspaceFilter?: string
       useGithub?: boolean
       allowMergeToMain?: boolean
+      mainBranch?: string
     }
   ): void {
     const project = this._projects.find((r) => r.id === id)
@@ -250,6 +257,7 @@ class ProjectRegistry {
       project.workspaceFilter = updates.workspaceFilter || undefined
     if (updates.useGithub !== undefined) project.useGithub = updates.useGithub
     if (updates.allowMergeToMain !== undefined) project.allowMergeToMain = updates.allowMergeToMain
+    if (updates.mainBranch !== undefined) project.mainBranch = updates.mainBranch || undefined
     // Also update the cached ProjectStore if it exists
     const store = this._projectStoreCache.get(id)
     if (store) {
@@ -292,9 +300,12 @@ class ProjectRegistry {
   @action switchToMainWorkspace(projectId: string): void {
     const project = this._projects.find((r) => r.id === projectId)
     if (!project) return
-    const mainWorkspace = project.workspaces.find(
-      (w) => !w.isArchived && !w.isArchiving && (w.branch === "main" || w.branch === "master")
-    )
+    const configured = project.mainBranch
+    const mainWorkspace = project.workspaces.find((w) => {
+      if (w.isArchived || w.isArchiving) return false
+      if (configured && configured.length > 0) return w.branch === configured
+      return w.branch === "main" || w.branch === "master"
+    })
     if (mainWorkspace) {
       this.selectedProjectId = projectId
       this.selectedWorkspaceId = mainWorkspace.id
@@ -495,7 +506,7 @@ class ProjectRegistry {
     for (const project of this._projects) {
       const wt = project.workspaces.find((w) => w.id === workspaceId)
       if (wt) {
-        await gitService.renameBranch(wt.path, newName)
+        await gitService.renameBranch(wt.path, newName, project.mainBranch)
         runInAction(() => {
           wt.branch = newName
           // Also update the cached ProjectStore if it exists

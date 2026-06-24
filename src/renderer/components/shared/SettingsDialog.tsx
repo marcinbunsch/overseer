@@ -326,6 +326,22 @@ const GeneralTab = observer(function GeneralTab() {
               <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
             </Switch.Root>
           </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs text-ovr-text-primary">Auto-refresh model lists</span>
+              <p className="text-[11px] text-ovr-text-dim">
+                Fetch latest models from GitHub on startup
+              </p>
+            </div>
+            <Switch.Root
+              checked={configStore.remoteModelsEnabled}
+              onCheckedChange={(checked: boolean) => configStore.setRemoteModelsEnabled(checked)}
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
+              data-testid="remote-models-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+          </div>
         </div>
       </div>
 

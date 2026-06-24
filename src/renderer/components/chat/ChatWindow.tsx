@@ -185,7 +185,7 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
             className="rounded border border-ovr-border-subtle bg-ovr-bg-elevated px-1 text-sm font-medium text-ovr-text-primary outline-none focus:border-ovr-accent"
             spellCheck={false}
           />
-        ) : isDefaultBranch(workspace.branch) ? (
+        ) : isDefaultBranch(workspace.branch, projectRegistry.selectedProject?.mainBranch) ? (
           <span className="rounded px-1 text-sm font-medium text-ovr-text-primary">
             {workspace.branch}
           </span>
@@ -346,6 +346,8 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                 onModelChange={(model) => workspaceStore.setModelVersion(model)}
                 permissionMode={workspaceStore.activeChat?.permissionMode ?? null}
                 onPermissionModeChange={(mode) => workspaceStore.setPermissionMode(mode)}
+                effortLevel={workspaceStore.activeChat?.effortLevel ?? null}
+                onEffortLevelChange={(level) => workspaceStore.setEffortLevel(level)}
                 workspacePath={workspace.path}
                 externalAttachments={droppedAttachments}
                 autonomousRunning={workspaceStore.autonomousRunning}

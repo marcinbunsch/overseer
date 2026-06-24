@@ -178,6 +178,7 @@ pub async fn invoke_handler(
         "list_commit_files" => dispatch_list_commit_files(request.args).await,
         "is_git_repo" => dispatch_is_git_repo(request.args).await,
         "validate_project_path" => dispatch_validate_project_path(request.args).await,
+        "detect_default_branch" => dispatch_detect_default_branch(request.args).await,
         "get_file_diff" => dispatch_get_file_diff(request.args).await,
         "get_uncommitted_diff" => dispatch_get_uncommitted_diff(request.args).await,
         "get_commit_diff" => dispatch_get_commit_diff(request.args).await,
@@ -429,8 +430,10 @@ async fn dispatch_list_changed_files(
         }
     };
 
+    let main_branch = args.get("mainBranch").and_then(|v| v.as_str());
+
     let path = PathBuf::from(workspace_path);
-    match overseer_core::git::list_changed_files(&path).await {
+    match overseer_core::git::list_changed_files(&path, main_branch).await {
         Ok(result) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -516,6 +519,34 @@ async fn dispatch_validate_project_path(
     )
 }
 
+async fn dispatch_detect_default_branch(
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let repo_path = match args.get("repoPath").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InvokeResponse {
+                    success: false,
+                    data: None,
+                    error: Some("Missing required argument: repoPath".to_string()),
+                }),
+            );
+        }
+    };
+
+    let branch = overseer_core::git::get_default_branch(&PathBuf::from(repo_path)).await;
+    (
+        StatusCode::OK,
+        Json(InvokeResponse {
+            success: true,
+            data: Some(serde_json::json!(branch)),
+            error: None,
+        }),
+    )
+}
+
 async fn dispatch_get_file_diff(args: serde_json::Value) -> (StatusCode, Json<InvokeResponse>) {
     let workspace_path = match args.get("workspacePath").and_then(|v| v.as_str()) {
         Some(p) => p,
@@ -559,8 +590,10 @@ async fn dispatch_get_file_diff(args: serde_json::Value) -> (StatusCode, Json<In
         }
     };
 
+    let main_branch = args.get("mainBranch").and_then(|v| v.as_str());
+
     let path = PathBuf::from(workspace_path);
-    match overseer_core::git::get_file_diff(&path, file_path, file_status).await {
+    match overseer_core::git::get_file_diff(&path, file_path, file_status, main_branch).await {
         Ok(diff) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -661,8 +694,10 @@ async fn dispatch_list_commits(args: serde_json::Value) -> (StatusCode, Json<Inv
         }
     };
 
+    let main_branch = args.get("mainBranch").and_then(|v| v.as_str());
+
     let path = PathBuf::from(workspace_path);
-    match overseer_core::git::list_commits_on_branch(&path).await {
+    match overseer_core::git::list_commits_on_branch(&path, main_branch).await {
         Ok(commits) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -982,8 +1017,10 @@ async fn dispatch_check_merge(args: serde_json::Value) -> (StatusCode, Json<Invo
         }
     };
 
+    let main_branch = args.get("mainBranch").and_then(|v| v.as_str());
+
     let path = PathBuf::from(workspace_path);
-    match overseer_core::git::check_merge(&path).await {
+    match overseer_core::git::check_merge(&path, main_branch).await {
         Ok(result) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -1018,8 +1055,10 @@ async fn dispatch_merge_into_main(args: serde_json::Value) -> (StatusCode, Json<
         }
     };
 
+    let main_branch = args.get("mainBranch").and_then(|v| v.as_str());
+
     let path = PathBuf::from(workspace_path);
-    match overseer_core::git::merge_into_main(&path).await {
+    match overseer_core::git::merge_into_main(&path, main_branch).await {
         Ok(result) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -1068,8 +1107,10 @@ async fn dispatch_rename_branch(args: serde_json::Value) -> (StatusCode, Json<In
         }
     };
 
+    let main_branch = args.get("mainBranch").and_then(|v| v.as_str());
+
     let path = PathBuf::from(workspace_path);
-    match overseer_core::git::rename_branch(&path, new_name).await {
+    match overseer_core::git::rename_branch(&path, new_name, main_branch).await {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {
@@ -4294,6 +4335,7 @@ async fn dispatch_send_message(
         log_id,
         permission_mode,
         agent_shell,
+        effort_level: None,
     };
 
     // Events will flow through EventBus -> WebSocket automatically

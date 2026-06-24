@@ -59,7 +59,10 @@ export class ChangedFilesStore {
     this.error = null
 
     try {
-      const result = await this.gitService.listChangedFiles(this.workspacePath)
+      const result = await this.gitService.listChangedFiles(
+        this.workspacePath,
+        projectRegistry.selectedProject?.mainBranch
+      )
       runInAction(() => {
         // Mark uncommitted files with the flag
         this.uncommitted = result.uncommitted.map((f) => ({ ...f, isUncommitted: true }))
@@ -143,7 +146,10 @@ export class ChangedFilesStore {
     this.error = null
 
     try {
-      const result = await this.gitService.checkMerge(this.workspacePath)
+      const result = await this.gitService.checkMerge(
+        this.workspacePath,
+        projectRegistry.selectedProject?.mainBranch
+      )
       runInAction(() => {
         if (result.success) {
           this.showMergeConfirm = true
@@ -181,7 +187,10 @@ export class ChangedFilesStore {
     const projectPath = project?.path
 
     try {
-      const result = await this.gitService.mergeIntoMain(this.workspacePath)
+      const result = await this.gitService.mergeIntoMain(
+        this.workspacePath,
+        projectRegistry.selectedProject?.mainBranch
+      )
       if (result.success) {
         let toastMessage = "Branch merged successfully"
 

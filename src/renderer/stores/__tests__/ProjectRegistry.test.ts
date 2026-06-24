@@ -10,6 +10,7 @@ vi.mock("../../services/git", () => ({
     renameBranch: vi.fn(() => Promise.resolve()),
     deleteBranch: vi.fn(() => Promise.resolve()),
     isGitRepo: vi.fn(() => Promise.resolve(true)),
+    detectDefaultBranch: vi.fn(() => Promise.resolve("main")),
   },
 }))
 

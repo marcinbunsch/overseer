@@ -43,6 +43,9 @@ pub struct PiStartConfig {
     pub log_dir: Option<String>,
     pub log_id: Option<String>,
     pub agent_shell: Option<String>,
+    /// Exact Pi session ID. Passed via `--session-id` so a restarted process
+    /// resumes the previous conversation's context (created if missing).
+    pub session_id: Option<String>,
 }
 
 /// Manages Pi RPC processes.
@@ -91,6 +94,7 @@ impl PiAgentManager {
             binary_path: config.pi_path,
             working_dir: config.working_dir,
             shell_prefix: config.agent_shell,
+            session_id: config.session_id,
         };
 
         // Spawn the process

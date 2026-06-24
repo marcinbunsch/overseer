@@ -297,6 +297,11 @@ pub struct Project {
     /// Whether to allow merging to main branch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow_merge_to_main: Option<bool>,
+
+    /// Name of the main/default branch for this project (e.g., "main", "master", "develop").
+    /// When `None`, falls back to auto-detection (looks for main/master/origin/main/origin/master).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_branch: Option<String>,
 }
 
 impl Project {
@@ -495,6 +500,7 @@ mod tests {
                 worktree_filter: None,
                 use_github: Some(true),
                 allow_merge_to_main: None,
+                main_branch: None,
             }],
         };
 

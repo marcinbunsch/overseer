@@ -205,7 +205,8 @@ export class ClaudeAgentService implements AgentService {
     modelVersion?: string | null,
     permissionMode?: string | null,
     initPrompt?: string,
-    projectName?: string
+    projectName?: string,
+    effortLevel?: string | null
   ): Promise<void> {
     await this.attachListeners(chatId)
     const conv = this.getOrCreateConversation(chatId)
@@ -229,6 +230,7 @@ export class ClaudeAgentService implements AgentService {
         logDir: logDir ?? null,
         logId: chatId,
         permissionMode: permissionMode ?? null,
+        effortLevel: effortLevel ?? null,
       })
       conv.running = true
     } catch (err) {

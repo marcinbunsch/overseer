@@ -46,9 +46,11 @@ export const DiffDialog = observer(function DiffDialog({
   // Create store instances for this dialog
   const notesStore = useMemo(() => createDiffNotesStore(), [])
   const gitService = projectRegistry.selectedWorkspaceStore?.getGitService()
+  const mainBranch = projectRegistry.selectedProject?.mainBranch
   const diffStore = useMemo(
-    () => (gitService ? createDiffViewStore(workspacePath, initialFile, gitService) : null),
-    [workspacePath, initialFile, gitService]
+    () =>
+      gitService ? createDiffViewStore(workspacePath, initialFile, gitService, mainBranch) : null,
+    [workspacePath, initialFile, gitService, mainBranch]
   )
 
   // Set up the submit callback to send to chat

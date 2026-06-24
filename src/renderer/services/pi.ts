@@ -112,6 +112,13 @@ interface PiChat {
   serverStarted: boolean
   workingDir: string
   /**
+   * Stable Pi session ID. Generated once on the first message and passed to Pi
+   * via `--session-id` so a restarted RPC process (after app restart, crash, or
+   * manual stop) resumes the same conversation's context. Persisted to chat
+   * metadata via the emitted `sessionId` event, then restored with setSessionId.
+   */
+  sessionId: string | null
+  /**
    * The model alias last sent to Pi via `set_model`. Used to detect when the
    * user changes the model mid-session so we can push a new `set_model` RPC
    * before the next prompt.
@@ -144,6 +151,7 @@ class PiAgentService implements AgentService {
         running: false,
         serverStarted: false,
         workingDir: "",
+        sessionId: null,
         currentModel: null,
         unlistenEvent: null,
         unlistenStderr: null,
@@ -251,11 +259,29 @@ class PiAgentService implements AgentService {
     const chat = this.getOrCreateChat(chatId)
     chat.workingDir = workingDir
 
+    // Whether this is the very first prompt of a brand-new session. Captured
+    // before we generate the session ID below so initPrompt is only prepended
+    // once, not on every message.
+    const isFirstMessage = !chat.sessionId
+
     // If the RPC server isn't running yet, start it
     if (!chat.serverStarted) {
       await this.attachListeners(chatId)
 
-      console.log(`Starting Pi RPC process [${chatId}] in dir:`, workingDir)
+      // Ensure a stable session ID exists before spawning. On a fresh chat we
+      // generate one; on restart it was restored via setSessionId. Either way
+      // Pi resumes (or creates) this exact session via --session-id.
+      if (!chat.sessionId) {
+        chat.sessionId = crypto.randomUUID()
+        this.emitEvent(chatId, { kind: "sessionId", sessionId: chat.sessionId })
+      }
+
+      console.log(
+        `Starting Pi RPC process [${chatId}] in dir:`,
+        workingDir,
+        "session:",
+        chat.sessionId
+      )
 
       try {
         await backend.invoke("start_pi_server", {
@@ -265,6 +291,7 @@ class PiAgentService implements AgentService {
           logDir: logDir ?? null,
           logId: chatId,
           agentShell: configStore.agentShell || null,
+          sessionId: chat.sessionId,
         })
         chat.serverStarted = true
       } catch (err) {
@@ -289,9 +316,10 @@ class PiAgentService implements AgentService {
       chat.currentModel = requestedModel
     }
 
-    // Build the prompt message
-    const isNewSession = chat.running === false && initPrompt
-    const messageText = isNewSession ? `${initPrompt}\n\n${prompt}` : prompt
+    // Build the prompt message. Prepend initPrompt only on the very first
+    // message of a new session (keyed off the session ID, not the per-turn
+    // running flag which resets after every turn).
+    const messageText = isFirstMessage && initPrompt ? `${initPrompt}\n\n${prompt}` : prompt
 
     // Send prompt via RPC
     chat.running = true
@@ -342,13 +370,15 @@ class PiAgentService implements AgentService {
     return this.chats.get(chatId)?.running ?? false
   }
 
-  getSessionId(_chatId: string): string | null {
-    // Pi manages sessions internally — no external session ID needed
-    return null
+  getSessionId(chatId: string): string | null {
+    return this.chats.get(chatId)?.sessionId ?? null
   }
 
-  setSessionId(_chatId: string, _sessionId: string | null): void {
-    // No-op: Pi manages sessions internally
+  setSessionId(chatId: string, sessionId: string | null): void {
+    // Restores the persisted session ID (e.g. on chat load) so the next spawn
+    // resumes Pi's session via --session-id.
+    const chat = this.getOrCreateChat(chatId)
+    chat.sessionId = sessionId
   }
 
   removeChat(chatId: string): void {

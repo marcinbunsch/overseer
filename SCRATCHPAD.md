@@ -88,6 +88,12 @@ To preview all design system elements, enable dev mode and go to Settings → De
 - Archived chats: `~/.config/overseer[-dev]/chats/{repo}.archived/`
 - Settings load async from `~/.config/overseer[-dev]/` — don't assume ready at mount
 
+### Pi agent
+
+- **Session resume via `--session-id`** — Pi's `--session-id <id>` flag *creates the session if missing, resumes if it exists*. Overseer generates a UUID on the first message (`pi.ts`), emits a `sessionId` event to persist it to chat metadata, and passes it to `--session-id` on every spawn so a restarted RPC process resumes context. Threaded through `start_pi_server(session_id)` → `PiStartConfig.session_id` → `PiConfig.session_id`.
+- **Pi RPC `-p` exits on stdin EOF** — When smoke-testing `pi --mode rpc -p`, piping a single line closes stdin and Pi exits *before* the model responds (only the user message echoes back). Overseer's real flow keeps the process alive, so to reproduce locally hold stdin open (e.g. `{ echo '...'; sleep 25; } | pi --mode rpc`).
+- **First-message detection** — Key "is this the first prompt" off `!chat.sessionId`, NOT the per-turn `running` flag (which resets after every turn, so it's `false` at the start of every message and wrongly re-prepends initPrompt).
+
 ---
 
 ## Mistakes Log

@@ -45,6 +45,7 @@ describe("ClaudeAgentService", () => {
       logDir: null,
       logId: "conv-1",
       permissionMode: null,
+      effortLevel: null,
     })
     expect(service.isRunning("conv-1")).toBe(true)
   })
@@ -64,6 +65,7 @@ describe("ClaudeAgentService", () => {
       logDir: null,
       logId: "conv-1",
       permissionMode: null,
+      effortLevel: null,
     })
   })
 
@@ -82,6 +84,7 @@ describe("ClaudeAgentService", () => {
       logDir: "/tmp/logs",
       logId: "conv-1",
       permissionMode: null,
+      effortLevel: null,
     })
   })
 
@@ -108,6 +111,7 @@ describe("ClaudeAgentService", () => {
       logDir: null,
       logId: "conv-1",
       permissionMode: null,
+      effortLevel: null,
     })
   })
 
@@ -138,6 +142,7 @@ describe("ClaudeAgentService", () => {
       logDir: null,
       logId: "conv-1",
       permissionMode: null,
+      effortLevel: null,
     })
   })
 
@@ -168,6 +173,7 @@ describe("ClaudeAgentService", () => {
       logDir: null,
       logId: "conv-1",
       permissionMode: null,
+      effortLevel: null,
     })
   })
 

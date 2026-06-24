@@ -26,9 +26,12 @@ pub async fn list_workspaces(repo_path: String) -> Result<Vec<WorkspaceInfo>, St
 
 /// List all changed files in a workspace.
 #[tauri::command]
-pub async fn list_changed_files(workspace_path: String) -> Result<ChangedFilesResult, String> {
+pub async fn list_changed_files(
+    workspace_path: String,
+    main_branch: Option<String>,
+) -> Result<ChangedFilesResult, String> {
     let path = std::path::PathBuf::from(&workspace_path);
-    overseer_core::git::list_changed_files(&path)
+    overseer_core::git::list_changed_files(&path, main_branch.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -55,27 +58,37 @@ pub async fn archive_workspace(repo_path: String, workspace_path: String) -> Res
 
 /// Check if a merge would succeed without actually performing it.
 #[tauri::command]
-pub async fn check_merge(workspace_path: String) -> Result<MergeResult, String> {
+pub async fn check_merge(
+    workspace_path: String,
+    main_branch: Option<String>,
+) -> Result<MergeResult, String> {
     let path = std::path::PathBuf::from(&workspace_path);
-    overseer_core::git::check_merge(&path)
+    overseer_core::git::check_merge(&path, main_branch.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
 
 /// Merge the current branch into the default branch.
 #[tauri::command]
-pub async fn merge_into_main(workspace_path: String) -> Result<MergeResult, String> {
+pub async fn merge_into_main(
+    workspace_path: String,
+    main_branch: Option<String>,
+) -> Result<MergeResult, String> {
     let path = std::path::PathBuf::from(&workspace_path);
-    overseer_core::git::merge_into_main(&path)
+    overseer_core::git::merge_into_main(&path, main_branch.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
 
 /// Rename the current branch.
 #[tauri::command]
-pub async fn rename_branch(workspace_path: String, new_name: String) -> Result<(), String> {
+pub async fn rename_branch(
+    workspace_path: String,
+    new_name: String,
+    main_branch: Option<String>,
+) -> Result<(), String> {
     let path = std::path::PathBuf::from(&workspace_path);
-    overseer_core::git::rename_branch(&path, &new_name)
+    overseer_core::git::rename_branch(&path, &new_name, main_branch.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -95,9 +108,10 @@ pub async fn get_file_diff(
     workspace_path: String,
     file_path: String,
     file_status: String,
+    main_branch: Option<String>,
 ) -> Result<String, String> {
     let path = std::path::PathBuf::from(&workspace_path);
-    overseer_core::git::get_file_diff(&path, &file_path, &file_status)
+    overseer_core::git::get_file_diff(&path, &file_path, &file_status, main_branch.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -150,9 +164,12 @@ pub async fn get_submodule_uncommitted_diff(
 
 /// List commits on this branch vs the default branch.
 #[tauri::command]
-pub async fn list_commits(workspace_path: String) -> Result<Vec<Commit>, String> {
+pub async fn list_commits(
+    workspace_path: String,
+    main_branch: Option<String>,
+) -> Result<Vec<Commit>, String> {
     let path = std::path::PathBuf::from(&workspace_path);
-    overseer_core::git::list_commits_on_branch(&path)
+    overseer_core::git::list_commits_on_branch(&path, main_branch.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -189,6 +206,13 @@ pub async fn is_git_repo(path: String) -> bool {
     Path::new(&path).join(".git").exists()
 }
 
+/// Detect the default branch name of a repository (main, master, develop, etc.).
+#[tauri::command]
+pub async fn detect_default_branch(repo_path: String) -> String {
+    let path = std::path::PathBuf::from(&repo_path);
+    overseer_core::git::get_default_branch(&path).await
+}
+
 /// Validate that a project path exists and check if it's a git repo.
 #[derive(Serialize)]
 pub struct ValidateProjectPathResult {
@@ -207,6 +231,16 @@ pub async fn validate_project_path(path: String) -> ValidateProjectPathResult {
         false
     };
     ValidateProjectPathResult { exists, is_git_repo }
+}
+
+/// List recent remote branches (from origin), sorted by most recently updated.
+/// Returns branch names with the "origin/" prefix stripped.
+#[tauri::command]
+pub async fn list_recent_branches(repo_path: String) -> Result<Vec<String>, String> {
+    let path = std::path::PathBuf::from(&repo_path);
+    overseer_core::git::list_recent_branches(&path)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ============================================================================

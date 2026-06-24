@@ -45,6 +45,7 @@ describe("PiAgentService", () => {
         logDir: null,
         logId: "chat-1",
         agentShell: null,
+        sessionId: expect.any(String),
       })
     })
 
@@ -93,6 +94,7 @@ describe("PiAgentService", () => {
         logDir: "/tmp/logs",
         logId: "chat-1",
         agentShell: null,
+        sessionId: expect.any(String),
       })
     })
 
@@ -223,6 +225,86 @@ describe("PiAgentService", () => {
     })
 
     service.stopChat("chat-1")
+  })
+
+  it("generates a session id on first message and exposes it via getSessionId", async () => {
+    const service = await freshService()
+
+    expect(service.getSessionId("chat-1")).toBeNull()
+
+    await service.sendMessage("chat-1", "hello", "/tmp/workdir")
+
+    const sessionId = service.getSessionId("chat-1")
+    expect(sessionId).toEqual(expect.any(String))
+    expect(sessionId).not.toBe("")
+
+    // The same id must be passed to the spawned process.
+    expect(invoke).toHaveBeenCalledWith("start_pi_server", expect.objectContaining({ sessionId }))
+
+    service.stopChat("chat-1")
+  })
+
+  it("emits a sessionId event so the id can be persisted to chat metadata", async () => {
+    const service = await freshService()
+
+    const eventCb = vi.fn()
+    service.onEvent("chat-1", eventCb)
+
+    await service.sendMessage("chat-1", "hello", "/tmp/workdir")
+
+    expect(eventCb).toHaveBeenCalledWith({
+      kind: "sessionId",
+      sessionId: service.getSessionId("chat-1"),
+    })
+
+    service.stopChat("chat-1")
+  })
+
+  it("reuses a restored session id on restart and does not re-prepend initPrompt", async () => {
+    const service = await freshService()
+
+    // Simulate restoring a persisted session id (e.g. on chat load).
+    service.setSessionId("chat-1", "restored-session-id")
+    expect(service.getSessionId("chat-1")).toBe("restored-session-id")
+
+    const eventCb = vi.fn()
+    service.onEvent("chat-1", eventCb)
+
+    await service.sendMessage(
+      "chat-1",
+      "user prompt",
+      "/tmp/workdir",
+      undefined,
+      null,
+      null,
+      "INIT PROMPT"
+    )
+
+    // Restored id is passed straight through to the spawn — no new id generated.
+    expect(invoke).toHaveBeenCalledWith(
+      "start_pi_server",
+      expect.objectContaining({ sessionId: "restored-session-id" })
+    )
+    // No sessionId event since the id was already known.
+    expect(eventCb).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "sessionId" }))
+    // initPrompt must NOT be prepended — this is a resumed session.
+    const promptCall = (invoke as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(
+      (c) => c[0] === "pi_stdin" && /"type":"prompt"/.test((c[1] as { data: string }).data)
+    )
+    expect((promptCall![1] as { data: string }).data).not.toContain("INIT PROMPT")
+
+    service.stopChat("chat-1")
+  })
+
+  it("preserves the session id across stopChat so a restart can resume", async () => {
+    const service = await freshService()
+
+    await service.sendMessage("chat-1", "hello", "/tmp/workdir")
+    const sessionId = service.getSessionId("chat-1")
+
+    await service.stopChat("chat-1")
+
+    expect(service.getSessionId("chat-1")).toBe(sessionId)
   })
 
   it("stopChat invokes stop_pi_server and marks as not running", async () => {

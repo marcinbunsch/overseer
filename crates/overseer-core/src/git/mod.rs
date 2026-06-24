@@ -61,7 +61,7 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 const GIT_REF_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
 // Re-export commonly used items
-pub use branch::{delete_branch, rename_branch};
+pub use branch::{delete_branch, list_recent_branches, rename_branch};
 pub use diff::{
     get_commit_diff, get_file_diff, get_submodule_file_diff, get_submodule_uncommitted_diff,
     get_uncommitted_diff, list_changed_files, list_commit_files, list_commits_on_branch,
@@ -283,6 +283,36 @@ pub async fn is_on_default_branch(cwd: &Path) -> Result<bool, GitError> {
     Ok(branch == "main" || branch == "master" || branch == "HEAD")
 }
 
+/// Resolve the default branch using an optional override.
+///
+/// If `override_name` is `Some(name)` with a non-empty value, that name
+/// is returned verbatim (no existence check — the caller has explicitly
+/// configured it). Otherwise falls back to [`get_default_branch`] auto-detection.
+pub async fn resolve_default_branch(cwd: &Path, override_name: Option<&str>) -> String {
+    if let Some(name) = override_name {
+        if !name.is_empty() {
+            return name.to_string();
+        }
+    }
+    get_default_branch(cwd).await
+}
+
+/// Check whether a branch name should be treated as the project's default branch.
+///
+/// When an override is provided, only that exact name (or "HEAD" for detached state)
+/// counts as default. Without an override, falls back to the legacy main/master heuristic.
+pub fn is_default_branch_name(branch: &str, override_name: Option<&str>) -> bool {
+    if branch == "HEAD" {
+        return true;
+    }
+    if let Some(name) = override_name {
+        if !name.is_empty() {
+            return branch == name;
+        }
+    }
+    branch == "main" || branch == "master"
+}
+
 /// Check if a path is inside a git repository.
 ///
 /// Checks for the presence of `.git` (either a directory for regular repos,
@@ -397,6 +427,31 @@ mod tests {
         for animal in ANIMALS {
             assert!(seen.insert(*animal), "Duplicate animal name: {}", animal);
         }
+    }
+
+    #[test]
+    fn is_default_branch_name_with_override() {
+        assert!(is_default_branch_name("develop", Some("develop")));
+        assert!(!is_default_branch_name("main", Some("develop")));
+        assert!(!is_default_branch_name("master", Some("develop")));
+        // HEAD (detached) always counts as default
+        assert!(is_default_branch_name("HEAD", Some("develop")));
+    }
+
+    #[test]
+    fn is_default_branch_name_without_override() {
+        assert!(is_default_branch_name("main", None));
+        assert!(is_default_branch_name("master", None));
+        assert!(is_default_branch_name("HEAD", None));
+        assert!(!is_default_branch_name("develop", None));
+        assert!(!is_default_branch_name("feature/foo", None));
+    }
+
+    #[test]
+    fn is_default_branch_name_empty_override_falls_back() {
+        // Empty string override should behave like no override
+        assert!(is_default_branch_name("main", Some("")));
+        assert!(!is_default_branch_name("develop", Some("")));
     }
 
     #[test]

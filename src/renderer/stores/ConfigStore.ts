@@ -1,4 +1,5 @@
 import { observable, action, makeObservable, runInAction } from "mobx"
+import { z } from "zod"
 import type { AgentModel, AgentType } from "../types"
 import { listOpencodeModels } from "../services/opencode"
 import { listPiModels } from "../services/pi"
@@ -30,12 +31,6 @@ interface Config {
   rightPaneTab: "changes" | "commits"
   editorCommand: string
   terminalCommand: string
-  claudeModels?: AgentModel[]
-  codexModels?: AgentModel[]
-  copilotModels?: AgentModel[]
-  geminiModels?: AgentModel[]
-  opencodeModels?: AgentModel[]
-  piModels?: AgentModel[]
   enabledAgents?: AgentType[]
   defaultAgent: AgentType | null
   defaultClaudeModel?: string | null
@@ -50,6 +45,7 @@ interface Config {
   animationsEnabled?: boolean
   showClaudeUsageIndicator?: boolean
   autonomousModeEnabled?: boolean
+  remoteModelsEnabled?: boolean
   terminalOpenByDefault?: boolean
   soundNotificationEnabled?: boolean
   systemNotificationEnabled?: boolean
@@ -98,17 +94,31 @@ const FALLBACK_GEMINI_PATH = "gemini"
 const FALLBACK_OPENCODE_PATH = "opencode"
 const FALLBACK_PI_PATH = "pi"
 
-const DEFAULT_CLAUDE_MODELS: AgentModel[] = [
+const AgentModelSchema = z.object({
+  alias: z.string().min(1),
+  displayName: z.string().min(1),
+})
+
+const RemoteModelsSchema = z.object({
+  claude: z.array(AgentModelSchema).optional(),
+  codex: z.array(AgentModelSchema).optional(),
+  copilot: z.array(AgentModelSchema).optional(),
+  gemini: z.array(AgentModelSchema).optional(),
+  opencode: z.array(AgentModelSchema).optional(),
+})
+
+export const DEFAULT_CLAUDE_MODELS: AgentModel[] = [
+  { alias: "claude-fable-5", displayName: "Fable 5" },
+  { alias: "claude-opus-4-8", displayName: "Opus 4.8" },
   { alias: "claude-opus-4-7", displayName: "Opus 4.7" },
   { alias: "claude-opus-4-6", displayName: "Opus 4.6" },
-  { alias: "claude-opus-4-5", displayName: "Opus 4.5" },
-  { alias: "claude-opus-4-1", displayName: "Opus 4.1" },
   { alias: "claude-sonnet-4-6", displayName: "Sonnet 4.6" },
   { alias: "claude-sonnet-4-5", displayName: "Sonnet 4.5" },
+  { alias: "claude-opus-4-5", displayName: "Opus 4.5" },
   { alias: "claude-haiku-4-5", displayName: "Haiku 4.5" },
 ]
 
-const DEFAULT_CODEX_MODELS: AgentModel[] = [
+export const DEFAULT_CODEX_MODELS: AgentModel[] = [
   { alias: "gpt-5.5", displayName: "GPT-5.5" },
   { alias: "gpt-5.4", displayName: "GPT-5.4" },
   { alias: "gpt-5.4-mini", displayName: "GPT-5.4 Mini" },
@@ -189,6 +199,7 @@ class ConfigStore {
   @observable animationsEnabled: boolean = false
   @observable showClaudeUsageIndicator: boolean = false
   @observable autonomousModeEnabled: boolean = false
+  @observable remoteModelsEnabled: boolean = false
   @observable terminalOpenByDefault: boolean = false
   @observable soundNotificationEnabled: boolean = true
   @observable systemNotificationEnabled: boolean = false
@@ -282,24 +293,6 @@ class ConfigStore {
         this.rightPaneTab = parsed.rightPaneTab ?? DEFAULT_CONFIG.rightPaneTab
         this.editorCommand = parsed.editorCommand ?? DEFAULT_CONFIG.editorCommand
         this.terminalCommand = parsed.terminalCommand ?? DEFAULT_CONFIG.terminalCommand
-        if (Array.isArray(parsed.claudeModels) && parsed.claudeModels.length > 0) {
-          this.claudeModels = parsed.claudeModels
-        }
-        if (Array.isArray(parsed.codexModels) && parsed.codexModels.length > 0) {
-          this.codexModels = parsed.codexModels
-        }
-        if (Array.isArray(parsed.copilotModels) && parsed.copilotModels.length > 0) {
-          this.copilotModels = parsed.copilotModels
-        }
-        if (Array.isArray(parsed.geminiModels) && parsed.geminiModels.length > 0) {
-          this.geminiModels = parsed.geminiModels
-        }
-        if (Array.isArray(parsed.opencodeModels) && parsed.opencodeModels.length > 0) {
-          this.opencodeModels = parsed.opencodeModels
-        }
-        if (Array.isArray(parsed.piModels) && parsed.piModels.length > 0) {
-          this.piModels = parsed.piModels
-        }
         if (Array.isArray(parsed.enabledAgents)) {
           this.enabledAgents = parsed.enabledAgents
         }
@@ -317,6 +310,7 @@ class ConfigStore {
         this.animationsEnabled = parsed.animationsEnabled ?? false
         this.showClaudeUsageIndicator = parsed.showClaudeUsageIndicator ?? false
         this.autonomousModeEnabled = parsed.autonomousModeEnabled ?? false
+        this.remoteModelsEnabled = parsed.remoteModelsEnabled ?? false
         this.terminalOpenByDefault = parsed.terminalOpenByDefault ?? false
         this.soundNotificationEnabled = parsed.soundNotificationEnabled ?? true
         this.systemNotificationEnabled = parsed.systemNotificationEnabled ?? false
@@ -339,6 +333,11 @@ class ConfigStore {
       remoteServerStore.autoConnectServers().catch((err) => {
         console.error("Failed to auto-connect to remote servers:", err)
       })
+
+      // Fetch latest models from GitHub in the background (opt-in)
+      if (this.remoteModelsEnabled) {
+        void this.refreshRemoteModels()
+      }
     } catch (err) {
       console.error("Failed to load config, falling back to bare 'claude':", err)
       runInAction(() => {
@@ -367,12 +366,6 @@ class ConfigStore {
         rightPaneTab: this.rightPaneTab,
         editorCommand: this.editorCommand,
         terminalCommand: this.terminalCommand,
-        claudeModels: this.claudeModels,
-        codexModels: this.codexModels,
-        copilotModels: this.copilotModels,
-        geminiModels: this.geminiModels,
-        opencodeModels: this.opencodeModels,
-        piModels: this.piModels,
         enabledAgents: this.enabledAgents,
         defaultAgent: this.defaultAgent,
         defaultClaudeModel: this.defaultClaudeModel,
@@ -387,6 +380,7 @@ class ConfigStore {
         animationsEnabled: this.animationsEnabled,
         showClaudeUsageIndicator: this.showClaudeUsageIndicator,
         autonomousModeEnabled: this.autonomousModeEnabled,
+        remoteModelsEnabled: this.remoteModelsEnabled,
         terminalOpenByDefault: this.terminalOpenByDefault,
         soundNotificationEnabled: this.soundNotificationEnabled,
         systemNotificationEnabled: this.systemNotificationEnabled,
@@ -582,6 +576,37 @@ class ConfigStore {
 
   @action setSettingsOpen(open: boolean) {
     this.settingsOpen = open
+  }
+
+  @action setRemoteModelsEnabled(enabled: boolean) {
+    this.remoteModelsEnabled = enabled
+    this.save()
+  }
+
+  /**
+   * Fetch the latest model lists from GitHub and update the observables.
+   * Only called when remoteModelsEnabled is true. Falls back to hardcoded
+   * defaults silently if the fetch fails or the response is invalid.
+   */
+  async refreshRemoteModels(): Promise<void> {
+    try {
+      const response = await fetch(
+        "https://raw.githubusercontent.com/marcinbunsch/overseer/main/models.json"
+      )
+      if (!response.ok) return
+      const parsed = RemoteModelsSchema.safeParse(await response.json())
+      if (!parsed.success) return
+      const data = parsed.data
+      runInAction(() => {
+        if (data.claude && data.claude.length > 0) this.claudeModels = data.claude
+        if (data.codex && data.codex.length > 0) this.codexModels = data.codex
+        if (data.copilot && data.copilot.length > 0) this.copilotModels = data.copilot
+        if (data.gemini && data.gemini.length > 0) this.geminiModels = data.gemini
+        if (data.opencode && data.opencode.length > 0) this.opencodeModels = data.opencode
+      })
+    } catch {
+      // Network unavailable — silently keep hardcoded defaults
+    }
   }
 
   /**

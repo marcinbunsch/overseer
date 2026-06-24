@@ -174,6 +174,7 @@ mod tests {
             worktree_filter: None,
             use_github: None,
             allow_merge_to_main: None,
+            main_branch: None,
         }
     }
 

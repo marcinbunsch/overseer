@@ -16,7 +16,7 @@
 //!
 //! To force-delete an unmerged branch, use git directly with `-D`.
 
-use super::{get_current_branch, run_git_success, GitError};
+use super::{get_current_branch, is_default_branch_name, run_git_success, GitError};
 use std::path::Path;
 
 // ============================================================================
@@ -50,12 +50,16 @@ use std::path::Path;
 /// // Rename current branch from "old-feature" to "new-feature"
 /// rename_branch(workspace_path, "new-feature").await?;
 /// ```
-pub async fn rename_branch(workspace_path: &Path, new_name: &str) -> Result<(), GitError> {
+pub async fn rename_branch(
+    workspace_path: &Path,
+    new_name: &str,
+    main_branch: Option<&str>,
+) -> Result<(), GitError> {
     // Check current branch
     let current_branch = get_current_branch(workspace_path).await?;
 
-    // Prevent renaming main/master
-    if current_branch == "main" || current_branch == "master" {
+    // Prevent renaming the project's main branch
+    if is_default_branch_name(&current_branch, main_branch) {
         return Err(GitError::Other("Cannot rename the main branch".to_string()));
     }
 
@@ -99,6 +103,43 @@ pub async fn rename_branch(workspace_path: &Path, new_name: &str) -> Result<(), 
 pub async fn delete_branch(repo_path: &Path, branch_name: &str) -> Result<(), GitError> {
     run_git_success(&["branch", "-d", branch_name], repo_path).await?;
     Ok(())
+}
+
+/// List recently-updated remote branches from `origin`, sorted newest first.
+///
+/// First runs `git fetch origin --prune` to ensure we have the latest remote refs
+/// and cleaned-up tracking branches, then runs `git branch -r --sort=-committerdate`
+/// and strips the `origin/` prefix. The `origin/HEAD` sentinel entry is filtered out automatically.
+///
+/// # Arguments
+///
+/// * `repo_path` - Path to the repository (or any worktree)
+///
+/// # Returns
+///
+/// A list of branch names (without `origin/` prefix), sorted newest first.
+pub async fn list_recent_branches(repo_path: &Path) -> Result<Vec<String>, GitError> {
+    // Fetch latest remote refs and prune deleted branches
+    run_git_success(&["fetch", "origin", "--prune"], repo_path).await?;
+
+    let stdout = run_git_success(
+        &["branch", "-r", "--sort=-committerdate", "--format=%(refname:short)"],
+        repo_path,
+    )
+    .await?;
+
+    let branches = stdout
+        .lines()
+        .filter_map(|line| {
+            let branch = line.trim().strip_prefix("origin/")?;
+            if branch == "HEAD" {
+                return None;
+            }
+            Some(branch.to_string())
+        })
+        .collect();
+
+    Ok(branches)
 }
 
 // ============================================================================
@@ -161,7 +202,7 @@ mod tests {
     #[tokio::test]
     async fn rename_branch_blocks_main() {
         let dir = init_temp_repo("main");
-        let result = rename_branch(dir.path(), "new-name").await;
+        let result = rename_branch(dir.path(), "new-name", None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("main branch"));
     }
@@ -169,15 +210,33 @@ mod tests {
     #[tokio::test]
     async fn rename_branch_blocks_master() {
         let dir = init_temp_repo("master");
-        let result = rename_branch(dir.path(), "new-name").await;
+        let result = rename_branch(dir.path(), "new-name", None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("main branch"));
     }
 
     #[tokio::test]
+    async fn rename_branch_blocks_configured_main() {
+        // Project configures "develop" as its main branch — rename should be blocked.
+        let dir = init_temp_repo("develop");
+        let result = rename_branch(dir.path(), "new-name", Some("develop")).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("main branch"));
+    }
+
+    #[tokio::test]
+    async fn rename_branch_allows_main_when_override_differs() {
+        // If override says "develop" is main, then renaming a workspace on "main" is allowed.
+        let dir = init_temp_repo("main");
+        let result = rename_branch(dir.path(), "renamed", Some("develop")).await;
+        // Note: this succeeds because "main" != "develop" and "main" is no longer treated as default.
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
     async fn rename_branch_allows_feature_branch() {
         let dir = init_temp_repo("feature-branch");
-        let result = rename_branch(dir.path(), "renamed-branch").await;
+        let result = rename_branch(dir.path(), "renamed-branch", None).await;
         assert!(result.is_ok());
 
         let output = Command::new("git")

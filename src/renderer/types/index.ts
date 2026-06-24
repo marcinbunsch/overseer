@@ -15,6 +15,8 @@ export interface Project {
   allowMergeToMain?: boolean
   /** If set, this project is from a remote Overseer server at this URL */
   remoteServerUrl?: string
+  /** Name of the main/default branch (e.g., "main", "master", "develop"). Auto-detected at project add time, editable in settings. */
+  mainBranch?: string
 }
 
 export interface Workspace {
@@ -144,6 +146,7 @@ export interface Chat {
   agentSessionId: string | null
   modelVersion: string | null
   permissionMode: string | null // Claude permission mode (default, acceptEdits, bypassPermissions)
+  effortLevel: string | null // Claude effort level (low, medium, high, max)
   createdAt: Date
   updatedAt: Date
   isArchived?: boolean
@@ -161,6 +164,7 @@ export interface ChatFile {
   claudeSessionId?: string | null
   modelVersion?: string | null
   permissionMode?: string | null
+  effortLevel?: string | null
   createdAt: string
   updatedAt: string
 }
