@@ -599,6 +599,7 @@ export class WorkspaceStore {
       getInitPrompt: () => this.buildInitPrompt(),
       getProjectName: () => this.projectName,
       getWorkspaceName: () => this.path.split("/").pop() || "unknown",
+      getWorkspaceId: () => this.id,
       saveIndex: () => this.saveChatIndex(),
       getActiveChatId: () => this.activeChatId,
       getWorkspacePath: () => this.path,

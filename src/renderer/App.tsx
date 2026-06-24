@@ -20,6 +20,9 @@ import { consoleStore } from "./stores/ConsoleStore"
 import { backend } from "./backend"
 import { httpBackend } from "./backend/http"
 import { handleWindowCloseRequest, createDefaultDeps } from "./utils/windowClose"
+import { initNotificationClickHandler } from "./services/notificationService"
+import { projectRegistry } from "./stores/ProjectRegistry"
+import { runInAction } from "mobx"
 
 function DragHandle({
   onDrag,
@@ -118,6 +121,19 @@ export default observer(function App() {
     if (backend.type === "web") {
       unsubscribeAuth = httpBackend.onAuthRequired(() => {
         webAuthStore.setAuthRequired(true)
+      })
+    }
+
+    // Set up notification click handler (only in Tauri mode)
+    if (backend.type === "tauri") {
+      initNotificationClickHandler((workspaceId, chatId) => {
+        runInAction(() => {
+          projectRegistry.selectWorkspace(workspaceId)
+          const ws = projectRegistry.selectedWorkspaceStore
+          ws?.switchChat(chatId)
+        })
+      }).catch((err) => {
+        console.error("[App] Failed to init notification click handler:", err)
       })
     }
 

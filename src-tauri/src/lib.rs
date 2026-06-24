@@ -394,6 +394,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
         .menu(|handle| {
             // Build custom quit menu item so we can intercept Cmd+Q
             let quit_item = MenuItemBuilder::new("Quit Overseer")
