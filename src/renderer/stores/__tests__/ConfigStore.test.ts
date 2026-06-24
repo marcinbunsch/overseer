@@ -852,4 +852,144 @@ describe("ConfigStore", () => {
       expect(savedConfig!.defaultAgent).toBe("gemini")
     })
   })
+
+  describe("soundNotificationEnabled", () => {
+    it("defaults to true when not in config", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.soundNotificationEnabled).toBe(true)
+    })
+
+    it("loads soundNotificationEnabled from config", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude", soundNotificationEnabled: false })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.soundNotificationEnabled).toBe(false)
+    })
+
+    it("saves config when soundNotificationEnabled is changed", async () => {
+      let savedConfig: Record<string, unknown> | null = null
+      mockInvoke((cmd: string, args?: unknown) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        if (cmd === "save_json_config") {
+          savedConfig = (args as { content: Record<string, unknown> }).content
+          return Promise.resolve(undefined)
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      configStore.setSoundNotificationEnabled(false)
+
+      await vi.waitFor(() => {
+        expect(savedConfig).not.toBeNull()
+      })
+
+      expect(savedConfig!.soundNotificationEnabled).toBe(false)
+    })
+  })
+
+  describe("systemNotificationEnabled", () => {
+    it("defaults to false when not in config", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.systemNotificationEnabled).toBe(false)
+    })
+
+    it("loads systemNotificationEnabled from config", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude", systemNotificationEnabled: true })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.systemNotificationEnabled).toBe(true)
+    })
+
+    it("saves config when systemNotificationEnabled is changed", async () => {
+      let savedConfig: Record<string, unknown> | null = null
+      mockInvoke((cmd: string, args?: unknown) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        if (cmd === "save_json_config") {
+          savedConfig = (args as { content: Record<string, unknown> }).content
+          return Promise.resolve(undefined)
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      configStore.setSystemNotificationEnabled(true)
+
+      await vi.waitFor(() => {
+        expect(savedConfig).not.toBeNull()
+      })
+
+      expect(savedConfig!.systemNotificationEnabled).toBe(true)
+    })
+  })
 })

@@ -964,8 +964,9 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
         this.isSending = false
         // Show "done" status unless user is actively viewing this chat
         // (window focused + this workspace selected + this chat active)
+        const windowFocused = typeof document !== "undefined" ? document.hasFocus() : true
         const isViewing =
-          document.hasFocus() &&
+          windowFocused &&
           this.context.isWorkspaceSelected() &&
           this.context.getActiveChatId() === this.chat.id
         this.chat.status = isViewing ? "idle" : "done"

@@ -125,6 +125,7 @@ export default observer(function App() {
     }
 
     // Set up notification click handler (only in Tauri mode)
+    let unsubscribeNotifications: (() => void) | null = null
     if (backend.type === "tauri") {
       initNotificationClickHandler((workspaceId, chatId) => {
         runInAction(() => {
@@ -132,9 +133,13 @@ export default observer(function App() {
           const ws = projectRegistry.selectedWorkspaceStore
           ws?.switchChat(chatId)
         })
-      }).catch((err) => {
-        console.error("[App] Failed to init notification click handler:", err)
       })
+        .then((unsub) => {
+          unsubscribeNotifications = unsub
+        })
+        .catch((err) => {
+          console.error("[App] Failed to init notification click handler:", err)
+        })
     }
 
     // Auto-start HTTP server if configured (only in Tauri mode)
@@ -193,6 +198,7 @@ export default observer(function App() {
     return () => {
       cleanupFns.forEach((p) => p.then((fn) => fn()))
       if (unsubscribeAuth) unsubscribeAuth()
+      if (unsubscribeNotifications) unsubscribeNotifications()
     }
   }, [])
 

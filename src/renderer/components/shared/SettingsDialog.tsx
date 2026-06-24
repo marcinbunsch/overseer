@@ -31,6 +31,7 @@ import { Input } from "./Input"
 import { Textarea } from "./Textarea"
 import { Checkbox } from "./Checkbox"
 import { RemoteServersSettings } from "./RemoteServersSettings"
+import { requestNotificationPermission } from "../../services/notificationService"
 
 type SettingsTab = "general" | "agents" | "advanced" | "updates" | "design-system"
 
@@ -310,9 +311,15 @@ const GeneralTab = observer(function GeneralTab() {
             </div>
             <Switch.Root
               checked={configStore.systemNotificationEnabled}
-              onCheckedChange={(checked: boolean) =>
-                configStore.setSystemNotificationEnabled(checked)
-              }
+              onCheckedChange={(checked: boolean) => {
+                if (checked) {
+                  void requestNotificationPermission().then((granted) => {
+                    if (granted) configStore.setSystemNotificationEnabled(true)
+                  })
+                } else {
+                  configStore.setSystemNotificationEnabled(false)
+                }
+              }}
               className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
               data-testid="system-notification-toggle"
             >

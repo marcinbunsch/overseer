@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { invoke } from "@tauri-apps/api/core"
 import { runInAction } from "mobx"
 import type { Chat } from "../../types"
@@ -163,6 +163,10 @@ describe("ChatStore", () => {
           return undefined
       }
     })
+  })
+
+  afterEach(() => {
+    vi.stubGlobal("document", undefined)
   })
 
   it("initializes with correct defaults", () => {

@@ -6,11 +6,23 @@
  */
 
 export function playCompletionSound(): void {
-  const ctx = new AudioContext()
+  const AudioCtx =
+    typeof window !== "undefined"
+      ? (window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
+      : undefined
+  if (!AudioCtx) return
+
+  const ctx = new AudioCtx()
   console.log(`[notifications] AudioContext state before resume: ${ctx.state}`)
-  void ctx.resume().then(() => {
-    console.log(`[notifications] AudioContext state after resume: ${ctx.state}`)
-  })
+  void ctx
+    .resume()
+    .then(() => {
+      console.log(`[notifications] AudioContext state after resume: ${ctx.state}`)
+    })
+    .catch((err) => {
+      console.warn("[notifications] AudioContext resume failed:", err)
+    })
   const now = ctx.currentTime
 
   // Two-tone chime: high then slightly lower, soft and short
@@ -34,32 +46,51 @@ export function playCompletionSound(): void {
   setTimeout(() => ctx.close(), 1200)
 }
 
+export async function requestNotificationPermission(): Promise<boolean> {
+  try {
+    const { isPermissionGranted, requestPermission } =
+      await import("@tauri-apps/plugin-notification")
+    let granted = await isPermissionGranted()
+    if (!granted) {
+      const permission = await requestPermission()
+      granted = permission === "granted"
+    }
+    return granted
+  } catch {
+    return false
+  }
+}
+
 export async function sendSystemNotification(
   workspaceName: string,
   workspaceId: string,
   chatId: string
 ): Promise<void> {
-  const { isPermissionGranted, requestPermission, sendNotification } =
-    await import("@tauri-apps/plugin-notification")
+  try {
+    const { isPermissionGranted, requestPermission, sendNotification } =
+      await import("@tauri-apps/plugin-notification")
 
-  let granted = await isPermissionGranted()
-  console.log(`[notifications] Permission granted: ${granted}`)
-  if (!granted) {
-    const permission = await requestPermission()
-    granted = permission === "granted"
-    console.log(`[notifications] Permission after request: ${permission}`)
-  }
-  if (!granted) {
-    console.log("[notifications] Permission denied — skipping notification")
-    return
-  }
+    let granted = await isPermissionGranted()
+    console.log(`[notifications] Permission granted: ${granted}`)
+    if (!granted) {
+      const permission = await requestPermission()
+      granted = permission === "granted"
+      console.log(`[notifications] Permission after request: ${permission}`)
+    }
+    if (!granted) {
+      console.log("[notifications] Permission denied — skipping notification")
+      return
+    }
 
-  console.log(`[notifications] Sending OS notification for workspace: ${workspaceName}`)
-  sendNotification({
-    title: "Overseer",
-    body: `Task complete in ${workspaceName}`,
-    extra: { workspaceId, chatId },
-  })
+    console.log(`[notifications] Sending OS notification for workspace: ${workspaceName}`)
+    sendNotification({
+      title: "Overseer",
+      body: `Task complete in ${workspaceName}`,
+      extra: { workspaceId, chatId },
+    })
+  } catch (err) {
+    console.warn("[notifications] System notification unavailable:", err)
+  }
 }
 
 /**
