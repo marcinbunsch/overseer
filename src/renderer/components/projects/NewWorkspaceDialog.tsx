@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useMemo } from "react"
+import { observer } from "mobx-react-lite"
 import * as AlertDialog from "@radix-ui/react-alert-dialog"
 import { X, Loader2 } from "lucide-react"
 import { faker } from "@faker-js/faker"
 import { Input } from "../shared/Input"
 import { gitService } from "../../services/git"
 import type { ReviewPr } from "../../services/git"
+import { configStore } from "../../stores/ConfigStore"
 
 interface NewWorkspaceDialogProps {
   open: boolean
@@ -22,7 +24,7 @@ function generateRandomName(): string {
   return `${animal}-${adjective}-${noun}`
 }
 
-export function NewWorkspaceDialog({
+export const NewWorkspaceDialog = observer(function NewWorkspaceDialog({
   open,
   onOpenChange,
   onCreate,
@@ -69,7 +71,7 @@ export function NewWorkspaceDialog({
 
   // Fetch PRs waiting for review when the dialog opens (or repoPath changes)
   useEffect(() => {
-    if (!open || !repoPath) {
+    if (!open || !repoPath || !configStore.showReviewPrs) {
       setReviewPrs(null)
       return
     }
@@ -175,38 +177,39 @@ export function NewWorkspaceDialog({
                 </div>
               ) : null}
 
-              {reviewPrs === null ? (
-                <div
-                  className="flex items-center gap-1.5 text-xs text-ovr-text-dim"
-                  data-testid="review-prs-loading"
-                >
-                  <Loader2 className="size-3 animate-spin" />
-                  <span>Loading PRs waiting for review…</span>
-                </div>
-              ) : reviewPrs.length > 0 ? (
-                <div data-testid="review-prs-list">
-                  <p className="mb-1.5 text-xs font-medium text-ovr-text-muted">
-                    PRs waiting for review
-                  </p>
-                  <div className="flex max-h-52 flex-col gap-0.5 overflow-y-auto">
-                    {reviewPrs.map((pr) => (
-                      <button
-                        key={pr.number}
-                        onClick={() => handleSelectBranch(pr.headRefName)}
-                        className="rounded px-2 py-1 text-left transition-colors hover:bg-ovr-bg-elevated"
-                        data-testid="review-pr-item"
-                      >
-                        <span className="block truncate text-xs text-ovr-text-primary hover:text-ovr-text-strong">
-                          <span className="text-ovr-text-dim">#{pr.number}</span> {pr.title}
-                        </span>
-                        <span className="block truncate text-xs text-ovr-text-dim">
-                          {pr.headRefName} · by {pr.authorLogin}
-                        </span>
-                      </button>
-                    ))}
+              {configStore.showReviewPrs &&
+                (reviewPrs === null ? (
+                  <div
+                    className="flex items-center gap-1.5 text-xs text-ovr-text-dim"
+                    data-testid="review-prs-loading"
+                  >
+                    <Loader2 className="size-3 animate-spin" />
+                    <span>Loading PRs waiting for review…</span>
                   </div>
-                </div>
-              ) : null}
+                ) : reviewPrs.length > 0 ? (
+                  <div data-testid="review-prs-list">
+                    <p className="mb-1.5 text-xs font-medium text-ovr-text-muted">
+                      PRs waiting for review
+                    </p>
+                    <div className="flex max-h-52 flex-col gap-0.5 overflow-y-auto">
+                      {reviewPrs.map((pr) => (
+                        <button
+                          key={pr.number}
+                          onClick={() => handleSelectBranch(pr.headRefName)}
+                          className="rounded px-2 py-1 text-left transition-colors hover:bg-ovr-bg-elevated"
+                          data-testid="review-pr-item"
+                        >
+                          <span className="block truncate text-xs text-ovr-text-primary hover:text-ovr-text-strong">
+                            <span className="text-ovr-text-dim">#{pr.number}</span> {pr.title}
+                          </span>
+                          <span className="block truncate text-xs text-ovr-text-dim">
+                            {pr.headRefName} · by {pr.authorLogin}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null)}
             </div>
           )}
 
@@ -226,4 +229,4 @@ export function NewWorkspaceDialog({
       </AlertDialog.Portal>
     </AlertDialog.Root>
   )
-}
+})

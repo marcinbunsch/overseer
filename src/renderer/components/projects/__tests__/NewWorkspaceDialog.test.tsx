@@ -24,7 +24,15 @@ vi.mock("../../../services/git", () => ({
   },
 }))
 
+// Mock configStore
+vi.mock("../../../stores/ConfigStore", () => ({
+  configStore: {
+    showReviewPrs: false,
+  },
+}))
+
 import { gitService } from "../../../services/git"
+import { configStore } from "../../../stores/ConfigStore"
 
 describe("NewWorkspaceDialog", () => {
   const defaultProps = {
@@ -97,6 +105,7 @@ describe("NewWorkspaceDialog", () => {
   })
 
   it("shows spinner while loading recent branches and review PRs", () => {
+    configStore.showReviewPrs = true
     vi.mocked(gitService.listRecentBranches).mockReturnValue(new Promise(() => {}))
     vi.mocked(gitService.listReviewPrs).mockReturnValue(new Promise(() => {}))
 
@@ -202,7 +211,17 @@ describe("NewWorkspaceDialog", () => {
     expect(screen.queryByTestId("review-prs-loading")).not.toBeInTheDocument()
   })
 
+  it("does not fetch or show review PRs when showReviewPrs is disabled", () => {
+    configStore.showReviewPrs = false
+    render(<NewWorkspaceDialog {...defaultProps} repoPath="/repo" />)
+
+    expect(gitService.listReviewPrs).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("review-prs-loading")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("review-prs-list")).not.toBeInTheDocument()
+  })
+
   it("shows PR review list after loading", async () => {
+    configStore.showReviewPrs = true
     vi.mocked(gitService.listReviewPrs).mockResolvedValue([
       { number: 42, title: "Fix the bug", headRefName: "feature/fix-bug", authorLogin: "alice" },
       {
@@ -228,6 +247,7 @@ describe("NewWorkspaceDialog", () => {
   })
 
   it("clicking a review PR calls onCreate with the branch name", async () => {
+    configStore.showReviewPrs = true
     vi.mocked(gitService.listReviewPrs).mockResolvedValue([
       { number: 7, title: "My PR", headRefName: "feature/my-pr", authorLogin: "carol" },
     ])
@@ -245,6 +265,7 @@ describe("NewWorkspaceDialog", () => {
   })
 
   it("hides the review PRs section when list is empty", async () => {
+    configStore.showReviewPrs = true
     vi.mocked(gitService.listReviewPrs).mockResolvedValue([])
 
     render(<NewWorkspaceDialog {...defaultProps} repoPath="/repo" />)
@@ -257,6 +278,7 @@ describe("NewWorkspaceDialog", () => {
   })
 
   it("hides the review PRs section on fetch error", async () => {
+    configStore.showReviewPrs = true
     vi.mocked(gitService.listReviewPrs).mockRejectedValue(new Error("gh not installed"))
 
     render(<NewWorkspaceDialog {...defaultProps} repoPath="/repo" />)
