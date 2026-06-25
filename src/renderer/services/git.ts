@@ -15,6 +15,13 @@ export interface PrStatus {
   is_draft: boolean
 }
 
+export interface ReviewPr {
+  number: number
+  title: string
+  headRefName: string
+  authorLogin: string
+}
+
 /**
  * GitService wraps git operations via the backend.
  * Can be instantiated with a specific backend for remote projects,
@@ -164,6 +171,13 @@ export class GitService {
 
   async listRecentBranches(repoPath: string): Promise<string[]> {
     return this.backend.invoke<string[]>("list_recent_branches", { repoPath })
+  }
+
+  async listReviewPrs(repoPath: string): Promise<ReviewPr[]> {
+    return this.backend.invoke<ReviewPr[]>("list_review_prs", {
+      repoPath,
+      agentShell: configStore.agentShell || null,
+    })
   }
 
   async isGitRepo(path: string): Promise<boolean> {

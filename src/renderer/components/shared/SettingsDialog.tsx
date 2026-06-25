@@ -284,6 +284,22 @@ const GeneralTab = observer(function GeneralTab() {
           </div>
           <div className="flex items-center justify-between">
             <div>
+              <span className="text-xs text-ovr-text-primary">Show PRs waiting for review</span>
+              <p className="text-[11px] text-ovr-text-dim">
+                Show GitHub PRs awaiting your review when adding a workspace (requires gh)
+              </p>
+            </div>
+            <Switch.Root
+              checked={configStore.showReviewPrs}
+              onCheckedChange={(checked: boolean) => configStore.setShowReviewPrs(checked)}
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
+              data-testid="show-review-prs-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
               <span className="text-xs text-ovr-text-primary">Sound on completion</span>
               <p className="text-[11px] text-ovr-text-dim">
                 Play a chime when an agent finishes a task

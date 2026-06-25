@@ -20,10 +20,19 @@ vi.mock("@faker-js/faker", () => ({
 vi.mock("../../../services/git", () => ({
   gitService: {
     listRecentBranches: vi.fn(),
+    listReviewPrs: vi.fn(),
+  },
+}))
+
+// Mock configStore
+vi.mock("../../../stores/ConfigStore", () => ({
+  configStore: {
+    showReviewPrs: false,
   },
 }))
 
 import { gitService } from "../../../services/git"
+import { configStore } from "../../../stores/ConfigStore"
 
 describe("NewWorkspaceDialog", () => {
   const defaultProps = {
@@ -34,6 +43,9 @@ describe("NewWorkspaceDialog", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default: both fetches resolve to empty so they don't interfere with unrelated tests
+    vi.mocked(gitService.listRecentBranches).mockResolvedValue([])
+    vi.mocked(gitService.listReviewPrs).mockResolvedValue([])
   })
 
   it("renders with a random branch name", () => {
@@ -92,12 +104,15 @@ describe("NewWorkspaceDialog", () => {
     expect(defaultProps.onCreate).toHaveBeenCalledWith("trimmed-branch")
   })
 
-  it("shows spinner while loading recent branches", () => {
+  it("shows spinner while loading recent branches and review PRs", () => {
+    configStore.showReviewPrs = true
     vi.mocked(gitService.listRecentBranches).mockReturnValue(new Promise(() => {}))
+    vi.mocked(gitService.listReviewPrs).mockReturnValue(new Promise(() => {}))
 
     render(<NewWorkspaceDialog {...defaultProps} repoPath="/repo" />)
 
     expect(screen.getByTestId("recent-branches-loading")).toBeInTheDocument()
+    expect(screen.getByTestId("review-prs-loading")).toBeInTheDocument()
   })
 
   it("shows recent branches after loading", async () => {
@@ -191,6 +206,87 @@ describe("NewWorkspaceDialog", () => {
     render(<NewWorkspaceDialog {...defaultProps} />)
 
     expect(gitService.listRecentBranches).not.toHaveBeenCalled()
+    expect(gitService.listReviewPrs).not.toHaveBeenCalled()
     expect(screen.queryByTestId("recent-branches-loading")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("review-prs-loading")).not.toBeInTheDocument()
+  })
+
+  it("does not fetch or show review PRs when showReviewPrs is disabled", () => {
+    configStore.showReviewPrs = false
+    render(<NewWorkspaceDialog {...defaultProps} repoPath="/repo" />)
+
+    expect(gitService.listReviewPrs).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("review-prs-loading")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("review-prs-list")).not.toBeInTheDocument()
+  })
+
+  it("shows PR review list after loading", async () => {
+    configStore.showReviewPrs = true
+    vi.mocked(gitService.listReviewPrs).mockResolvedValue([
+      { number: 42, title: "Fix the bug", headRefName: "feature/fix-bug", authorLogin: "alice" },
+      {
+        number: 99,
+        title: "Add new feature",
+        headRefName: "feature/add-thing",
+        authorLogin: "bob",
+      },
+    ])
+
+    render(<NewWorkspaceDialog {...defaultProps} repoPath="/repo" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("review-prs-list")).toBeInTheDocument()
+    })
+
+    const items = screen.getAllByTestId("review-pr-item")
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent("#42")
+    expect(items[0]).toHaveTextContent("Fix the bug")
+    expect(items[0]).toHaveTextContent("feature/fix-bug")
+    expect(items[0]).toHaveTextContent("alice")
+  })
+
+  it("clicking a review PR calls onCreate with the branch name", async () => {
+    configStore.showReviewPrs = true
+    vi.mocked(gitService.listReviewPrs).mockResolvedValue([
+      { number: 7, title: "My PR", headRefName: "feature/my-pr", authorLogin: "carol" },
+    ])
+
+    render(<NewWorkspaceDialog {...defaultProps} repoPath="/repo" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("review-prs-list")).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId("review-pr-item"))
+
+    expect(defaultProps.onCreate).toHaveBeenCalledWith("feature/my-pr")
+    expect(defaultProps.onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("hides the review PRs section when list is empty", async () => {
+    configStore.showReviewPrs = true
+    vi.mocked(gitService.listReviewPrs).mockResolvedValue([])
+
+    render(<NewWorkspaceDialog {...defaultProps} repoPath="/repo" />)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("review-prs-loading")).not.toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId("review-prs-list")).not.toBeInTheDocument()
+  })
+
+  it("hides the review PRs section on fetch error", async () => {
+    configStore.showReviewPrs = true
+    vi.mocked(gitService.listReviewPrs).mockRejectedValue(new Error("gh not installed"))
+
+    render(<NewWorkspaceDialog {...defaultProps} repoPath="/repo" />)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("review-prs-loading")).not.toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId("review-prs-list")).not.toBeInTheDocument()
   })
 })
