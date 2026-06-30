@@ -605,6 +605,7 @@ export class WorkspaceStore {
       getProjectName: () => this.projectName,
       getWorkspaceName: () => this.path.split("/").pop() || "unknown",
       getWorkspaceId: () => this.id,
+      getNotificationLabel: () => this.branch,
       saveIndex: () => this.saveChatIndex(),
       getActiveChatId: () => this.activeChatId,
       getWorkspacePath: () => this.path,

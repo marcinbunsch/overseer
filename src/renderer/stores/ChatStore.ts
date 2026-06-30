@@ -29,6 +29,7 @@ export interface ChatStoreContext {
   getProjectName: () => string
   getWorkspaceName: () => string
   getWorkspaceId: () => string
+  getNotificationLabel: () => string
   saveIndex: () => void
   getActiveChatId: () => string | null
   getWorkspacePath: () => string
@@ -1090,7 +1091,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
             `[notifications] turnComplete — isViewing=${isViewing}, sound=${configStore.soundNotificationEnabled}, system=${configStore.systemNotificationEnabled}`
           )
           if (!isViewing) {
-            const workspaceName = this.context.getWorkspaceName()
+            const notificationLabel = this.context.getNotificationLabel()
             const workspaceId = this.context.getWorkspaceId()
             if (configStore.soundNotificationEnabled) {
               console.log("[notifications] Playing completion sound")
@@ -1098,7 +1099,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
             }
             if (configStore.systemNotificationEnabled) {
               console.log("[notifications] Sending system notification")
-              void sendSystemNotification(workspaceName, workspaceId, this.chat.id)
+              void sendSystemNotification(notificationLabel, workspaceId, this.chat.id)
             }
           }
 

@@ -62,7 +62,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
 }
 
 export async function sendSystemNotification(
-  workspaceName: string,
+  label: string,
   workspaceId: string,
   chatId: string
 ): Promise<void> {
@@ -82,10 +82,10 @@ export async function sendSystemNotification(
       return
     }
 
-    console.log(`[notifications] Sending OS notification for workspace: ${workspaceName}`)
+    console.log(`[notifications] Sending OS notification for: ${label}`)
     sendNotification({
       title: "Overseer",
-      body: `Task complete in ${workspaceName}`,
+      body: `Task complete in ${label}`,
       extra: { workspaceId, chatId },
     })
   } catch (err) {

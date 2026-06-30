@@ -101,6 +101,7 @@ function createTestContext(overrides?: TestContextOverrides): ChatStoreContext {
     getProjectName: overrides?.getProjectName ?? (() => "test-project"),
     getWorkspaceName: overrides?.getWorkspaceName ?? (() => "test-workspace"),
     getWorkspaceId: overrides?.getWorkspaceId ?? (() => "test-workspace-id"),
+    getNotificationLabel: overrides?.getNotificationLabel ?? (() => "test-branch"),
     saveIndex: overrides?.saveIndex ?? vi.fn(),
     getActiveChatId: overrides?.getActiveChatId ?? (() => "test-chat-id"),
     getWorkspacePath: overrides?.getWorkspacePath ?? (() => "/tmp/test-workspace"),
@@ -2464,7 +2465,7 @@ Live text.`,
 
       const store = createChatStore(undefined, {
         isWorkspaceSelected: () => false,
-        getWorkspaceName: () => "my-workspace",
+        getNotificationLabel: () => "feature/my-branch",
         getWorkspaceId: () => "ws-42",
       })
 
@@ -2472,7 +2473,7 @@ Live text.`,
       getEventCallback(store)({ kind: "turnComplete" })
 
       expect(mockSendSystemNotification).toHaveBeenCalledWith(
-        "my-workspace",
+        "feature/my-branch",
         "ws-42",
         "test-chat-id"
       )
