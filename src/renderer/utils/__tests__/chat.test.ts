@@ -49,6 +49,19 @@ describe("summarizeTurnWork", () => {
     expect(summarizeTurnWork(messages)).toBe("2 tool calls, 1 message")
   })
 
+  it("labels thinking messages separately", () => {
+    const messages = [
+      { ...makeMessage("Let me reason..."), isThinking: true },
+      makeMessage("[Bash] ls"),
+    ]
+    expect(summarizeTurnWork(messages)).toBe("1 tool call, thinking")
+  })
+
+  it("does not count a thinking message as a text message", () => {
+    const messages = [{ ...makeMessage("reasoning trace"), isThinking: true }]
+    expect(summarizeTurnWork(messages)).toBe("thinking")
+  })
+
   it("handles complex mixed content", () => {
     const messages = [
       makeMessage("[Read] a.txt"),

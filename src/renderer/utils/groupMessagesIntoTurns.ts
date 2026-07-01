@@ -66,10 +66,11 @@ export function groupMessagesIntoTurns(messages: Message[], isSending: boolean):
  * Extract the last non-tool-call text message as the result message.
  */
 function finalizeTurn(turn: MessageTurn): void {
-  // Walk backwards to find the last non-tool-call assistant message
+  // Walk backwards to find the last non-tool-call assistant message.
+  // Thinking messages are reasoning, never the final result — keep them as work.
   for (let i = turn.workMessages.length - 1; i >= 0; i--) {
     const msg = turn.workMessages[i]
-    if (!isToolCall(msg.content)) {
+    if (!isToolCall(msg.content) && !msg.isThinking) {
       turn.resultMessage = msg
       turn.workMessages.splice(i, 1)
       break

@@ -73,7 +73,7 @@ function QuestionSet({ agentQuestion, onAnswer }: QuestionSetProps) {
 
   return (
     <div className="mb-2 last:mb-0 rounded-lg border border-ovr-border-subtle bg-ovr-bg-app p-3">
-      <div className="mb-3 text-xs font-medium text-ovr-text-muted">Claude is asking:</div>
+      <div className="mb-3 text-xs font-medium text-ovr-text-muted">The agent is asking:</div>
 
       {agentQuestion.questions.map((q) => {
         const key = q.header

@@ -367,11 +367,40 @@ describe("PiAgentService", () => {
     expect(() => service.onDone("chat-1", doneCb)).not.toThrow()
   })
 
-  it("sendToolApproval is a no-op (doesn't throw)", async () => {
+  it("sendToolApproval answers a select dialog via extension_ui_response", async () => {
     const service = await freshService()
 
-    await expect(service.sendToolApproval("chat-1", "123", true)).resolves.toBeUndefined()
-    await expect(service.sendToolApproval("chat-1", "456", false)).resolves.toBeUndefined()
+    // The question UI keys answers by question header ("question" for Pi selects).
+    await service.sendToolApproval("chat-1", "dlg-1", true, { answers: { question: "Mars" } })
+
+    expect(invoke).toHaveBeenCalledWith("pi_stdin", {
+      serverId: "chat-1",
+      data: expect.stringContaining('"type":"extension_ui_response"'),
+    })
+    const call = (invoke as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(
+      (c) => c[0] === "pi_stdin"
+    )
+    const data = (call![1] as { data: string }).data
+    expect(JSON.parse(data)).toEqual({
+      type: "extension_ui_response",
+      id: "dlg-1",
+      value: "Mars",
+    })
+  })
+
+  it("sendToolApproval cancels the dialog when not approved", async () => {
+    const service = await freshService()
+
+    await service.sendToolApproval("chat-1", "dlg-2", false)
+
+    const call = (invoke as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(
+      (c) => c[0] === "pi_stdin"
+    )
+    expect(JSON.parse((call![1] as { data: string }).data)).toEqual({
+      type: "extension_ui_response",
+      id: "dlg-2",
+      cancelled: true,
+    })
   })
 
   it("attaches event, stderr, and close listeners", async () => {
@@ -483,6 +512,47 @@ describe("PiAgentService", () => {
       })
 
       expect(eventCb).toHaveBeenCalledWith({ kind: "bashOutput", text: "file.txt\n" })
+    })
+
+    it("handles Rust Question event (from a select dialog)", async () => {
+      const { eventCb, eventHandler } = await setupWithEventCapture()
+
+      eventHandler({
+        payload: {
+          kind: "question",
+          request_id: "dlg-1",
+          questions: [
+            {
+              question: "Which planet?",
+              header: "question",
+              options: [
+                { label: "Venus", description: "" },
+                { label: "Mars", description: "" },
+              ],
+              multi_select: false,
+            },
+          ],
+          raw_input: { method: "select", id: "dlg-1" },
+        },
+      })
+
+      expect(eventCb).toHaveBeenCalledWith({
+        kind: "question",
+        id: "dlg-1",
+        questions: [
+          {
+            question: "Which planet?",
+            header: "question",
+            options: [
+              { label: "Venus", description: "" },
+              { label: "Mars", description: "" },
+            ],
+            multiSelect: false,
+          },
+        ],
+        rawInput: { method: "select", id: "dlg-1" },
+        isProcessed: false,
+      })
     })
 
     it("handles Rust TurnComplete event", async () => {

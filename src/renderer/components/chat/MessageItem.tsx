@@ -150,6 +150,31 @@ function BashOutputItem({ content }: { content: string }) {
   )
 }
 
+/**
+ * Renders agent reasoning/thinking as a collapsible, dimmed block. Streams live
+ * (content grows as deltas arrive) and sits above the final response.
+ */
+function ThinkingItem({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(true)
+
+  return (
+    <div className="py-0.5" data-testid="thinking-item">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1 text-xs text-ovr-text-muted hover:text-ovr-text-primary"
+      >
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <span className="italic">Thinking</span>
+      </button>
+      {expanded && (
+        <div className="mt-1 max-h-60 overflow-auto border-l-2 border-ovr-border-subtle pl-3">
+          <MarkdownContent content={content} className="text-xs text-ovr-text-dim" />
+        </div>
+      )}
+    </div>
+  )
+}
+
 const compactTools: Record<string, React.ComponentType<{ tool: import("./tools").ToolCall }>> = {
   Bash: BashToolItem,
   Read: ReadToolItem,
@@ -205,6 +230,11 @@ export const MessageItem = observer(function MessageItem({ message, compact }: M
   // Info message (e.g., rate limit notifications)
   if (message.isInfo) {
     return <div className="py-1 text-xs italic text-ovr-text-muted">{message.content}</div>
+  }
+
+  // Reasoning/thinking block
+  if (message.isThinking) {
+    return <ThinkingItem content={message.content} />
   }
 
   // Compact tool rendering for known tools

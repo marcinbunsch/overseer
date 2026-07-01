@@ -22,7 +22,7 @@
 //! 8. `turn_end` — turn complete with final message
 //! 9. `agent_end` — agent done processing
 
-use crate::agents::event::{AgentEvent, ToolMeta};
+use crate::agents::event::{AgentEvent, QuestionItem, QuestionOption, ToolMeta};
 
 /// Parser for Pi RPC JSONL output.
 #[derive(Debug, Default)]
@@ -88,12 +88,24 @@ impl PiParser {
             "response" => Vec::new(),
 
             // Agent lifecycle
+            //
+            // `agent_end` is the ONLY completion signal: it fires exactly once per
+            // user prompt, after the whole agentic loop (all turns + tool cycles)
+            // is done. It maps to TurnComplete (Overseer's "response finished"
+            // handler — notifications, follow-ups, file refresh) plus Done (persistent
+            // process cleanup — clears the running/isSending flags).
             "agent_start" => Vec::new(), // No-op, internal
-            "agent_end" => vec![AgentEvent::Done],
+            "agent_end" => vec![AgentEvent::TurnComplete, AgentEvent::Done],
 
             // Turn lifecycle
+            //
+            // A "turn" is a single LLM round-trip. Pi emits `turn_end` after EACH
+            // turn — i.e. multiple times per prompt, once after every tool cycle —
+            // so it is an intermediate checkpoint, NOT completion. Surfacing it
+            // would fire notifications / send queued follow-ups mid-run. Ignore it
+            // and wait for `agent_end` (matches how Pi's own TUI gates on isStreaming).
             "turn_start" => Vec::new(), // No-op, internal
-            "turn_end" => vec![AgentEvent::TurnComplete],
+            "turn_end" => Vec::new(),   // Intermediate — see agent_end for completion
 
             // Assistant message streaming
             "message_start" | "message_end" => Vec::new(), // Bookends, content comes via message_update
@@ -110,6 +122,11 @@ impl PiParser {
             "auto_retry_start" | "auto_retry_end" => Vec::new(),
             "queue_update" => Vec::new(),
 
+            // Interactive dialog from an extension (e.g. `ask_user_question`,
+            // which calls `ctx.ui.select`). Pi blocks the tool until we reply on
+            // stdin with an `extension_ui_response`. See docs/pi/prompts.md.
+            "extension_ui_request" => handle_extension_ui_request(&value),
+
             // Unknown — ignore gracefully
             _ => Vec::new(),
         }
@@ -121,27 +138,35 @@ impl PiParser {
     /// deltas for either text or thinking content. The subtypes follow a
     /// start / delta / end pattern:
     ///
-    /// - `text_delta` carries incremental text chunks in `delta`.
-    /// - `text_start` / `text_end` are bookends (`text_end.content` has the full
-    ///   final text — we ignore it to avoid duplicating already-streamed chunks).
-    /// - `thinking_*` events are reasoning traces — skipped.
+    /// - `text_delta` carries incremental text chunks in `delta` → `Text`.
+    /// - `thinking_delta` carries incremental reasoning chunks → `Thinking`.
+    /// - `text_start` / `thinking_start` are bookends — ignored.
+    /// - `text_end` / `thinking_end` carry the full final content, but Pi emits
+    ///   them *after* the next block has already begun streaming (e.g.
+    ///   `thinking_end` arrives after `text_delta`). We ignore them to avoid both
+    ///   duplication and out-of-order rendering; the deltas already streamed the
+    ///   content in the correct order.
     fn handle_message_update(&mut self, value: &serde_json::Value) -> Vec<AgentEvent> {
         let Some(event) = value.get("assistantMessageEvent") else {
             return Vec::new();
         };
         let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-        if event_type == "text_delta" {
-            if let Some(delta) = event.get("delta").and_then(|v| v.as_str()) {
-                if !delta.is_empty() {
-                    return vec![AgentEvent::Text {
-                        text: delta.to_string(),
-                    }];
-                }
-            }
+        match event_type {
+            "text_delta" => match event.get("delta").and_then(|v| v.as_str()) {
+                Some(delta) if !delta.is_empty() => vec![AgentEvent::Text {
+                    text: delta.to_string(),
+                }],
+                _ => Vec::new(),
+            },
+            "thinking_delta" => match event.get("delta").and_then(|v| v.as_str()) {
+                Some(delta) if !delta.is_empty() => vec![AgentEvent::Thinking {
+                    text: delta.to_string(),
+                }],
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
         }
-
-        Vec::new()
     }
 
     /// Handle tool_execution_start event.
@@ -252,6 +277,60 @@ impl PiParser {
     }
 }
 
+/// Convert a Pi `extension_ui_request` into a Question event.
+///
+/// Only `method: "select"` is handled — it maps cleanly onto Overseer's
+/// option-picker question UI. The dialog `id` becomes the question `request_id`,
+/// which the answer path echoes back in the `extension_ui_response`. Other
+/// methods (confirm/input/editor/notify) are ignored for now (Pi will block on
+/// those until its optional timeout elapses).
+fn handle_extension_ui_request(value: &serde_json::Value) -> Vec<AgentEvent> {
+    let method = value.get("method").and_then(|v| v.as_str()).unwrap_or("");
+    if method != "select" {
+        return Vec::new();
+    }
+
+    let Some(request_id) = value.get("id").and_then(|v| v.as_str()) else {
+        return Vec::new();
+    };
+
+    let title = value.get("title").and_then(|v| v.as_str()).unwrap_or("");
+
+    let options: Vec<QuestionOption> = value
+        .get("options")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|o| o.as_str())
+                .map(|label| QuestionOption {
+                    label: label.to_string(),
+                    description: String::new(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // A select with no options can't be answered — ignore.
+    if options.is_empty() {
+        return Vec::new();
+    }
+
+    vec![AgentEvent::Question {
+        request_id: request_id.to_string(),
+        questions: vec![QuestionItem {
+            // `header` doubles as the answer key in the question UI; any stable
+            // non-empty value works for a single-question dialog.
+            header: "question".to_string(),
+            question: title.to_string(),
+            options,
+            multi_select: false,
+        }],
+        // Preserve the raw request so the answer path can echo the id back.
+        raw_input: Some(value.clone()),
+        is_processed: None,
+    }]
+}
+
 /// Normalize Pi tool names to standard Overseer names.
 fn normalize_tool_name(pi_name: &str) -> String {
     match pi_name.to_lowercase().as_str() {
@@ -310,21 +389,26 @@ mod tests {
     }
 
     #[test]
-    fn parse_agent_end_emits_done() {
+    fn parse_agent_end_emits_turn_complete_then_done() {
         let mut parser = PiParser::new();
         let line = r#"{"type":"agent_end","messages":[]}"#;
         let events = parser.feed(&format!("{line}\n"));
-        assert!(events.iter().any(|e| matches!(e, AgentEvent::Done)));
+        // agent_end is the sole completion signal: TurnComplete (full handler)
+        // followed by Done (process cleanup).
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], AgentEvent::TurnComplete));
+        assert!(matches!(events[1], AgentEvent::Done));
     }
 
+    /// `turn_end` fires after every tool cycle (multiple times per prompt), so it
+    /// must NOT be surfaced as completion — otherwise notifications and queued
+    /// follow-ups fire mid-run.
     #[test]
-    fn parse_turn_end_emits_turn_complete() {
+    fn parse_turn_end_is_intermediate() {
         let mut parser = PiParser::new();
         let line = r#"{"type":"turn_end","message":{},"toolResults":[]}"#;
         let events = parser.feed(&format!("{line}\n"));
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::TurnComplete)));
+        assert!(events.is_empty());
     }
 
     #[test]
@@ -347,11 +431,51 @@ mod tests {
     }
 
     #[test]
-    fn parse_message_update_thinking_ignored() {
+    fn parse_thinking_delta_emits_thinking() {
         let mut parser = PiParser::new();
-        let line = r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"hmm"}}"#;
+        let line = r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"Let me think..."}}"#;
         let events = parser.feed(&format!("{line}\n"));
-        assert!(events.is_empty());
+        assert!(events.iter().any(
+            |e| matches!(e, AgentEvent::Thinking { text } if text == "Let me think...")
+        ));
+    }
+
+    #[test]
+    fn parse_thinking_start_end_ignored() {
+        let mut parser = PiParser::new();
+        let start = r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_start","contentIndex":0}}"#;
+        let end = r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_end","contentIndex":0,"content":"full thinking"}}"#;
+        assert!(parser.feed(&format!("{start}\n")).is_empty());
+        assert!(parser.feed(&format!("{end}\n")).is_empty());
+    }
+
+    /// Pi emits `thinking_end` *after* the following `text_delta` has already
+    /// streamed. Thinking deltas must still be emitted before text deltas so the
+    /// UI renders the thinking block above the response.
+    #[test]
+    fn thinking_streams_before_text_in_order() {
+        let mut parser = PiParser::new();
+        let seq = [
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_start","contentIndex":0}}"#,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"reasoning"}}"#,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"text_start","contentIndex":1}}"#,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"answer"}}"#,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_end","contentIndex":0,"content":"reasoning"}}"#,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"text_end","contentIndex":1,"content":"answer"}}"#,
+        ];
+        let mut events = Vec::new();
+        for line in seq {
+            events.extend(parser.feed(&format!("{line}\n")));
+        }
+
+        // Exactly one Thinking and one Text event, thinking first.
+        let kinds: Vec<&AgentEvent> = events
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::Thinking { .. } | AgentEvent::Text { .. }))
+            .collect();
+        assert!(matches!(kinds[0], AgentEvent::Thinking { text } if text == "reasoning"));
+        assert!(matches!(kinds[1], AgentEvent::Text { text } if text == "answer"));
+        assert_eq!(kinds.len(), 2);
     }
 
     #[test]
@@ -429,6 +553,50 @@ mod tests {
         let end = r#"{"type":"tool_execution_end","toolCallId":"tc-1","toolName":"read","result":{"content":[{"type":"text","text":"file contents"}]},"isError":false}"#;
         let events = parser.feed(&format!("{end}\n"));
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn parse_extension_ui_select_emits_question() {
+        let mut parser = PiParser::new();
+        let line = r#"{"type":"extension_ui_request","id":"dlg-1","method":"select","title":"Which planet?","options":["Venus","Mars","Jupiter"]}"#;
+        let events = parser.feed(&format!("{line}\n"));
+
+        let question = events.iter().find_map(|e| match e {
+            AgentEvent::Question {
+                request_id,
+                questions,
+                ..
+            } => Some((request_id, questions)),
+            _ => None,
+        });
+        let (request_id, questions) = question.expect("expected a Question event");
+        assert_eq!(request_id, "dlg-1");
+        assert_eq!(questions.len(), 1);
+        assert_eq!(questions[0].question, "Which planet?");
+        assert!(!questions[0].multi_select);
+        let labels: Vec<&str> = questions[0].options.iter().map(|o| o.label.as_str()).collect();
+        assert_eq!(labels, vec!["Venus", "Mars", "Jupiter"]);
+    }
+
+    #[test]
+    fn parse_extension_ui_non_select_ignored() {
+        let mut parser = PiParser::new();
+        for method in ["confirm", "input", "editor", "notify"] {
+            let line = format!(
+                r#"{{"type":"extension_ui_request","id":"x","method":"{method}","title":"t","message":"m"}}"#
+            );
+            assert!(
+                parser.feed(&format!("{line}\n")).is_empty(),
+                "method {method} should be ignored"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_extension_ui_select_without_options_ignored() {
+        let mut parser = PiParser::new();
+        let line = r#"{"type":"extension_ui_request","id":"dlg-2","method":"select","title":"Empty","options":[]}"#;
+        assert!(parser.feed(&format!("{line}\n")).is_empty());
     }
 
     #[test]

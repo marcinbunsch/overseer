@@ -1075,6 +1075,23 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
           break
         }
 
+        case "thinking": {
+          // Accumulate streaming reasoning into a single thinking message
+          const last = messages[messages.length - 1]
+          if (last && last.role === "assistant" && last.isThinking) {
+            last.content += event.text
+          } else {
+            this.chat.messages.push({
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: event.text,
+              timestamp: new Date(),
+              isThinking: true,
+            })
+          }
+          break
+        }
+
         case "turnComplete": {
           this.isSending = false
           // Show "done" status unless user is actively viewing this chat
@@ -1546,6 +1563,9 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
       case "bashOutput":
         if (event.text === undefined) return null
         return { kind: "bashOutput", text: event.text }
+      case "thinking":
+        if (event.text === undefined) return null
+        return { kind: "thinking", text: event.text }
       case "toolApproval":
         return {
           kind: "toolApproval",
