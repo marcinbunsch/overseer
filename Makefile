@@ -2,7 +2,7 @@
 
 init:
 	pnpm install
-	cd src-tauri && cargo install --locked cargo-tauri
+	cd src-tauri && cargo install --locked tauri-cli
 
 build-local:
 	pnpm tauri build --bundles app --config '{"bundle":{"createUpdaterArtifacts":false}}'
