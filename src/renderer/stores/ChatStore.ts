@@ -1046,7 +1046,16 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
 
         case "text": {
           const last = messages[messages.length - 1]
-          if (last && last.role === "assistant" && !last.toolMeta && !last.isBashOutput) {
+          // Must not append onto a thinking block: Pi streams thinking deltas
+          // before text deltas, so the last message when text starts is the
+          // thinking block — appending would merge the answer into it.
+          if (
+            last &&
+            last.role === "assistant" &&
+            !last.toolMeta &&
+            !last.isBashOutput &&
+            !last.isThinking
+          ) {
             last.content += event.text
           } else {
             this.pushMsg(event.text)
