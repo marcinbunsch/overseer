@@ -482,7 +482,17 @@ export class ChatStore {
     if (!this.service) return
     const question = this.pendingQuestions.find((q) => q.id === requestId)
     const updatedInput = { ...(question?.rawInput ?? {}), answers }
-    const answerText = Object.values(answers).join(", ")
+    const questionText = (question?.questions ?? [])
+      .map((q) => q.question)
+      .join("\n\n")
+    const answerText = (question?.questions ?? [])
+      .map((q) => answers[q.question] ?? "")
+      .join(", ")
+
+    if (questionText) {
+      this.pushMsg(questionText)
+      void this.persistLocalAssistantMessage(questionText)
+    }
 
     try {
       await this.service.sendToolApproval(this.chat.id, requestId, true, updatedInput)
