@@ -489,7 +489,10 @@ export class ChatStore {
       .map((q) => answers[q.question] ?? "")
       .join(", ")
 
-    if (questionText) {
+    // Pi already renders the question via its [Ask_user_question] tool call message,
+    // so only add an explicit agent message for non-Pi questions (e.g. Claude).
+    const isPiQuestion = question?.rawInput?.["type"] === "extension_ui_request"
+    if (questionText && !isPiQuestion) {
       this.pushMsg(questionText)
       void this.persistLocalAssistantMessage(questionText)
     }
