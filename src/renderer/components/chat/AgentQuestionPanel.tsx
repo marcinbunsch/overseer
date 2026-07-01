@@ -3,6 +3,7 @@ import { observer } from "mobx-react-lite"
 import type { AgentQuestion } from "../../types"
 import { areAllQuestionsAnswered, collectAnswers } from "../../utils/questions"
 import { Input } from "../shared/Input"
+import { MarkdownContent } from "./MarkdownContent"
 
 interface AgentQuestionPanelProps {
   pendingQuestions: AgentQuestion[]
@@ -84,7 +85,10 @@ function QuestionSet({ agentQuestion, onAnswer }: QuestionSetProps) {
 
         return (
           <div key={key} className="mb-4 last:mb-2">
-            <div className="mb-2 text-sm font-medium text-ovr-text-primary">{q.question}</div>
+            <MarkdownContent
+              content={q.question}
+              className="mb-2 text-sm font-medium text-ovr-text-primary"
+            />
 
             <div className="flex flex-col gap-1">
               {q.options.map((opt) => {
