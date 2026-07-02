@@ -482,12 +482,8 @@ export class ChatStore {
     if (!this.service) return
     const question = this.pendingQuestions.find((q) => q.id === requestId)
     const updatedInput = { ...(question?.rawInput ?? {}), answers }
-    const questionText = (question?.questions ?? [])
-      .map((q) => q.question)
-      .join("\n\n")
-    const answerText = (question?.questions ?? [])
-      .map((q) => answers[q.question] ?? "")
-      .join(", ")
+    const questionText = (question?.questions ?? []).map((q) => q.question).join("\n\n")
+    const answerText = (question?.questions ?? []).map((q) => answers[q.question] ?? "").join(", ")
 
     // Pi already renders the question via its [Ask_user_question] tool call message,
     // so only add an explicit agent message for non-Pi questions (e.g. Claude).
