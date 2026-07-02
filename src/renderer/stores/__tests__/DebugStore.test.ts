@@ -131,6 +131,25 @@ describe("DebugStore", () => {
       expect(debugStore.showDevUI).toBe(true)
     })
 
+    it("returns true in debug mode (OVERSEER_DEBUG) when demo mode is disabled", async () => {
+      vi.mocked(invoke).mockImplementation((cmd: string) => {
+        if (cmd === "is_debug_mode") return Promise.resolve(true)
+        if (cmd === "is_demo_mode") return Promise.resolve(false)
+        return Promise.reject(new Error("Unknown command"))
+      })
+
+      vi.resetModules()
+      const { debugStore } = await import("../DebugStore")
+
+      await vi.waitFor(() => {
+        expect(debugStore.loaded).toBe(true)
+      })
+
+      expect(debugStore.isDebugMode).toBe(true)
+      expect(debugStore.isDemoMode).toBe(false)
+      expect(debugStore.showDevUI).toBe(true)
+    })
+
     it("returns false in dev mode when demo mode is enabled", async () => {
       vi.mocked(invoke).mockImplementation((cmd: string) => {
         if (cmd === "is_debug_mode") return Promise.resolve(false)

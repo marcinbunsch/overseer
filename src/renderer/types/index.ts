@@ -87,6 +87,8 @@ export interface Message {
   meta?: MessageMeta
   /** True for Codex bash command output - rendered as collapsible */
   isBashOutput?: boolean
+  /** True for agent reasoning/thinking - rendered as a collapsible dimmed block */
+  isThinking?: boolean
   /** True for info messages (e.g., rate limit notifications) - rendered with muted styling */
   isInfo?: boolean
   /** ID of parent Task tool_use - for grouping subagent messages */

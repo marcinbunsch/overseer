@@ -482,7 +482,20 @@ export class ChatStore {
     if (!this.service) return
     const question = this.pendingQuestions.find((q) => q.id === requestId)
     const updatedInput = { ...(question?.rawInput ?? {}), answers }
-    const answerText = Object.values(answers).join(", ")
+    const questionText = (question?.questions ?? [])
+      .map((q) => q.question)
+      .join("\n\n")
+    const answerText = (question?.questions ?? [])
+      .map((q) => answers[q.question] ?? "")
+      .join(", ")
+
+    // Pi already renders the question via its [Ask_user_question] tool call message,
+    // so only add an explicit agent message for non-Pi questions (e.g. Claude).
+    const isPiQuestion = question?.rawInput?.["type"] === "extension_ui_request"
+    if (questionText && !isPiQuestion) {
+      this.pushMsg(questionText)
+      void this.persistLocalAssistantMessage(questionText)
+    }
 
     try {
       await this.service.sendToolApproval(this.chat.id, requestId, true, updatedInput)
@@ -1046,7 +1059,16 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
 
         case "text": {
           const last = messages[messages.length - 1]
-          if (last && last.role === "assistant" && !last.toolMeta && !last.isBashOutput) {
+          // Must not append onto a thinking block: Pi streams thinking deltas
+          // before text deltas, so the last message when text starts is the
+          // thinking block — appending would merge the answer into it.
+          if (
+            last &&
+            last.role === "assistant" &&
+            !last.toolMeta &&
+            !last.isBashOutput &&
+            !last.isThinking
+          ) {
             last.content += event.text
           } else {
             this.pushMsg(event.text)
@@ -1070,6 +1092,23 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
               content: event.text,
               timestamp: new Date(),
               isBashOutput: true,
+            })
+          }
+          break
+        }
+
+        case "thinking": {
+          // Accumulate streaming reasoning into a single thinking message
+          const last = messages[messages.length - 1]
+          if (last && last.role === "assistant" && last.isThinking) {
+            last.content += event.text
+          } else {
+            this.chat.messages.push({
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: event.text,
+              timestamp: new Date(),
+              isThinking: true,
             })
           }
           break
@@ -1546,6 +1585,9 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
       case "bashOutput":
         if (event.text === undefined) return null
         return { kind: "bashOutput", text: event.text }
+      case "thinking":
+        if (event.text === undefined) return null
+        return { kind: "thinking", text: event.text }
       case "toolApproval":
         return {
           kind: "toolApproval",

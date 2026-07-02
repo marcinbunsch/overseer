@@ -308,6 +308,26 @@ describe("ChatStore", () => {
     expect(store.messages[0].content).toBe("Start more text")
   })
 
+  it("handleAgentEvent keeps text out of a preceding thinking block", () => {
+    const store = createChatStore()
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    // Pi streams thinking deltas first, then the answer as text deltas.
+    eventCallback({ kind: "thinking", text: "reasoning about it" })
+    eventCallback({ kind: "text", text: "The answer is 42." })
+
+    // Thinking and answer must be separate messages, not merged.
+    expect(store.messages).toHaveLength(2)
+    expect(store.messages[0].isThinking).toBe(true)
+    expect(store.messages[0].content).toBe("reasoning about it")
+    expect(store.messages[1].isThinking).toBeFalsy()
+    expect(store.messages[1].content).toBe("The answer is 42.")
+  })
+
   it("handleAgentEvent processes turnComplete event", () => {
     const store = createChatStore()
 

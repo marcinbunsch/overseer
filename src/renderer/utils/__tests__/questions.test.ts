@@ -78,7 +78,9 @@ describe("areAllQuestionsAnswered", () => {
 })
 
 describe("collectAnswers", () => {
-  it("collects answers from selections", () => {
+  // Output is keyed by question TEXT (form state is still keyed by header) —
+  // Claude Code's AskUserQuestion reads answers[question.question].
+  it("collects answers from selections, keyed by question text", () => {
     const result = collectAnswers(
       sampleQuestions,
       { framework: "React", features: "TypeScript, Testing" },
@@ -86,8 +88,8 @@ describe("collectAnswers", () => {
       {}
     )
     expect(result).toEqual({
-      framework: "React",
-      features: "TypeScript, Testing",
+      "What framework?": "React",
+      "What features?": "TypeScript, Testing",
     })
   })
 
@@ -99,16 +101,16 @@ describe("collectAnswers", () => {
       { framework: "  Angular  " }
     )
     expect(result).toEqual({
-      framework: "Angular",
-      features: "TypeScript",
+      "What framework?": "Angular",
+      "What features?": "TypeScript",
     })
   })
 
   it("returns empty string for unanswered questions", () => {
     const result = collectAnswers(sampleQuestions, {}, {}, {})
     expect(result).toEqual({
-      framework: "",
-      features: "",
+      "What framework?": "",
+      "What features?": "",
     })
   })
 
@@ -120,8 +122,8 @@ describe("collectAnswers", () => {
       { framework: "Angular" }
     )
     expect(result).toEqual({
-      framework: "React",
-      features: "Testing",
+      "What framework?": "React",
+      "What features?": "Testing",
     })
   })
 })

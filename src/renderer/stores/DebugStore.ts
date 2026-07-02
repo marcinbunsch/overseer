@@ -16,11 +16,11 @@ class DebugStore {
   }
 
   // Show dev UI chrome (yellow banner, borders, debug buttons) only if:
-  // - Running in dev mode AND
+  // - Running in dev mode OR debug mode (OVERSEER_DEBUG env var) AND
   // - NOT in demo mode (OVERSEER_DEMO env var)
   @computed
   get showDevUI(): boolean {
-    return this.isDevMode && !this.isDemoMode
+    return (this.isDevMode || this.isDebugMode) && !this.isDemoMode
   }
 
   @action

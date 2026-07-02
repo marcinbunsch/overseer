@@ -11,6 +11,10 @@ function msg(role: "user" | "assistant", content: string): Message {
   }
 }
 
+function thinkingMsg(content: string): Message {
+  return { ...msg("assistant", content), isThinking: true }
+}
+
 describe("groupMessagesIntoTurns", () => {
   it("returns empty array for empty messages", () => {
     expect(groupMessagesIntoTurns([], false)).toEqual([])
@@ -43,6 +47,35 @@ describe("groupMessagesIntoTurns", () => {
     expect(turns[0].workMessages[0].content).toContain("[Bash]")
     expect(turns[0].workMessages[1].content).toContain("[Read]")
     expect(turns[0].resultMessage?.content).toBe("Here are the results")
+  })
+
+  it("keeps thinking messages as work, not the result", () => {
+    const messages = [
+      msg("user", "reason about this"),
+      thinkingMsg("Let me think through the factors..."),
+      msg("assistant", "The answer is 42"),
+    ]
+
+    const turns = groupMessagesIntoTurns(messages, false)
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0].workMessages).toHaveLength(1)
+    expect(turns[0].workMessages[0].isThinking).toBe(true)
+    expect(turns[0].resultMessage?.content).toBe("The answer is 42")
+  })
+
+  it("does not promote a trailing thinking message to the result", () => {
+    const messages = [
+      msg("user", "think only"),
+      msg("assistant", '[Bash]\n{"command": "ls"}'),
+      thinkingMsg("still reasoning, no final text"),
+    ]
+
+    const turns = groupMessagesIntoTurns(messages, false)
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0].resultMessage).toBeNull()
+    expect(turns[0].workMessages).toHaveLength(2)
   })
 
   it("handles multiple turns", () => {

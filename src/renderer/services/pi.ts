@@ -1,5 +1,5 @@
 import { backend, type Unsubscribe } from "../backend"
-import type { AgentModel, ToolMeta } from "../types"
+import type { AgentModel, QuestionItem, ToolMeta } from "../types"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
 import { configStore } from "../stores/ConfigStore"
 import { toolAvailabilityStore } from "../stores/ToolAvailabilityStore"
@@ -105,6 +105,16 @@ interface RustAgentEvent {
   session_id?: string
   // Error event
   message?: string
+  // Question event (from extension_ui_request)
+  request_id?: string
+  questions?: Array<{
+    question: string
+    header: string
+    options: Array<{ label: string; description: string }>
+    multi_select?: boolean
+  }>
+  raw_input?: Record<string, unknown>
+  is_processed?: boolean
 }
 
 interface PiChat {
@@ -200,6 +210,10 @@ class PiAgentService implements AgentService {
         this.emitEvent(chatId, { kind: "text", text: rustEvent.text ?? "" })
         break
 
+      case "thinking":
+        this.emitEvent(chatId, { kind: "thinking", text: rustEvent.text ?? "" })
+        break
+
       case "message": {
         let toolMeta: ToolMeta | undefined
         if (rustEvent.tool_meta) {
@@ -223,6 +237,25 @@ class PiAgentService implements AgentService {
       case "bashOutput":
         this.emitEvent(chatId, { kind: "bashOutput", text: rustEvent.text ?? "" })
         break
+
+      case "question": {
+        // From an extension_ui_request (method "select"). Reuses the shared
+        // question UI; the answer is sent back via sendToolApproval below.
+        const questions: QuestionItem[] = (rustEvent.questions ?? []).map((item) => ({
+          question: item.question,
+          header: item.header,
+          options: item.options,
+          multiSelect: item.multi_select ?? false,
+        }))
+        this.emitEvent(chatId, {
+          kind: "question",
+          id: rustEvent.request_id ?? "",
+          questions,
+          rawInput: rustEvent.raw_input ?? {},
+          isProcessed: rustEvent.is_processed ?? false,
+        })
+        break
+      }
 
       case "turnComplete":
         this.emitEvent(chatId, { kind: "turnComplete" })
@@ -335,16 +368,34 @@ class PiAgentService implements AgentService {
   }
 
   /**
-   * No-op — Pi doesn't support interactive tool approvals.
+   * Answer a Pi interactive dialog (currently only `select`, surfaced as a
+   * question). Pi is blocked on the tool until it receives an
+   * `extension_ui_response` on stdin with the matching request id.
+   * See docs/pi/prompts.md.
    */
   async sendToolApproval(
-    _chatId: string,
-    _requestId: string,
-    _approved: boolean,
-    _toolInput?: Record<string, unknown>,
+    chatId: string,
+    requestId: string,
+    approved: boolean,
+    toolInput?: Record<string, unknown>,
     _denyMessage?: string
   ): Promise<void> {
-    // No-op: Pi doesn't have interactive tool approvals
+    if (!approved) {
+      await this.sendRpcCommand(chatId, {
+        type: "extension_ui_response",
+        id: requestId,
+        cancelled: true,
+      })
+      return
+    }
+    // The question UI keys answers by question header; a select has one answer.
+    const answers = (toolInput?.answers ?? {}) as Record<string, string>
+    const value = Object.values(answers)[0] ?? ""
+    await this.sendRpcCommand(chatId, {
+      type: "extension_ui_response",
+      id: requestId,
+      value,
+    })
   }
 
   async interruptTurn(chatId: string): Promise<void> {

@@ -17,7 +17,13 @@ export function areAllQuestionsAnswered(
 }
 
 /**
- * Collect answers from form state into a single record
+ * Collect answers from form state into a single record.
+ *
+ * The output is keyed by the question TEXT, not the header: Claude Code's
+ * AskUserQuestion tool looks up `answers[question.question]` (verified against
+ * claude 2.1.197). The panel's internal form state is still keyed by header, so
+ * we read by header and emit by question text. Pi ignores the key (it takes the
+ * single value), so this keying is safe for both agents.
  */
 export function collectAnswers(
   questions: AgentQuestion["questions"],
@@ -28,7 +34,9 @@ export function collectAnswers(
   const answers: Record<string, string> = {}
   for (const q of questions) {
     const key = q.header
-    answers[key] = otherActive[key] ? (otherTexts[key] ?? "").trim() : (selections[key] ?? "")
+    answers[q.question] = otherActive[key]
+      ? (otherTexts[key] ?? "").trim()
+      : (selections[key] ?? "")
   }
   return answers
 }

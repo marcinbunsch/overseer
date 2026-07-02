@@ -4,6 +4,7 @@ export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "opencode" |
 
 export type AgentEvent =
   | { kind: "text"; text: string }
+  | { kind: "thinking"; text: string }
   | { kind: "bashOutput"; text: string }
   | {
       kind: "message"

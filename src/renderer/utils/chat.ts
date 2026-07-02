@@ -6,8 +6,11 @@ import type { Message } from "../types"
 export function summarizeTurnWork(workMessages: Message[]): string {
   let toolCalls = 0
   let textMessages = 0
+  let thinking = 0
   for (const msg of workMessages) {
-    if (msg.content.startsWith("[")) {
+    if (msg.isThinking) {
+      thinking++
+    } else if (msg.content.startsWith("[")) {
       toolCalls++
     } else {
       textMessages++
@@ -19,6 +22,9 @@ export function summarizeTurnWork(workMessages: Message[]): string {
   }
   if (textMessages > 0) {
     parts.push(`${textMessages} message${textMessages !== 1 ? "s" : ""}`)
+  }
+  if (thinking > 0) {
+    parts.push("thinking")
   }
   return parts.join(", ")
 }

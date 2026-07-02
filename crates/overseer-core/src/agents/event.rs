@@ -42,6 +42,10 @@ pub enum AgentEvent {
     /// Raw text output (streaming).
     Text { text: String },
 
+    /// Reasoning/thinking output (streaming). Rendered as a separate collapsible
+    /// block, distinct from the final response text.
+    Thinking { text: String },
+
     /// Bash command output (for display in terminal-style).
     BashOutput { text: String },
 
@@ -159,6 +163,22 @@ mod tests {
             match parsed {
                 AgentEvent::Text { text } => assert_eq!(text, "Hello, world!"),
                 _ => panic!("Expected Text event"),
+            }
+        }
+
+        #[test]
+        fn thinking_event_roundtrip() {
+            let event = AgentEvent::Thinking {
+                text: "Let me reason about this...".to_string(),
+            };
+
+            let json = serde_json::to_string(&event).unwrap();
+            assert!(json.contains("thinking"));
+            let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
+
+            match parsed {
+                AgentEvent::Thinking { text } => assert_eq!(text, "Let me reason about this..."),
+                _ => panic!("Expected Thinking event"),
             }
         }
 

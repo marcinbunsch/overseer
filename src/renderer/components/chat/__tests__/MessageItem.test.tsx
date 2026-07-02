@@ -86,3 +86,35 @@ describe("MessageItem copy button", () => {
     })
   })
 })
+
+describe("MessageItem thinking block", () => {
+  const thinkingMessage = (content: string): Message => ({
+    ...assistantMessage(content),
+    isThinking: true,
+  })
+
+  it("renders thinking content in a dedicated collapsible block", () => {
+    render(<MessageItem message={thinkingMessage("Reasoning about factors")} />)
+    expect(screen.getByTestId("thinking-item")).toBeInTheDocument()
+    expect(screen.getByText("Thinking")).toBeInTheDocument()
+    // Content is visible by default (expanded)
+    expect(screen.getByText("Reasoning about factors")).toBeInTheDocument()
+  })
+
+  it("collapses and expands the thinking content", () => {
+    render(<MessageItem message={thinkingMessage("secret reasoning")} />)
+    // Expanded by default
+    expect(screen.getByText("secret reasoning")).toBeInTheDocument()
+    // Collapse
+    fireEvent.click(screen.getByText("Thinking"))
+    expect(screen.queryByText("secret reasoning")).not.toBeInTheDocument()
+    // Expand again
+    fireEvent.click(screen.getByText("Thinking"))
+    expect(screen.getByText("secret reasoning")).toBeInTheDocument()
+  })
+
+  it("renders as thinking even when compact (work section)", () => {
+    render(<MessageItem message={thinkingMessage("compact reasoning")} compact />)
+    expect(screen.getByTestId("thinking-item")).toBeInTheDocument()
+  })
+})
