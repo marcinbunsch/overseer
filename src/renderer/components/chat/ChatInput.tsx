@@ -12,6 +12,7 @@ import { EffortLevelSelector } from "./EffortLevelSelector"
 import { ClaudeUsageIndicator } from "./ClaudeUsageIndicator"
 import { WebSocketConnectionIndicator } from "./WebSocketConnectionIndicator"
 import { AtSearch } from "./AtSearch"
+import { SlashSearch } from "./SlashSearch"
 import { AutonomousDialog } from "./AutonomousDialog"
 import { AttachmentChip } from "./AttachmentChip"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
@@ -84,6 +85,16 @@ function findAtQuery(text: string, cursorPos: number): { start: number; query: s
   return { start: atPos, query }
 }
 
+// Find the / skill trigger. Slash commands only trigger at the very start of
+// the message (mirrors how the Claude CLI treats slash commands).
+function findSlashQuery(text: string, cursorPos: number): { start: number; query: string } | null {
+  if (!text.startsWith("/")) return null
+  const upToCursor = text.slice(0, cursorPos)
+  // Cancel once the user types whitespace — they've moved past the command name.
+  if (/\s/.test(upToCursor)) return null
+  return { start: 0, query: text.slice(1, cursorPos) }
+}
+
 export const ChatInput = observer(function ChatInput({
   onSend,
   onStop,
@@ -108,6 +119,7 @@ export const ChatInput = observer(function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [atSearch, setAtSearch] = useState<{ start: number; query: string } | null>(null)
+  const [slashSearch, setSlashSearch] = useState<{ start: number; query: string } | null>(null)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [autonomousDialogOpen, setAutonomousDialogOpen] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
@@ -202,11 +214,21 @@ export const ChatInput = observer(function ChatInput({
       if (atQuery) {
         setAtSearch(atQuery)
         setSelectedIndex(0)
+        setSlashSearch(null)
+        return
+      }
+      setAtSearch(null)
+
+      // Check for / skill trigger (Claude skills only)
+      const slashQuery = agentType === "claude" ? findSlashQuery(newValue, cursorPos) : null
+      if (slashQuery) {
+        setSlashSearch(slashQuery)
+        setSelectedIndex(0)
       } else {
-        setAtSearch(null)
+        setSlashSearch(null)
       }
     },
-    [setInput]
+    [setInput, agentType]
   )
 
   const handleSelect = useCallback(
@@ -234,6 +256,34 @@ export const ChatInput = observer(function ChatInput({
       })
     },
     [atSearch, input, setInput]
+  )
+
+  const handleSelectSkill = useCallback(
+    (name: string) => {
+      if (!slashSearch) return
+
+      const el = textareaRef.current
+      const cursorPos = el?.selectionStart ?? input.length
+
+      // Replace /query with the skill invocation, leaving the cursor after it
+      // so the user can type arguments.
+      const before = input.slice(0, slashSearch.start)
+      const after = input.slice(cursorPos)
+      const insert = `/${name} `
+      const newValue = before + insert + after
+
+      setInput(newValue)
+      setSlashSearch(null)
+
+      requestAnimationFrame(() => {
+        if (el) {
+          const newPos = slashSearch.start + insert.length
+          el.focus()
+          el.setSelectionRange(newPos, newPos)
+        }
+      })
+    },
+    [slashSearch, input, setInput]
   )
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -265,6 +315,34 @@ export const ChatInput = observer(function ChatInput({
         e.preventDefault()
         const event = new CustomEvent("at-search-select")
         document.dispatchEvent(event)
+        return
+      }
+    }
+
+    if (slashSearch) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setSelectedIndex((i) => i + 1)
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setSelectedIndex((i) => Math.max(0, i - 1))
+        return
+      }
+      if (e.key === "Enter") {
+        e.preventDefault()
+        document.dispatchEvent(new CustomEvent("slash-search-select"))
+        return
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        setSlashSearch(null)
+        return
+      }
+      if (e.key === "Tab") {
+        e.preventDefault()
+        document.dispatchEvent(new CustomEvent("slash-search-select"))
         return
       }
     }
@@ -323,6 +401,15 @@ export const ChatInput = observer(function ChatInput({
             query={atSearch.query}
             workspacePath={workspacePath}
             onSelect={handleSelect}
+            selectedIndex={selectedIndex}
+            onSelectedIndexChange={setSelectedIndex}
+          />
+        )}
+        {slashSearch && (
+          <SlashSearch
+            query={slashSearch.query}
+            workspacePath={workspacePath}
+            onSelect={handleSelectSkill}
             selectedIndex={selectedIndex}
             onSelectedIndexChange={setSelectedIndex}
           />
