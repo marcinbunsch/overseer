@@ -82,6 +82,7 @@ async fn main() {
         TurnOutcome::Completed { text } => {
             println!("Completed ({} chars of text)", text.len());
         }
+        TurnOutcome::NeedsInput { question } => println!("NeedsInput: {question}"),
         TurnOutcome::Failed { reason } => println!("Failed: {reason}"),
         TurnOutcome::TimedOut => println!("TimedOut"),
     }

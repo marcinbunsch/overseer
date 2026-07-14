@@ -18,13 +18,17 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+pub mod engine;
 pub mod harness;
 mod iterator;
+pub mod run;
 
+pub use engine::{execute_run, RunBudgets, RunParams};
 pub use harness::{
     diff_harness, run_check, snapshot_harness, CheckResult, CommandOutcome, HarnessSnapshot,
 };
 pub use iterator::run_turn;
+pub use run::{OverdriveRun, RunStatus};
 
 /// Parameters for a single headless turn.
 #[derive(Debug, Clone)]
@@ -57,6 +61,10 @@ pub struct TurnParams {
 pub enum TurnOutcome {
     /// Turn completed; `text` is the accumulated assistant response.
     Completed { text: String },
+    /// The agent asked a question and is blocked waiting for an answer. A run
+    /// must pause here rather than hang — YOLO suppresses tool approvals but not
+    /// `ask_user_question`.
+    NeedsInput { question: String },
     /// Turn failed (agent error, process died early, or spawn/registration error).
     Failed { reason: String },
     /// Turn exceeded the wall-clock cap without completing.

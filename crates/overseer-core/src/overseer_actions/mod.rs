@@ -37,6 +37,26 @@ pub struct RenameChatParams {
     pub title: String,
 }
 
+/// Parameters for the set_verification action (Overdrive worker runs only).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SetVerificationParams {
+    /// Shell commands whose exit codes define success.
+    pub commands: Vec<String>,
+    /// Harness files the agent authored, for engine-side drift detection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<String>>,
+}
+
+/// Parameters for the report_result action (Overdrive worker runs only).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReportResultParams {
+    /// Human-readable summary of what was done.
+    pub summary: String,
+    /// Decisions made without asking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assumptions: Option<Vec<String>>,
+}
+
 /// An action that Overseer should perform.
 ///
 /// Actions use the format: `{"action": "<name>", "params": {...}}`
@@ -51,6 +71,12 @@ pub enum OverseerAction {
 
     /// Rename the chat.
     RenameChat { params: RenameChatParams },
+
+    /// Register the verification harness for an Overdrive run (executed in core).
+    SetVerification { params: SetVerificationParams },
+
+    /// Report the result of an Overdrive run (executed in core).
+    ReportResult { params: ReportResultParams },
 }
 
 /// Extract overseer action blocks from content.
@@ -447,5 +473,90 @@ invalid json here
             },
         };
         assert_eq!(action1, action2);
+    }
+
+    #[test]
+    fn extract_set_verification() {
+        let content = r#"```overseer
+{"action": "set_verification", "params": {"commands": ["pnpm test src/foo.test.ts", "pnpm checks:ui"], "files": ["src/foo.test.ts"]}}
+```"#;
+
+        let (clean, actions) = extract_overseer_blocks(content);
+        assert_eq!(clean, "");
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            OverseerAction::SetVerification { params } => {
+                assert_eq!(params.commands.len(), 2);
+                assert_eq!(params.commands[0], "pnpm test src/foo.test.ts");
+                assert_eq!(
+                    params.files.as_deref(),
+                    Some(&["src/foo.test.ts".to_string()][..])
+                );
+            }
+            _ => panic!("Expected SetVerification"),
+        }
+    }
+
+    #[test]
+    fn set_verification_without_files() {
+        let content = r#"```overseer
+{"action": "set_verification", "params": {"commands": ["cargo test"]}}
+```"#;
+
+        let (_, actions) = extract_overseer_blocks(content);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            OverseerAction::SetVerification { params } => {
+                assert_eq!(params.commands, vec!["cargo test".to_string()]);
+                assert!(params.files.is_none());
+            }
+            _ => panic!("Expected SetVerification"),
+        }
+    }
+
+    #[test]
+    fn extract_report_result() {
+        let content = r#"```overseer
+{"action": "report_result", "params": {"summary": "Added foo()", "assumptions": ["used u32 for the counter"]}}
+```"#;
+
+        let (_, actions) = extract_overseer_blocks(content);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            OverseerAction::ReportResult { params } => {
+                assert_eq!(params.summary, "Added foo()");
+                assert_eq!(
+                    params.assumptions.as_deref(),
+                    Some(&["used u32 for the counter".to_string()][..])
+                );
+            }
+            _ => panic!("Expected ReportResult"),
+        }
+    }
+
+    #[test]
+    fn report_result_requires_summary() {
+        let content = r#"```overseer
+{"action": "report_result", "params": {"assumptions": []}}
+```"#;
+
+        let (_, actions) = extract_overseer_blocks(content);
+        assert!(
+            actions.is_empty(),
+            "report_result without summary should be rejected"
+        );
+    }
+
+    #[test]
+    fn set_verification_roundtrip() {
+        let action = OverseerAction::SetVerification {
+            params: SetVerificationParams {
+                commands: vec!["cargo test".to_string()],
+                files: Some(vec!["tests/foo.rs".to_string()]),
+            },
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        let parsed: OverseerAction = serde_json::from_str(&json).unwrap();
+        assert_eq!(action, parsed);
     }
 }

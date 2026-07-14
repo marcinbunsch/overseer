@@ -15,6 +15,7 @@
 
 pub mod agents;
 pub mod approval;
+pub mod config;
 pub mod context;
 pub mod event_bus;
 pub mod git;

@@ -136,6 +136,15 @@ async fn collect_turn(
                     AgentEvent::Error { message } => {
                         return TurnOutcome::Failed { reason: message };
                     }
+                    // The agent is blocked on a question. The turn will never
+                    // complete on its own, so surface it and let the run pause.
+                    AgentEvent::Question { questions, .. } => {
+                        let question = questions
+                            .first()
+                            .map(|q| q.question.clone())
+                            .unwrap_or_else(|| "agent asked a question".to_string());
+                        return TurnOutcome::NeedsInput { question };
+                    }
                     _ => {}
                 }
             }
@@ -389,6 +398,45 @@ mod tests {
         assert!(
             matches!(outcome, TurnOutcome::Completed { .. }),
             "expected Completed despite lag, got {outcome:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn question_event_yields_needs_input() {
+        let bus = EventBus::new();
+        let rx = bus.subscribe();
+
+        emit_event(
+            &bus,
+            "conv-1",
+            1,
+            AgentEvent::Text {
+                text: "hmm ".into(),
+            },
+        );
+        emit_event(
+            &bus,
+            "conv-1",
+            2,
+            AgentEvent::Question {
+                request_id: "q1".into(),
+                questions: vec![crate::agents::event::QuestionItem {
+                    question: "Which database?".into(),
+                    header: "DB".into(),
+                    options: vec![],
+                    multi_select: false,
+                }],
+                raw_input: None,
+                is_processed: None,
+            },
+        );
+
+        let outcome = await_turn_completion(rx, "conv-1", LONG_TIMEOUT).await;
+        assert_eq!(
+            outcome,
+            TurnOutcome::NeedsInput {
+                question: "Which database?".into()
+            }
         );
     }
 
