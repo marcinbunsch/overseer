@@ -7,9 +7,16 @@ vi.mock("../../backend", () => ({
     invoke: (cmd: string, args: unknown) => mockBackendInvoke(cmd, args),
   },
 }))
+// The per-project backend (this.backend) resolves through the factory; route it
+// to the same mock so task actions are observable.
+vi.mock("../../backend/factory", () => ({
+  getBackendForProject: () => ({
+    invoke: (cmd: string, args: unknown) => mockBackendInvoke(cmd, args),
+  }),
+}))
 
 import { ProjectStore } from "../ProjectStore"
-import type { Project, Workspace } from "../../types"
+import type { OverdriveTask, Project, Workspace } from "../../types"
 
 function createWorkspace(overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -619,6 +626,122 @@ describe("ProjectStore", () => {
           projectName: "my-project",
         })
       })
+    })
+  })
+
+  describe("overdrive tasks", () => {
+    beforeEach(() => {
+      mockBackendInvoke.mockReset()
+      mockBackendInvoke.mockResolvedValue(undefined)
+    })
+
+    function makeTask(overrides: Partial<OverdriveTask> = {}): OverdriveTask {
+      return {
+        id: crypto.randomUUID(),
+        repoId: "project-1",
+        title: "a task",
+        description: "",
+        status: "todo",
+        order: 0,
+        createdAt: new Date().toISOString(),
+        ...overrides,
+      }
+    }
+
+    it("loadTasks fetches and stores tasks sorted by order", async () => {
+      const t1 = makeTask({ id: "t1", order: 1 })
+      const t2 = makeTask({ id: "t2", order: 0 })
+      mockBackendInvoke.mockResolvedValueOnce([t1, t2])
+
+      const store = new ProjectStore(createProject({ name: "my-repo" }))
+      await store.loadTasks()
+
+      expect(mockBackendInvoke).toHaveBeenCalledWith("overdrive_list_tasks", { repo: "my-repo" })
+      expect(store.sortedTasks.map((t) => t.id)).toEqual(["t2", "t1"])
+    })
+
+    it("loadTasks does not refetch once loaded unless forced", async () => {
+      mockBackendInvoke.mockResolvedValue([])
+      const store = new ProjectStore(createProject())
+
+      await store.loadTasks()
+      await store.loadTasks()
+      expect(mockBackendInvoke).toHaveBeenCalledTimes(1)
+
+      await store.loadTasks(true)
+      expect(mockBackendInvoke).toHaveBeenCalledTimes(2)
+    })
+
+    it("addTask appends locally and persists via upsert", async () => {
+      const store = new ProjectStore(createProject({ name: "my-repo" }))
+
+      await store.addTask({ title: "Fix bug", description: "details" })
+
+      expect(store.tasks).toHaveLength(1)
+      expect(store.tasks[0].title).toBe("Fix bug")
+      expect(store.tasks[0].status).toBe("todo")
+      expect(store.tasks[0].order).toBe(0)
+      const [cmd, args] = mockBackendInvoke.mock.calls[0]
+      expect(cmd).toBe("overdrive_upsert_task")
+      expect((args as { repo: string }).repo).toBe("my-repo")
+    })
+
+    it("addTask assigns increasing order values", async () => {
+      const store = new ProjectStore(createProject())
+      await store.addTask({ title: "one" })
+      await store.addTask({ title: "two" })
+      expect(store.tasks.map((t) => t.order)).toEqual([0, 1])
+    })
+
+    it("deleteTask removes locally and calls backend", async () => {
+      const store = new ProjectStore(createProject({ name: "my-repo" }))
+      await store.addTask({ title: "doomed" })
+      const id = store.tasks[0].id
+      mockBackendInvoke.mockClear()
+
+      await store.deleteTask(id)
+
+      expect(store.tasks).toHaveLength(0)
+      expect(mockBackendInvoke).toHaveBeenCalledWith("overdrive_delete_task", {
+        repo: "my-repo",
+        taskId: id,
+      })
+    })
+
+    it("updateTask replaces the matching task", async () => {
+      const store = new ProjectStore(createProject())
+      await store.addTask({ title: "old" })
+      const task = store.tasks[0]
+
+      await store.updateTask({ ...task, title: "new" })
+
+      expect(store.tasks[0].title).toBe("new")
+    })
+
+    it("moveTask reorders and persists the new id order", async () => {
+      const store = new ProjectStore(createProject({ name: "my-repo" }))
+      await store.addTask({ title: "first" })
+      await store.addTask({ title: "second" })
+      const [a, b] = store.sortedTasks
+      mockBackendInvoke.mockClear()
+
+      await store.moveTask(b.id, "up")
+
+      expect(store.sortedTasks.map((t) => t.id)).toEqual([b.id, a.id])
+      expect(mockBackendInvoke).toHaveBeenCalledWith("overdrive_reorder_tasks", {
+        repo: "my-repo",
+        orderedIds: [b.id, a.id],
+      })
+    })
+
+    it("moveTask is a no-op at the boundary", async () => {
+      const store = new ProjectStore(createProject())
+      await store.addTask({ title: "only" })
+      mockBackendInvoke.mockClear()
+
+      await store.moveTask(store.tasks[0].id, "up")
+
+      expect(mockBackendInvoke).not.toHaveBeenCalled()
     })
   })
 })

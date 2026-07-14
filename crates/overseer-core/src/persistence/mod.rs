@@ -56,6 +56,7 @@ pub mod chat;
 pub mod chat_jsonl;
 pub mod index;
 pub mod projects;
+pub mod tasks;
 pub mod types;
 
 // Re-export commonly used items for convenience
@@ -78,5 +79,8 @@ pub use projects::{
     add_workspace, find_project, find_project_by_path, find_workspace, find_workspace_by_branch,
     get_active_workspaces, get_archived_workspaces, load_project_registry, remove_project,
     remove_workspace, save_project_registry, upsert_project, ProjectError,
+};
+pub use tasks::{
+    delete_task, list_tasks, load_tasks, reorder_tasks, save_tasks, upsert_task, TaskError,
 };
 pub use types::*;

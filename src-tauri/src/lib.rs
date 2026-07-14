@@ -2,6 +2,7 @@ mod agents;
 mod approvals;
 mod chat_session;
 mod git;
+mod overdrive;
 mod persistence;
 mod pty;
 
@@ -615,6 +616,10 @@ pub fn run() {
             persistence::load_project_registry,
             persistence::upsert_project,
             persistence::remove_project,
+            overdrive::overdrive_list_tasks,
+            overdrive::overdrive_upsert_task,
+            overdrive::overdrive_delete_task,
+            overdrive::overdrive_reorder_tasks,
             persistence::run_post_create_command,
             persistence::save_json_config,
             persistence::load_json_config,

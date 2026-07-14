@@ -1,5 +1,5 @@
 import { observable, computed, action, makeObservable, runInAction } from "mobx"
-import type { Project, Workspace } from "../types"
+import type { OverdriveTask, Project, Workspace } from "../types"
 import type { Backend } from "../backend/types"
 import { WorkspaceStore, type WorkspaceStatus } from "./WorkspaceStore"
 import { backend } from "../backend"
@@ -50,6 +50,25 @@ export class ProjectStore {
   @observable
   mainBranch?: string
 
+  // --- Overdrive per-repo settings ---
+
+  @observable
+  overdriveEnabled?: boolean
+
+  @observable
+  overdriveInstructions?: string
+
+  @observable
+  overdriveCheckCommand?: string
+
+  // --- Overdrive task ledger ---
+
+  @observable
+  tasks: OverdriveTask[] = []
+
+  @observable
+  private tasksLoaded = false
+
   // --- Approval storage (shared across all workspaces in this project) ---
 
   @observable
@@ -78,6 +97,9 @@ export class ProjectStore {
     this.allowMergeToMain = project.allowMergeToMain
     this.remoteServerUrl = project.remoteServerUrl
     this.mainBranch = project.mainBranch
+    this.overdriveEnabled = project.overdriveEnabled
+    this.overdriveInstructions = project.overdriveInstructions
+    this.overdriveCheckCommand = project.overdriveCheckCommand
     makeObservable(this)
   }
 
@@ -230,6 +252,9 @@ export class ProjectStore {
     useGithub?: boolean
     allowMergeToMain?: boolean
     mainBranch?: string
+    overdriveEnabled?: boolean
+    overdriveInstructions?: string
+    overdriveCheckCommand?: string
   }): void {
     if (updates.initPrompt !== undefined) this.initPrompt = updates.initPrompt || undefined
     if (updates.prPrompt !== undefined) this.prPrompt = updates.prPrompt || undefined
@@ -239,6 +264,119 @@ export class ProjectStore {
     if (updates.useGithub !== undefined) this.useGithub = updates.useGithub
     if (updates.allowMergeToMain !== undefined) this.allowMergeToMain = updates.allowMergeToMain
     if (updates.mainBranch !== undefined) this.mainBranch = updates.mainBranch || undefined
+    if (updates.overdriveEnabled !== undefined) this.overdriveEnabled = updates.overdriveEnabled
+    if (updates.overdriveInstructions !== undefined)
+      this.overdriveInstructions = updates.overdriveInstructions || undefined
+    if (updates.overdriveCheckCommand !== undefined)
+      this.overdriveCheckCommand = updates.overdriveCheckCommand || undefined
+  }
+
+  // --- Overdrive task ledger ---
+
+  /** Tasks sorted by queue order (top of the queue first). */
+  @computed
+  get sortedTasks(): OverdriveTask[] {
+    return [...this.tasks].sort((a, b) => a.order - b.order)
+  }
+
+  /**
+   * Load tasks for this repo from the backend.
+   * @param force Reload even if already loaded.
+   */
+  async loadTasks(force = false): Promise<void> {
+    if (this.tasksLoaded && !force) return
+    try {
+      const tasks = await this.backend.invoke<OverdriveTask[]>("overdrive_list_tasks", {
+        repo: this.name,
+      })
+      runInAction(() => {
+        this.tasks = Array.isArray(tasks) ? tasks : []
+        this.tasksLoaded = true
+      })
+    } catch (err) {
+      console.error("Failed to load Overdrive tasks:", err)
+      runInAction(() => {
+        this.tasksLoaded = true
+      })
+    }
+  }
+
+  /** Create a new task at the end of the queue. */
+  @action
+  async addTask(input: {
+    title: string
+    description?: string
+    verification?: string
+    expectGreenHarness?: boolean
+  }): Promise<void> {
+    const maxOrder = this.tasks.reduce((m, t) => Math.max(m, t.order), -1)
+    const task: OverdriveTask = {
+      id: crypto.randomUUID(),
+      repoId: this.id,
+      title: input.title.trim(),
+      description: input.description?.trim() ?? "",
+      verification: input.verification?.trim() || undefined,
+      expectGreenHarness: input.expectGreenHarness ?? false,
+      status: "todo",
+      order: maxOrder + 1,
+      createdAt: new Date().toISOString(),
+      runIds: [],
+    }
+    runInAction(() => {
+      this.tasks.push(task)
+    })
+    try {
+      await this.backend.invoke("overdrive_upsert_task", { repo: this.name, task })
+    } catch (err) {
+      console.error("Failed to add task:", err)
+    }
+  }
+
+  /** Persist an edited task. */
+  @action
+  async updateTask(task: OverdriveTask): Promise<void> {
+    runInAction(() => {
+      const idx = this.tasks.findIndex((t) => t.id === task.id)
+      if (idx >= 0) this.tasks[idx] = task
+    })
+    try {
+      await this.backend.invoke("overdrive_upsert_task", { repo: this.name, task })
+    } catch (err) {
+      console.error("Failed to update task:", err)
+    }
+  }
+
+  /** Delete a task by id. */
+  @action
+  async deleteTask(taskId: string): Promise<void> {
+    runInAction(() => {
+      this.tasks = this.tasks.filter((t) => t.id !== taskId)
+    })
+    try {
+      await this.backend.invoke("overdrive_delete_task", { repo: this.name, taskId })
+    } catch (err) {
+      console.error("Failed to delete task:", err)
+    }
+  }
+
+  /** Move a task up or down one slot in the queue and persist the new order. */
+  @action
+  async moveTask(taskId: string, direction: "up" | "down"): Promise<void> {
+    const ordered = this.sortedTasks
+    const idx = ordered.findIndex((t) => t.id === taskId)
+    if (idx < 0) return
+    const swapWith = direction === "up" ? idx - 1 : idx + 1
+    if (swapWith < 0 || swapWith >= ordered.length) return
+    ;[ordered[idx], ordered[swapWith]] = [ordered[swapWith], ordered[idx]]
+    const orderedIds = ordered.map((t) => t.id)
+    runInAction(() => {
+      ordered.forEach((t, i) => (t.order = i))
+    })
+    try {
+      await this.backend.invoke("overdrive_reorder_tasks", { repo: this.name, orderedIds })
+    } catch (err) {
+      console.error("Failed to reorder tasks:", err)
+    }
   }
 
   // --- Approval persistence ---
@@ -338,6 +476,9 @@ export class ProjectStore {
       useGithub: this.useGithub,
       allowMergeToMain: this.allowMergeToMain,
       mainBranch: this.mainBranch,
+      overdriveEnabled: this.overdriveEnabled,
+      overdriveInstructions: this.overdriveInstructions,
+      overdriveCheckCommand: this.overdriveCheckCommand,
     }
   }
 }

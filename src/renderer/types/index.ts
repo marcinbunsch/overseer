@@ -17,6 +17,34 @@ export interface Project {
   remoteServerUrl?: string
   /** Name of the main/default branch (e.g., "main", "master", "develop"). Auto-detected at project add time, editable in settings. */
   mainBranch?: string
+  /** Overdrive: whether the scheduler may pick up this repo's tasks */
+  overdriveEnabled?: boolean
+  /** Overdrive: per-repo instructions injected into every worker run */
+  overdriveInstructions?: string
+  /** Overdrive: standard check command for final verify (e.g. "pnpm test") */
+  overdriveCheckCommand?: string
+}
+
+/** Lifecycle status of an Overdrive task. Mirrors the Rust `TaskStatus` enum. */
+export type TaskStatus = "todo" | "running" | "needsReview" | "done" | "failed" | "rejected"
+
+/** A single task in a repo's Overdrive ledger. Mirrors the Rust `OverdriveTask`. */
+export interface OverdriveTask {
+  id: string
+  repoId: string
+  title: string
+  description: string
+  /** Optional user-authored verification criteria */
+  verification?: string
+  /** Refactor tasks where the harness is expected green from the start */
+  expectGreenHarness?: boolean
+  status: TaskStatus
+  /** Queue position; lowest runs first */
+  order: number
+  createdAt: string
+  runIds?: string[]
+  /** Reserved for future tracker sync */
+  sourceRef?: string
 }
 
 export interface Workspace {

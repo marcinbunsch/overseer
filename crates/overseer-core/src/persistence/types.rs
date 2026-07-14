@@ -302,6 +302,19 @@ pub struct Project {
     /// When `None`, falls back to auto-detection (looks for main/master/origin/main/origin/master).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_branch: Option<String>,
+
+    /// Overdrive: whether the scheduler is allowed to pick up this repo's tasks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overdrive_enabled: Option<bool>,
+
+    /// Overdrive: per-repo instructions injected into every worker run
+    /// (how wild the agent may go: dependencies, migrations, style, risk).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overdrive_instructions: Option<String>,
+
+    /// Overdrive: standard check command run during final verify (e.g. "pnpm test").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overdrive_check_command: Option<String>,
 }
 
 impl Project {
@@ -388,6 +401,89 @@ impl Workspace {
     pub fn get_project_id(&self) -> Option<&str> {
         self.project_id.as_deref().or(self.repo_id.as_deref())
     }
+}
+
+// ============================================================================
+// Overdrive Task Ledger Types
+// ============================================================================
+
+/// Lifecycle status of an Overdrive task in the ledger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskStatus {
+    /// Queued, not yet started. The scheduler runs the top `Todo` task.
+    #[default]
+    Todo,
+    /// A run is currently in flight for this task.
+    Running,
+    /// A run finished green and is waiting for human review.
+    NeedsReview,
+    /// Approved / merged.
+    Done,
+    /// A run failed (budget, thrash, or unrecoverable error).
+    Failed,
+    /// A run was rejected by the human.
+    Rejected,
+}
+
+/// A single task in a repo's Overdrive ledger.
+///
+/// The user maintains this queue; the scheduler pops the top `Todo` task and
+/// runs it. In this phase only CRUD + reorder exist — nothing runs the tasks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverdriveTask {
+    /// Unique task identifier.
+    pub id: String,
+
+    /// The repo (project) this task belongs to.
+    pub repo_id: String,
+
+    /// Short title.
+    pub title: String,
+
+    /// Longer description of the work.
+    #[serde(default)]
+    pub description: String,
+
+    /// Optional user-authored verification criteria. When present, the harness
+    /// phase must honor it; when absent the agent proposes the harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification: Option<String>,
+
+    /// Refactor-type tasks where the harness is expected green from the start.
+    #[serde(default)]
+    pub expect_green_harness: bool,
+
+    /// Lifecycle status.
+    #[serde(default)]
+    pub status: TaskStatus,
+
+    /// Queue position; lowest `order` runs first.
+    pub order: u32,
+
+    /// When the task was created.
+    pub created_at: DateTime<Utc>,
+
+    /// Runs spawned for this task (populated in later phases).
+    #[serde(default)]
+    pub run_ids: Vec<String>,
+
+    /// Future tracker sync reference (e.g. "linear:OVR-123"). Unused for now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
+}
+
+/// A repo's task ledger — the persisted contents of `tasks/{repo}.json`.
+///
+/// A wrapper struct (rather than a bare array) so the file can grow metadata
+/// later without a format migration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskLedger {
+    /// All tasks for this repo.
+    #[serde(default)]
+    pub tasks: Vec<OverdriveTask>,
 }
 
 // ============================================================================
@@ -501,6 +597,9 @@ mod tests {
                 use_github: Some(true),
                 allow_merge_to_main: None,
                 main_branch: None,
+                overdrive_enabled: None,
+                overdrive_instructions: None,
+                overdrive_check_command: None,
             }],
         };
 

@@ -198,6 +198,14 @@ pub async fn invoke_handler(
         "save_project_registry" => dispatch_save_project_registry(&state, request.args).await,
         "upsert_project" => dispatch_upsert_project(&state, request.args).await,
         "remove_project" => dispatch_remove_project(&state, request.args).await,
+
+        // =====================================================================
+        // OVERDRIVE TASK LEDGER
+        // =====================================================================
+        "overdrive_list_tasks" => dispatch_overdrive_list_tasks(&state, request.args).await,
+        "overdrive_upsert_task" => dispatch_overdrive_upsert_task(&state, request.args).await,
+        "overdrive_delete_task" => dispatch_overdrive_delete_task(&state, request.args).await,
+        "overdrive_reorder_tasks" => dispatch_overdrive_reorder_tasks(&state, request.args).await,
         "load_workspace_state" => dispatch_load_workspace_state(&state, request.args).await,
         "save_workspace_state" => dispatch_save_workspace_state(&state, request.args).await,
         "load_chat_index" => dispatch_load_chat_index(&state, request.args).await,
@@ -1341,6 +1349,128 @@ async fn dispatch_save_project_registry(
                 error: Some(e.to_string()),
             }),
         ),
+    }
+}
+
+// =====================================================================
+// OVERDRIVE TASK LEDGER DISPATCHERS
+// =====================================================================
+
+/// Build a success response with optional data.
+fn ovr_ok(data: Option<serde_json::Value>) -> (StatusCode, Json<InvokeResponse>) {
+    (
+        StatusCode::OK,
+        Json(InvokeResponse {
+            success: true,
+            data,
+            error: None,
+        }),
+    )
+}
+
+/// Build an error response with a status code and message.
+fn ovr_err(status: StatusCode, msg: String) -> (StatusCode, Json<InvokeResponse>) {
+    (
+        status,
+        Json(InvokeResponse {
+            success: false,
+            data: None,
+            error: Some(msg),
+        }),
+    )
+}
+
+/// Read a required string arg by key.
+fn ovr_str_arg(args: &serde_json::Value, key: &str) -> Result<String, (StatusCode, Json<InvokeResponse>)> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| ovr_err(StatusCode::BAD_REQUEST, format!("Missing '{key}' arg")))
+}
+
+async fn dispatch_overdrive_list_tasks(
+    state: &HttpSharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let config_dir = match state.get_config_dir() {
+        Some(dir) => dir,
+        None => return ovr_err(StatusCode::INTERNAL_SERVER_ERROR, "Config directory not set".into()),
+    };
+    let repo = match ovr_str_arg(&args, "repo") {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    match overseer_core::persistence::list_tasks(&config_dir, &repo) {
+        Ok(tasks) => ovr_ok(Some(serde_json::to_value(tasks).unwrap_or_default())),
+        Err(e) => ovr_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+async fn dispatch_overdrive_upsert_task(
+    state: &HttpSharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let config_dir = match state.get_config_dir() {
+        Some(dir) => dir,
+        None => return ovr_err(StatusCode::INTERNAL_SERVER_ERROR, "Config directory not set".into()),
+    };
+    let repo = match ovr_str_arg(&args, "repo") {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    let task: overseer_core::persistence::OverdriveTask =
+        match serde_json::from_value(args.get("task").cloned().unwrap_or_default()) {
+            Ok(t) => t,
+            Err(e) => return ovr_err(StatusCode::BAD_REQUEST, format!("Invalid task: {e}")),
+        };
+    match overseer_core::persistence::upsert_task(&config_dir, &repo, task) {
+        Ok(()) => ovr_ok(None),
+        Err(e) => ovr_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+async fn dispatch_overdrive_delete_task(
+    state: &HttpSharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let config_dir = match state.get_config_dir() {
+        Some(dir) => dir,
+        None => return ovr_err(StatusCode::INTERNAL_SERVER_ERROR, "Config directory not set".into()),
+    };
+    let repo = match ovr_str_arg(&args, "repo") {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    let task_id = match ovr_str_arg(&args, "taskId") {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    match overseer_core::persistence::delete_task(&config_dir, &repo, &task_id) {
+        Ok(()) => ovr_ok(None),
+        Err(e) => ovr_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+async fn dispatch_overdrive_reorder_tasks(
+    state: &HttpSharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let config_dir = match state.get_config_dir() {
+        Some(dir) => dir,
+        None => return ovr_err(StatusCode::INTERNAL_SERVER_ERROR, "Config directory not set".into()),
+    };
+    let repo = match ovr_str_arg(&args, "repo") {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    let ordered_ids: Vec<String> =
+        match serde_json::from_value(args.get("orderedIds").cloned().unwrap_or_default()) {
+            Ok(ids) => ids,
+            Err(e) => return ovr_err(StatusCode::BAD_REQUEST, format!("Invalid orderedIds: {e}")),
+        };
+    match overseer_core::persistence::reorder_tasks(&config_dir, &repo, &ordered_ids) {
+        Ok(()) => ovr_ok(None),
+        Err(e) => ovr_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
 

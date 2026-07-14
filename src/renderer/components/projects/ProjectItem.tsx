@@ -7,6 +7,7 @@ import type { ProjectStore } from "../../stores/ProjectStore"
 import { WorkspaceList } from "./WorkspaceList"
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog"
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
+import { TasksDialog } from "./TasksDialog"
 import { eventBus } from "../../utils/eventBus"
 
 interface ProjectItemProps {
@@ -28,7 +29,13 @@ export const ProjectItem = observer(function ProjectItem({ project }: ProjectIte
   })
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tasksOpen, setTasksOpen] = useState(false)
   const isSelected = projectRegistry.selectedProjectId === project.id
+
+  // Load tasks lazily once the project is expanded (for the Tasks count).
+  useEffect(() => {
+    if (expanded) project.loadTasks()
+  }, [expanded, project])
 
   // Persist expanded state to localStorage
   useEffect(() => {
@@ -101,6 +108,14 @@ export const ProjectItem = observer(function ProjectItem({ project }: ProjectIte
 
         {expanded && (
           <div className="ml-3 mt-0.5">
+            <button
+              onClick={() => setTasksOpen(true)}
+              data-testid="project-tasks-button"
+              className="mb-0.5 w-full rounded-md px-2 py-1.5 text-left text-xs text-ovr-text-dim transition-colors hover:bg-ovr-bg-elevated/50 hover:text-ovr-text-muted"
+            >
+              Tasks{project.tasks.length > 0 ? ` (${project.tasks.length})` : ""}
+            </button>
+
             <WorkspaceList project={project} />
 
             {project.isGitRepo && (
@@ -123,6 +138,7 @@ export const ProjectItem = observer(function ProjectItem({ project }: ProjectIte
           project={project}
         />
       )}
+      {tasksOpen && <TasksDialog open={tasksOpen} onOpenChange={setTasksOpen} project={project} />}
       <NewWorkspaceDialog
         open={newWorkspaceOpen}
         onOpenChange={setNewWorkspaceOpen}
