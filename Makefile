@@ -1,4 +1,4 @@
-.PHONY: init build dev open start test checks checks-ui clean pstree install uninstall
+.PHONY: init build dev open start test checks checks-ui clean pstree install uninstall build-linux build-linux-app build-linux-daemon
 
 init:
 	pnpm install
@@ -6,6 +6,21 @@ init:
 
 build-local:
 	pnpm tauri build --bundles app --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+# Linux: build both the headed desktop app and the headless daemon
+build-linux: build-linux-app build-linux-daemon
+	@echo ""
+	@echo "Linux build complete:"
+	@echo "  Headed app : target/release/bundle/{appimage,deb}/"
+	@echo "  Daemon     : target/release/overseer-daemon"
+
+# Headed desktop app (AppImage + deb). Runs pnpm vite-build via beforeBuildCommand.
+build-linux-app:
+	pnpm build:linux
+
+# Headless daemon binary (builds the frontend it serves, then the release binary)
+build-linux-daemon:
+	pnpm daemon:dist
 
 dev:
 	pnpm dev
