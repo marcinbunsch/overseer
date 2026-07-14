@@ -141,7 +141,8 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
         return run;
     }
 
-    // Helper closure inputs shared by every turn.
+    // Helper closure inputs shared by every turn. The agent logs its raw
+    // conversation to the same file as this run's engine log.
     let drive = TurnDriver {
         ctx,
         chat_id: &run_id,
@@ -150,6 +151,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
         working_dir: &workspace_path,
         agent_path: &params.agent_path,
         model: &params.model,
+        log_target: logger.agent_target(),
         per_turn: params.budgets.per_turn,
     };
 
@@ -411,6 +413,8 @@ struct TurnDriver<'a> {
     working_dir: &'a str,
     agent_path: &'a str,
     model: &'a Option<String>,
+    /// (log_dir, log_id) so the agent's raw conversation lands in the run log.
+    log_target: Option<(String, String)>,
     per_turn: Duration,
 }
 
@@ -419,6 +423,10 @@ impl TurnDriver<'_> {
         // Force a fresh process (no --resume) so each iteration starts with clean
         // context; state carries only through the memory files.
         self.ctx.claude_agents.stop(self.chat_id);
+        let (log_dir, log_id) = match &self.log_target {
+            Some((d, i)) => (Some(d.clone()), Some(i.clone())),
+            None => (None, None),
+        };
         run_turn(
             self.ctx,
             TurnParams {
@@ -430,6 +438,8 @@ impl TurnDriver<'_> {
                 prompt: prompt.to_string(),
                 model: self.model.clone(),
                 session_id: None,
+                log_dir,
+                log_id,
                 timeout: self.per_turn,
             },
         )

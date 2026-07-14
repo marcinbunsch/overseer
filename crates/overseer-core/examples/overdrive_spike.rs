@@ -70,6 +70,8 @@ async fn main() {
             prompt: args.prompt,
             model: args.model,
             session_id: None,
+            log_dir: None,
+            log_id: None,
             timeout: Duration::from_secs(600),
         },
     )

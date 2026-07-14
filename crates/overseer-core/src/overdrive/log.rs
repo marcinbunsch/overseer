@@ -15,6 +15,9 @@ use crate::logging::{log_line, open_log_file, LogHandle};
 /// A handle for appending lines to one run's log file.
 pub struct RunLogger {
     handle: LogHandle,
+    /// The `(log_dir, log_id)` the agent process should also log to, so its
+    /// raw stdin/stdout/stderr land in this same file. `None` when off.
+    target: Option<(String, String)>,
 }
 
 impl RunLogger {
@@ -45,12 +48,20 @@ impl RunLogger {
             short_id(run_id)
         );
         let handle = open_log_file(dir.as_deref(), &log_id);
-        Self { handle }
+        let target = dir.map(|d| (d, log_id));
+        Self { handle, target }
     }
 
     /// Append a timestamped line to the run log.
     pub fn line(&self, msg: impl AsRef<str>) {
         log_line(&self.handle, "RUN", msg.as_ref());
+    }
+
+    /// The `(log_dir, log_id)` the agent process should log to so its raw
+    /// conversation (stdin/stdout/stderr) is captured in this same file.
+    /// `None` when logging is disabled.
+    pub fn agent_target(&self) -> Option<(String, String)> {
+        self.target.clone()
     }
 }
 
@@ -119,10 +130,20 @@ mod tests {
     }
 
     #[test]
+    fn agent_target_points_at_same_file_stem() {
+        let dir = tempdir().unwrap();
+        let logger = RunLogger::open(Some(dir.path()), "my-repo", "abcd1234-5678", ts());
+        let (log_dir, log_id) = logger.agent_target().expect("target when logging is on");
+        assert!(log_dir.ends_with("logs/overdrive/my-repo"));
+        assert_eq!(log_id, "20260714T153000Z-abcd1234");
+    }
+
+    #[test]
     fn none_config_dir_is_noop() {
-        // Must not panic and must produce no file.
+        // Must not panic, produce no file, and expose no agent target.
         let logger = RunLogger::open(None, "repo", "id", ts());
         logger.line("ignored");
+        assert!(logger.agent_target().is_none());
     }
 
     #[test]

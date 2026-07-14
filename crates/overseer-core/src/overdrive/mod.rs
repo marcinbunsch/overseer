@@ -55,6 +55,11 @@ pub struct TurnParams {
     pub model: Option<String>,
     /// Optional session id to resume.
     pub session_id: Option<String>,
+    /// Optional log directory for the agent process (raw stdin/stdout/stderr).
+    /// Set to the run's log dir so the conversation lands in the run log.
+    pub log_dir: Option<String>,
+    /// Optional log id (file stem) matching the run log file.
+    pub log_id: Option<String>,
     /// Wall-clock cap for the turn.
     pub timeout: Duration,
 }
