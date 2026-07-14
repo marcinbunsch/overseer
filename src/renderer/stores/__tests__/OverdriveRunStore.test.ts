@@ -53,6 +53,17 @@ describe("OverdriveRunStore", () => {
     expect(overdriveRunStore.actionableCount).toBe(3)
   })
 
+  it("inFlightRuns includes working runs that have a workspace", async () => {
+    mockInvoke.mockResolvedValueOnce([
+      makeRun({ id: "a", status: "working", workspacePath: "/tmp/a" }),
+      makeRun({ id: "b", status: "working" }), // no workspace yet → excluded
+      makeRun({ id: "c", status: "needsReview", workspacePath: "/tmp/c" }), // actionable, not in-flight
+      makeRun({ id: "d", status: "harness", workspacePath: "/tmp/d" }),
+    ])
+    await overdriveRunStore.loadRuns()
+    expect(overdriveRunStore.inFlightRuns.map((r) => r.id).sort()).toEqual(["a", "d"])
+  })
+
   it("approve calls overdrive_approve_run and reloads", async () => {
     mockInvoke.mockResolvedValue(undefined)
     await overdriveRunStore.approve("run-1")

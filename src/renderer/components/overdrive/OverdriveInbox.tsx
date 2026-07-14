@@ -1,6 +1,8 @@
 import { useEffect } from "react"
 import { observer } from "mobx-react-lite"
+import { LoaderCircle } from "lucide-react"
 import { backend } from "../../backend"
+import { configStore } from "../../stores/ConfigStore"
 import { overdriveRunStore } from "../../stores/OverdriveRunStore"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { toastStore } from "../../stores/ToastStore"
@@ -47,8 +49,9 @@ export const OverdriveInbox = observer(function OverdriveInbox() {
     overdriveRunStore.start()
   }, [])
 
-  const runs = overdriveRunStore.actionableRuns
-  if (runs.length === 0) return null
+  const running = overdriveRunStore.inFlightRuns
+  const actionable = overdriveRunStore.actionableRuns
+  if (running.length === 0 && actionable.length === 0) return null
 
   return (
     <div data-testid="overdrive-inbox" className="mb-1 border-b border-ovr-border-subtle pb-1">
@@ -56,15 +59,31 @@ export const OverdriveInbox = observer(function OverdriveInbox() {
         <span className="text-[11px] font-semibold tracking-wider text-ovr-text-dim uppercase">
           Overdrive
         </span>
-        <span
-          data-testid="overdrive-inbox-badge"
-          className="rounded-full bg-ovr-bg-elevated px-1.5 py-0.5 text-[10px] text-ovr-text-muted"
-        >
-          {overdriveRunStore.actionableCount}
-        </span>
+        {overdriveRunStore.actionableCount > 0 && (
+          <span
+            data-testid="overdrive-inbox-badge"
+            className="rounded-full bg-ovr-bg-elevated px-1.5 py-0.5 text-[10px] text-ovr-text-muted"
+          >
+            {overdriveRunStore.actionableCount}
+          </span>
+        )}
       </div>
       <div className="flex flex-col">
-        {runs.map((run) => (
+        {running.map((run) => (
+          <button
+            key={run.id}
+            data-testid="overdrive-running-row"
+            onClick={() => openRun(run)}
+            className="group flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-ovr-text-primary transition-colors hover:bg-ovr-bg-elevated/50"
+          >
+            <LoaderCircle
+              className={`size-3 shrink-0 text-ovr-azure-500 ${configStore.animationsEnabled ? "animate-spin" : ""}`}
+            />
+            <span className="min-w-0 flex-1 truncate">{run.branch ?? run.id}</span>
+            <span className="shrink-0 text-[10px] text-ovr-text-dim">{run.status}</span>
+          </button>
+        ))}
+        {actionable.map((run) => (
           <button
             key={run.id}
             data-testid="overdrive-run-row"

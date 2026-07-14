@@ -6,6 +6,9 @@ import type { OverdriveRun, RunStatus } from "../types"
 /** Statuses that need a human: review, blocked on input, or failed. */
 const ACTIONABLE: RunStatus[] = ["needsReview", "needsInput", "failed"]
 
+/** Statuses where a run is actively working (in flight). */
+const IN_FLIGHT: RunStatus[] = ["provisioning", "harness", "redCheck", "working", "finalVerify"]
+
 /**
  * Cross-repo store of Overdrive runs (the review inbox). Loads via
  * `overdrive_list_runs` and reloads on `overdrive:run-status` events.
@@ -43,6 +46,14 @@ class OverdriveRunStore {
 
   @computed get actionableCount(): number {
     return this.actionableRuns.length
+  }
+
+  /**
+   * Runs actively working, once they have a workspace to open (so they're
+   * clickable). The single-flight engine means at most one at a time.
+   */
+  @computed get inFlightRuns(): OverdriveRun[] {
+    return this.runs.filter((r) => IN_FLIGHT.includes(r.status) && !!r.workspacePath)
   }
 
   getRun(id: string): OverdriveRun | undefined {

@@ -54,8 +54,8 @@ describe("OverdriveInbox", () => {
     overdriveRunStore.runs = []
   })
 
-  it("renders nothing when there are no actionable runs", () => {
-    overdriveRunStore.runs = [makeRun({ status: "working" })]
+  it("renders nothing when there are no running or actionable runs", () => {
+    overdriveRunStore.runs = [makeRun({ status: "approved" })]
     const { container } = render(<OverdriveInbox />)
     expect(container.querySelector('[data-testid="overdrive-inbox"]')).toBeNull()
   })
@@ -65,6 +65,22 @@ describe("OverdriveInbox", () => {
     render(<OverdriveInbox />)
     expect(screen.getByTestId("overdrive-inbox-badge").textContent).toBe("1")
     expect(screen.getByTestId("overdrive-run-row")).toHaveTextContent("overdrive/add-foo-abcd1234")
+  })
+
+  it("shows a spinner row for an in-flight run and it is clickable", async () => {
+    mockInvoke.mockImplementation((cmd: string) =>
+      cmd === "overdrive_ensure_workspace" ? Promise.resolve("ws-1") : Promise.resolve(undefined)
+    )
+    overdriveRunStore.runs = [makeRun({ status: "working" })]
+    render(<OverdriveInbox />)
+
+    const row = screen.getByTestId("overdrive-running-row")
+    expect(row).toHaveTextContent("working")
+    // No actionable badge for a purely in-flight run.
+    expect(screen.queryByTestId("overdrive-inbox-badge")).toBeNull()
+
+    fireEvent.click(row)
+    await waitFor(() => expect(mockSelectWorkspace).toHaveBeenCalledWith("ws-1"))
   })
 
   it("navigates to the run's workspace on click", async () => {
