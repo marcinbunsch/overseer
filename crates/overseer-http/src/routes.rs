@@ -1547,7 +1547,7 @@ async fn dispatch_overdrive_approve_run(
         Err(e) => return e,
     };
     match state.overdrive.approve_run(&run_id).await {
-        Ok(result) => ovr_ok(Some(serde_json::json!(result))),
+        Ok(()) => ovr_ok(None),
         Err(e) => ovr_err(StatusCode::CONFLICT, e),
     }
 }

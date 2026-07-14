@@ -6,7 +6,6 @@
 
 use std::sync::Arc;
 
-use overseer_core::git::merge::MergeResult;
 use overseer_core::overdrive::run::{list_runs, OverdriveRun};
 use overseer_core::overdrive::OverdriveManager;
 use overseer_core::persistence::{self, OverdriveTask};
@@ -75,12 +74,12 @@ pub fn overdrive_list_runs(state: State<PersistenceConfig>) -> Result<Vec<Overdr
     list_runs(&dir).map_err(|e| e.to_string())
 }
 
-/// Approve a run: merge its branch. Returns the merge result (conflicts if any).
+/// Approve a run: mark the task complete (no merge).
 #[tauri::command]
 pub async fn overdrive_approve_run(
     manager: State<'_, Arc<OverdriveManager>>,
     run_id: String,
-) -> Result<MergeResult, String> {
+) -> Result<(), String> {
     manager.approve_run(&run_id).await
 }
 

@@ -1,7 +1,7 @@
 import { observable, computed, action, makeObservable, runInAction } from "mobx"
 import { backend } from "../backend"
 import { toastStore } from "./ToastStore"
-import type { OverdriveRun, OverdriveMergeResult, RunStatus } from "../types"
+import type { OverdriveRun, RunStatus } from "../types"
 
 /** Statuses that need a human: review, blocked on input, or failed. */
 const ACTIONABLE: RunStatus[] = ["needsReview", "needsInput", "failed"]
@@ -71,19 +71,12 @@ class OverdriveRunStore {
     }
   }
 
-  /** Approve a run (merge its branch). Surfaces merge conflicts as a toast. */
+  /** Approve a run: mark the task complete (does not merge). */
   @action async approve(id: string): Promise<void> {
     try {
-      const result = await backend.invoke<OverdriveMergeResult>("overdrive_approve_run", {
-        runId: id,
-      })
-      if (result.success) {
-        toastStore.show("Run approved and merged")
-        this.loadRuns()
-      } else {
-        const detail = result.conflicts.length ? result.conflicts.join(", ") : result.message
-        toastStore.show(`Merge conflict: ${detail}`)
-      }
+      await backend.invoke("overdrive_approve_run", { runId: id })
+      toastStore.show("Task approved")
+      this.loadRuns()
     } catch (err) {
       toastStore.show(String(err instanceof Error ? err.message : err) || "Approve failed")
     }

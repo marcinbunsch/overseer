@@ -209,7 +209,7 @@ export const RunReviewDialog = observer(function RunReviewDialog({
               disabled={!canApprove}
               className="ovr-btn-primary cursor-pointer px-3 py-1.5 text-xs disabled:opacity-40"
             >
-              Approve &amp; merge
+              Approve
             </button>
           </div>
         </AlertDialog.Content>

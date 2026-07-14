@@ -17,7 +17,9 @@ export const OverdriveRunStatusStrip = observer(function OverdriveRunStatusStrip
 }) {
   const run = overdriveRunStore.runForWorkspace(workspacePath)
   const [detailsOpen, setDetailsOpen] = useState(false)
-  if (!run) return null
+  // Only show the strip while the run still needs a decision. Once approved or
+  // rejected it's just a normal workspace.
+  if (!run || !["needsReview", "needsInput", "failed"].includes(run.status)) return null
 
   const canApprove = run.status === "needsReview"
   const canReject = ["needsReview", "needsInput", "failed"].includes(run.status)
@@ -72,7 +74,7 @@ export const OverdriveRunStatusStrip = observer(function OverdriveRunStatusStrip
           disabled={!canApprove}
           className="ovr-btn-primary cursor-pointer px-2.5 py-1 text-[11px] disabled:opacity-40"
         >
-          Approve &amp; merge
+          Approve
         </button>
       </div>
 

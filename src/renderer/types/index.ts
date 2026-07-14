@@ -112,13 +112,6 @@ export interface OverdriveRun {
   error?: string
 }
 
-/** Result of a merge attempt. Mirrors Rust `MergeResult`. */
-export interface OverdriveMergeResult {
-  success: boolean
-  conflicts: string[]
-  message: string
-}
-
 export interface Workspace {
   id: string
   projectId: string

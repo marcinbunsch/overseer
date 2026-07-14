@@ -13,7 +13,6 @@ use chrono::Utc;
 
 use crate::config::read_app_config;
 use crate::context::OverseerContext;
-use crate::git::merge::{merge_into_main, MergeResult};
 use crate::git::worktree::archive_workspace;
 use crate::persistence::types::TaskStatus;
 use crate::persistence::{find_project, list_tasks, load_project_registry, upsert_task};
@@ -124,12 +123,10 @@ impl OverdriveManager {
         Ok(Some(task.id))
     }
 
-    /// Approve a `NeedsReview` run: merge its branch into the repo's main branch.
-    ///
-    /// On a clean merge the run becomes `Approved` and the task `Done`. On a
-    /// conflict the run is left untouched and the `MergeResult` (with the
-    /// conflicting files) is returned so the UI can surface it.
-    pub async fn approve_run(&self, run_id: &str) -> Result<MergeResult, String> {
+    /// Approve a `NeedsReview` run: mark it complete (run `Approved`, task
+    /// `Done`). Does **not** merge — the branch and workspace are left as-is so
+    /// the user can merge on their own terms via the normal workspace flow.
+    pub async fn approve_run(&self, run_id: &str) -> Result<(), String> {
         let config_dir = self.ctx.config_dir().ok_or("config directory not set")?;
         let mut run = get_run(&config_dir, run_id)
             .map_err(|e| e.to_string())?
@@ -137,22 +134,15 @@ impl OverdriveManager {
         if run.status != RunStatus::NeedsReview {
             return Err("run is not awaiting review".to_string());
         }
-        let workspace = run.workspace_path.clone().ok_or("run has no workspace")?;
-        let (name, _path, main_branch) =
+        let (name, _path, _main_branch) =
             resolve_project(&config_dir, &run.repo_id).ok_or("repo not found in registry")?;
 
-        let result = merge_into_main(Path::new(&workspace), main_branch.as_deref())
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if result.success {
-            run.status = RunStatus::Approved;
-            run.ended_at = Some(Utc::now());
-            upsert_run(&config_dir, run.clone()).map_err(|e| e.to_string())?;
-            set_task_status(&config_dir, &name, &run.task_id, TaskStatus::Done);
-            self.emit_status(&run);
-        }
-        Ok(result)
+        run.status = RunStatus::Approved;
+        run.ended_at = Some(Utc::now());
+        upsert_run(&config_dir, run.clone()).map_err(|e| e.to_string())?;
+        set_task_status(&config_dir, &name, &run.task_id, TaskStatus::Done);
+        self.emit_status(&run);
+        Ok(())
     }
 
     /// Reject a run: archive its workspace (worktree removed, branch kept).

@@ -53,12 +53,8 @@ describe("OverdriveRunStore", () => {
     expect(overdriveRunStore.actionableCount).toBe(3)
   })
 
-  it("approve calls overdrive_approve_run and reloads on success", async () => {
-    mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === "overdrive_approve_run")
-        return Promise.resolve({ success: true, conflicts: [], message: "" })
-      return Promise.resolve([])
-    })
+  it("approve calls overdrive_approve_run and reloads", async () => {
+    mockInvoke.mockResolvedValue(undefined)
     await overdriveRunStore.approve("run-1")
     expect(
       mockInvoke.mock.calls.some(
@@ -66,18 +62,8 @@ describe("OverdriveRunStore", () => {
           cmd === "overdrive_approve_run" && (args as { runId: string }).runId === "run-1"
       )
     ).toBe(true)
-    // reload issued after success
+    // reload issued after approval
     expect(mockInvoke.mock.calls.some(([cmd]) => cmd === "overdrive_list_runs")).toBe(true)
-  })
-
-  it("approve does not reload on merge conflict", async () => {
-    mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === "overdrive_approve_run")
-        return Promise.resolve({ success: false, conflicts: ["a.ts"], message: "conflict" })
-      return Promise.resolve([])
-    })
-    await overdriveRunStore.approve("run-1")
-    expect(mockInvoke.mock.calls.some(([cmd]) => cmd === "overdrive_list_runs")).toBe(false)
   })
 
   it("reject calls overdrive_reject_run", async () => {
