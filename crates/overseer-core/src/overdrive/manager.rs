@@ -5,16 +5,21 @@
 //! user enables it in config. The manual [`OverdriveManager::run_next`] is the
 //! primary trigger.
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use chrono::Utc;
+
 use crate::config::read_app_config;
 use crate::context::OverseerContext;
+use crate::git::merge::{merge_into_main, MergeResult};
+use crate::git::worktree::archive_workspace;
 use crate::persistence::types::TaskStatus;
-use crate::persistence::{list_tasks, load_project_registry, upsert_task};
+use crate::persistence::{find_project, list_tasks, load_project_registry, upsert_task};
 
 use super::engine::{execute_run, RunBudgets, RunParams};
-use super::run::{list_runs, RunStatus};
+use super::run::{get_run, list_runs, upsert_run, OverdriveRun, RunStatus};
 
 /// Coordinates Overdrive runs: single-flight guard + interval scheduler.
 pub struct OverdriveManager {
@@ -119,6 +124,72 @@ impl OverdriveManager {
         Ok(Some(task.id))
     }
 
+    /// Approve a `NeedsReview` run: merge its branch into the repo's main branch.
+    ///
+    /// On a clean merge the run becomes `Approved` and the task `Done`. On a
+    /// conflict the run is left untouched and the `MergeResult` (with the
+    /// conflicting files) is returned so the UI can surface it.
+    pub async fn approve_run(&self, run_id: &str) -> Result<MergeResult, String> {
+        let config_dir = self.ctx.config_dir().ok_or("config directory not set")?;
+        let mut run = get_run(&config_dir, run_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("run not found: {run_id}"))?;
+        if run.status != RunStatus::NeedsReview {
+            return Err("run is not awaiting review".to_string());
+        }
+        let workspace = run.workspace_path.clone().ok_or("run has no workspace")?;
+        let (name, _path, main_branch) =
+            resolve_project(&config_dir, &run.repo_id).ok_or("repo not found in registry")?;
+
+        let result = merge_into_main(Path::new(&workspace), main_branch.as_deref())
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if result.success {
+            run.status = RunStatus::Approved;
+            run.ended_at = Some(Utc::now());
+            upsert_run(&config_dir, run.clone()).map_err(|e| e.to_string())?;
+            set_task_status(&config_dir, &name, &run.task_id, TaskStatus::Done);
+            self.emit_status(&run);
+        }
+        Ok(result)
+    }
+
+    /// Reject a run: archive its workspace (worktree removed, branch kept).
+    pub async fn reject_run(&self, run_id: &str) -> Result<(), String> {
+        let config_dir = self.ctx.config_dir().ok_or("config directory not set")?;
+        let mut run = get_run(&config_dir, run_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("run not found: {run_id}"))?;
+        let workspace = run.workspace_path.clone().ok_or("run has no workspace")?;
+        let (name, path, _mb) =
+            resolve_project(&config_dir, &run.repo_id).ok_or("repo not found in registry")?;
+
+        archive_workspace(Path::new(&path), Path::new(&workspace))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        run.status = RunStatus::Rejected;
+        run.ended_at = Some(Utc::now());
+        upsert_run(&config_dir, run.clone()).map_err(|e| e.to_string())?;
+        set_task_status(&config_dir, &name, &run.task_id, TaskStatus::Rejected);
+        self.emit_status(&run);
+        Ok(())
+    }
+
+    /// Emit an `overdrive:run-status` event for a run.
+    fn emit_status(&self, run: &OverdriveRun) {
+        self.ctx.event_bus.emit(
+            "overdrive:run-status",
+            &serde_json::json!({
+                "id": run.id,
+                "taskId": run.task_id,
+                "repoId": run.repo_id,
+                "status": run.status,
+            }),
+        );
+    }
+
     /// One scheduler tick: start a run if enabled, eligible, and within budget.
     async fn tick(&self) {
         let config_dir = match self.ctx.config_dir() {
@@ -192,6 +263,26 @@ fn repo_settings(
         project.overdrive_instructions,
         project.overdrive_check_command,
     ))
+}
+
+/// (name, path, main_branch) for a project resolved by id.
+fn resolve_project(
+    config_dir: &Path,
+    project_id: &str,
+) -> Option<(String, String, Option<String>)> {
+    let registry = load_project_registry(config_dir).ok()?;
+    let p = find_project(&registry, project_id)?;
+    Some((p.name.clone(), p.path.clone(), p.main_branch.clone()))
+}
+
+/// Set a task's status by id (no-op if the task is gone).
+fn set_task_status(config_dir: &Path, repo: &str, task_id: &str, status: TaskStatus) {
+    if let Ok(tasks) = list_tasks(config_dir, repo) {
+        if let Some(mut t) = tasks.into_iter().find(|t| t.id == task_id) {
+            t.status = status;
+            let _ = upsert_task(config_dir, repo, t);
+        }
+    }
 }
 
 /// Map a finished run's status onto the task's status.
@@ -335,6 +426,47 @@ mod tests {
         // No config dir set → error, and the slot is released.
         assert!(mgr.run_next("repo").is_err());
         assert!(!mgr.is_in_flight());
+    }
+
+    #[tokio::test]
+    async fn approve_run_not_found_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Arc::new(
+            OverseerContext::builder()
+                .config_dir(dir.path().to_path_buf())
+                .build(),
+        );
+        let mgr = OverdriveManager::new(ctx);
+        assert!(mgr.approve_run("nope").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn approve_run_wrong_status_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Arc::new(
+            OverseerContext::builder()
+                .config_dir(dir.path().to_path_buf())
+                .build(),
+        );
+        let mut run = OverdriveRun::new("r1".into(), "t1".into(), "repo-id".into());
+        run.status = RunStatus::Failed;
+        upsert_run(dir.path(), run).unwrap();
+
+        let mgr = OverdriveManager::new(ctx);
+        let err = mgr.approve_run("r1").await.unwrap_err();
+        assert!(err.contains("not awaiting review"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn reject_run_not_found_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Arc::new(
+            OverseerContext::builder()
+                .config_dir(dir.path().to_path_buf())
+                .build(),
+        );
+        let mgr = OverdriveManager::new(ctx);
+        assert!(mgr.reject_run("nope").await.is_err());
     }
 
     #[tokio::test]

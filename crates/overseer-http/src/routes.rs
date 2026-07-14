@@ -204,6 +204,9 @@ pub async fn invoke_handler(
         "overdrive_delete_task" => dispatch_overdrive_delete_task(&state, request.args).await,
         "overdrive_reorder_tasks" => dispatch_overdrive_reorder_tasks(&state, request.args).await,
         "overdrive_run_next" => dispatch_overdrive_run_next(&state, request.args).await,
+        "overdrive_list_runs" => dispatch_overdrive_list_runs(&state).await,
+        "overdrive_approve_run" => dispatch_overdrive_approve_run(&state, request.args).await,
+        "overdrive_reject_run" => dispatch_overdrive_reject_run(&state, request.args).await,
         "load_workspace_state" => dispatch_load_workspace_state(&state, request.args).await,
         "save_workspace_state" => dispatch_save_workspace_state(&state, request.args).await,
         "load_chat_index" => dispatch_load_chat_index(&state, request.args).await,
@@ -1510,6 +1513,52 @@ async fn dispatch_overdrive_run_next(
     // as the Tauri command (which returns Option<String> directly).
     match state.overdrive.run_next(&repo) {
         Ok(started) => ovr_ok(Some(serde_json::json!(started))),
+        Err(e) => ovr_err(StatusCode::CONFLICT, e),
+    }
+}
+
+async fn dispatch_overdrive_list_runs(
+    state: &HttpSharedState,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let config_dir = match state.get_config_dir() {
+        Some(dir) => dir,
+        None => {
+            return ovr_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Config directory not set".into(),
+            )
+        }
+    };
+    match overseer_core::overdrive::run::list_runs(&config_dir) {
+        Ok(runs) => ovr_ok(Some(serde_json::to_value(runs).unwrap_or_default())),
+        Err(e) => ovr_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+async fn dispatch_overdrive_approve_run(
+    state: &HttpSharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let run_id = match ovr_str_arg(&args, "runId") {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    match state.overdrive.approve_run(&run_id).await {
+        Ok(result) => ovr_ok(Some(serde_json::json!(result))),
+        Err(e) => ovr_err(StatusCode::CONFLICT, e),
+    }
+}
+
+async fn dispatch_overdrive_reject_run(
+    state: &HttpSharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let run_id = match ovr_str_arg(&args, "runId") {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    match state.overdrive.reject_run(&run_id).await {
+        Ok(()) => ovr_ok(None),
         Err(e) => ovr_err(StatusCode::CONFLICT, e),
     }
 }

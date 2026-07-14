@@ -1,6 +1,7 @@
 import { observer } from "mobx-react-lite"
 import { ProjectList } from "../projects/ProjectList"
 import { AddProjectButton } from "../projects/AddProjectButton"
+import { OverdriveInbox } from "../overdrive/OverdriveInbox"
 import { debugStore } from "../../stores/DebugStore"
 
 export const LeftPane = observer(function LeftPane({ width }: { width: number }) {
@@ -21,6 +22,7 @@ export const LeftPane = observer(function LeftPane({ width }: { width: number })
         </div>
       </div>
       <div className="flex-1 overflow-y-auto py-1">
+        <OverdriveInbox />
         <ProjectList />
       </div>
       {debugStore.showDevUI && (

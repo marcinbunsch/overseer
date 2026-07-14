@@ -47,6 +47,77 @@ export interface OverdriveTask {
   sourceRef?: string
 }
 
+/** Lifecycle status of an Overdrive run. Mirrors the Rust `RunStatus` enum. */
+export type RunStatus =
+  | "provisioning"
+  | "harness"
+  | "redCheck"
+  | "working"
+  | "finalVerify"
+  | "needsReview"
+  | "needsInput"
+  | "approved"
+  | "rejected"
+  | "failed"
+  | "interrupted"
+
+/** One harness command's observed outcome. Mirrors Rust `CommandOutcome`. */
+export interface CommandOutcome {
+  command: string
+  exitCode: number
+  success: boolean
+  timedOut: boolean
+  stdoutTail: string
+  stderrTail: string
+  durationMs: number
+}
+
+/** Result of running a set of harness commands. Mirrors Rust `CheckResult`. */
+export interface CheckResult {
+  commands: CommandOutcome[]
+  passed: boolean
+}
+
+/** Observed verification facts for a run. Mirrors Rust `VerificationEvidence`. */
+export interface VerificationEvidence {
+  commands: string[]
+  files: string[]
+  redCheck?: CheckResult
+  finalCheck?: CheckResult
+  harnessDrift?: string
+}
+
+/** The agent's report_result summary. Mirrors Rust `RunResult`. */
+export interface RunResult {
+  summary: string
+  assumptions: string[]
+}
+
+/** A single Overdrive run. Mirrors the Rust `OverdriveRun` struct. */
+export interface OverdriveRun {
+  id: string
+  taskId: string
+  repoId: string
+  workspacePath?: string
+  branch?: string
+  chatId?: string
+  status: RunStatus
+  verification?: VerificationEvidence
+  result?: RunResult
+  verifyBounces: number
+  iterationsUsed: number
+  startedAt: string
+  endedAt?: string
+  error?: string
+}
+
+/** Result of a merge attempt. Mirrors Rust `MergeResult`. */
+export interface OverdriveMergeResult {
+  success: boolean
+  conflicts: string[]
+  message: string
+}
+
 export interface Workspace {
   id: string
   projectId: string

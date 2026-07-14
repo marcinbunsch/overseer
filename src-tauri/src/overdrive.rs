@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use overseer_core::git::merge::MergeResult;
+use overseer_core::overdrive::run::{list_runs, OverdriveRun};
 use overseer_core::overdrive::OverdriveManager;
 use overseer_core::persistence::{self, OverdriveTask};
 use tauri::State;
@@ -64,4 +66,29 @@ pub async fn overdrive_run_next(
     repo: String,
 ) -> Result<Option<String>, String> {
     manager.run_next(&repo)
+}
+
+/// List all runs (newest first) — the review inbox.
+#[tauri::command]
+pub fn overdrive_list_runs(state: State<PersistenceConfig>) -> Result<Vec<OverdriveRun>, String> {
+    let dir = state.get_config_dir()?;
+    list_runs(&dir).map_err(|e| e.to_string())
+}
+
+/// Approve a run: merge its branch. Returns the merge result (conflicts if any).
+#[tauri::command]
+pub async fn overdrive_approve_run(
+    manager: State<'_, Arc<OverdriveManager>>,
+    run_id: String,
+) -> Result<MergeResult, String> {
+    manager.approve_run(&run_id).await
+}
+
+/// Reject a run: archive its workspace.
+#[tauri::command]
+pub async fn overdrive_reject_run(
+    manager: State<'_, Arc<OverdriveManager>>,
+    run_id: String,
+) -> Result<(), String> {
+    manager.reject_run(&run_id).await
 }
