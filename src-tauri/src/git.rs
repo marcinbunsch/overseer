@@ -230,7 +230,10 @@ pub async fn validate_project_path(path: String) -> ValidateProjectPathResult {
     } else {
         false
     };
-    ValidateProjectPathResult { exists, is_git_repo }
+    ValidateProjectPathResult {
+        exists,
+        is_git_repo,
+    }
 }
 
 /// List recent remote branches (from origin), sorted by most recently updated.
@@ -319,8 +322,7 @@ pub async fn list_review_prs(
         "20".to_string(),
     ];
 
-    let mut cmd =
-        build_login_shell_command("gh", &args, Some(&repo_path), agent_shell.as_deref())?;
+    let mut cmd = build_login_shell_command("gh", &args, Some(&repo_path), agent_shell.as_deref())?;
 
     let output = match cmd.output() {
         Ok(o) => o,
