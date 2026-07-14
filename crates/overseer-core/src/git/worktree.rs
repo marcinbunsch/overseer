@@ -338,6 +338,67 @@ pub async fn archive_workspace(repo_path: &Path, workspace_path: &Path) -> Resul
 }
 
 // ============================================================================
+// LOCAL EXCLUDES
+// ============================================================================
+
+/// Add `patterns` to the worktree's local git excludes (`info/exclude`) so the
+/// listed paths are treated as untracked+ignored — never committed by
+/// `git add -A` and never shown in changed-files.
+///
+/// Best-effort and idempotent: patterns already present are skipped, and a
+/// failure to resolve/write the exclude file is not fatal. Used for Overdrive's
+/// internal memory files (`overdrive-*.md`) which live in the workspace but must
+/// stay out of the repo.
+pub async fn ignore_paths_in_worktree(
+    workspace_path: &Path,
+    patterns: &[&str],
+) -> Result<(), GitError> {
+    // Resolve the exclude file path for this worktree.
+    let output = run_git(&["rev-parse", "--git-path", "info/exclude"], workspace_path).await?;
+    if !output.success {
+        return Ok(());
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if raw.is_empty() {
+        return Ok(());
+    }
+    let exclude_path = if Path::new(&raw).is_absolute() {
+        PathBuf::from(raw)
+    } else {
+        workspace_path.join(raw)
+    };
+
+    let existing = std::fs::read_to_string(&exclude_path).unwrap_or_default();
+    // Seed with existing lines so we skip patterns already present *and* dedupe
+    // repeats within `patterns`.
+    let mut seen: std::collections::HashSet<String> =
+        existing.lines().map(|l| l.trim().to_string()).collect();
+    let mut to_add = String::new();
+    for pattern in patterns {
+        if seen.insert(pattern.to_string()) {
+            to_add.push_str(pattern);
+            to_add.push('\n');
+        }
+    }
+    if to_add.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(parent) = exclude_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&exclude_path)
+        .map_err(|e| GitError::PathError(format!("Failed to open exclude file: {e}")))?;
+    file.write_all(to_add.as_bytes())
+        .map_err(|e| GitError::PathError(format!("Failed to write exclude file: {e}")))?;
+    Ok(())
+}
+
+// ============================================================================
 // TESTS
 // ============================================================================
 
@@ -394,6 +455,48 @@ mod tests {
     // Note: Tests for list_workspaces, add_workspace, and archive_workspace
     // would require a real git repository, so they're better suited for
     // integration tests. Unit tests here focus on pure functions.
+
+    #[tokio::test]
+    async fn ignore_paths_hides_file_from_status() {
+        let dir = tempdir().unwrap();
+        run_git(&["init"], dir.path()).await.unwrap();
+        std::fs::write(dir.path().join("overdrive-prompt.md"), "internal").unwrap();
+
+        // Before excluding, the file is an untracked change.
+        let before = run_git(&["status", "--porcelain"], dir.path())
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&before.stdout).contains("overdrive-prompt.md"));
+
+        ignore_paths_in_worktree(dir.path(), &["overdrive-prompt.md"])
+            .await
+            .unwrap();
+
+        // After excluding, git no longer reports it.
+        let after = run_git(&["status", "--porcelain"], dir.path())
+            .await
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&after.stdout).contains("overdrive-prompt.md"));
+    }
+
+    #[tokio::test]
+    async fn ignore_paths_is_idempotent() {
+        let dir = tempdir().unwrap();
+        run_git(&["init"], dir.path()).await.unwrap();
+        ignore_paths_in_worktree(dir.path(), &["a.md", "a.md"])
+            .await
+            .unwrap();
+        ignore_paths_in_worktree(dir.path(), &["a.md"])
+            .await
+            .unwrap();
+
+        let exclude = std::fs::read_to_string(dir.path().join(".git/info/exclude")).unwrap();
+        assert_eq!(
+            exclude.matches("a.md").count(),
+            1,
+            "should not duplicate patterns"
+        );
+    }
 
     #[test]
     fn parse_porcelain_output() {

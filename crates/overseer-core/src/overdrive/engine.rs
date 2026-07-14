@@ -135,6 +135,12 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "overdrive".to_string());
 
+    // Keep Overdrive's memory files out of the repo (untracked + ignored) so the
+    // agent never commits them and they don't clutter the review. Best-effort.
+    let _ =
+        crate::git::worktree::ignore_paths_in_worktree(Path::new(&workspace_path), &MEMORY_FILES)
+            .await;
+
     if let Err(e) = write_memory_files(Path::new(&workspace_path), &params) {
         fail(&mut run, format!("failed to write memory files: {e}"));
         persist_and_emit(ctx, &config_dir, &logger, &run);
@@ -547,17 +553,24 @@ fn branch_name(task: &OverdriveTask) -> String {
     format!("overdrive/{slug}-{short}")
 }
 
+/// The Overdrive memory files written into (and excluded from) the workspace.
+const MEMORY_FILES: [&str; 3] = [
+    "overdrive-prompt.md",
+    "overdrive-progress.md",
+    "overdrive-review.md",
+];
+
 fn write_memory_files(workspace: &Path, params: &RunParams) -> std::io::Result<()> {
     std::fs::write(
-        workspace.join("overdrive-prompt.md"),
+        workspace.join(MEMORY_FILES[0]),
         prompt_file_content(&params.task, params.overdrive_instructions.as_deref()),
     )?;
     std::fs::write(
-        workspace.join("overdrive-progress.md"),
+        workspace.join(MEMORY_FILES[1]),
         "# Progress\n\nNo progress yet.\n",
     )?;
     std::fs::write(
-        workspace.join("overdrive-review.md"),
+        workspace.join(MEMORY_FILES[2]),
         "# Review\n\nNo review yet.\n",
     )?;
     Ok(())
