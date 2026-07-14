@@ -360,8 +360,8 @@ export const ChatInput = observer(function ChatInput({
                 : "focus:border-ovr-azure-500"
           }`}
         />
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             {onModelChange && (
               <ModelSelector
                 value={modelVersion ?? null}
@@ -403,7 +403,7 @@ export const ChatInput = observer(function ChatInput({
             {agentType === "claude" && <ClaudeUsageIndicator />}
             <WebSocketConnectionIndicator />
           </div>
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2">
             {/* Attach file button */}
             <button
               type="button"
