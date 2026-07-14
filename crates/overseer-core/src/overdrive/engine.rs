@@ -473,10 +473,11 @@ impl TurnDriver<'_> {
 }
 
 /// Register the run's worktree as an Overseer workspace and index its chat, so
-/// the workspace is selectable and the chat shows up. Best-effort; returns the
-/// new workspace id on success.
+/// the workspace is selectable and the chat shows up. Idempotent: if a workspace
+/// with the same path already exists it is reused (so this doubles as a backfill
+/// for pre-existing runs). Best-effort; returns the workspace id on success.
 #[allow(clippy::too_many_arguments)]
-fn register_run_workspace(
+pub(crate) fn register_run_workspace(
     ctx: &OverseerContext,
     config_dir: &Path,
     project_id: &str,
@@ -489,26 +490,32 @@ fn register_run_workspace(
 ) -> Option<String> {
     use crate::persistence::types::{ChatIndexEntry, Workspace};
 
-    // 1. Add the worktree as a Workspace in projects.json.
+    // 1. Add the worktree as a Workspace in projects.json (reuse if present).
     let mut registry = crate::persistence::load_project_registry(config_dir).ok()?;
     let project = registry.projects.iter_mut().find(|p| p.id == project_id)?;
-    let workspace_id = Uuid::new_v4().to_string();
-    project.workspaces.push(Workspace {
-        id: workspace_id.clone(),
-        project_id: Some(project_id.to_string()),
-        repo_id: None,
-        branch: branch.to_string(),
-        path: workspace_path.to_string(),
-        is_archived: false,
-        created_at: Utc::now(),
-        pr_number: None,
-        pr_url: None,
-        pr_state: None,
-        is_creating: None,
-        is_archiving: None,
-        ssh_host_id: None,
-    });
-    crate::persistence::save_project_registry(config_dir, &registry).ok()?;
+    let workspace_id = match project.workspaces.iter().find(|w| w.path == workspace_path) {
+        Some(existing) => existing.id.clone(),
+        None => {
+            let workspace_id = Uuid::new_v4().to_string();
+            project.workspaces.push(Workspace {
+                id: workspace_id.clone(),
+                project_id: Some(project_id.to_string()),
+                repo_id: None,
+                branch: branch.to_string(),
+                path: workspace_path.to_string(),
+                is_archived: false,
+                created_at: Utc::now(),
+                pr_number: None,
+                pr_url: None,
+                pr_state: None,
+                is_creating: None,
+                is_archiving: None,
+                ssh_host_id: None,
+            });
+            crate::persistence::save_project_registry(config_dir, &registry).ok()?;
+            workspace_id
+        }
+    };
 
     // 2. Add the run's chat to the workspace's chat index.
     if let Some(chat_dir) = ctx.get_chat_dir(project_name, workspace_name) {

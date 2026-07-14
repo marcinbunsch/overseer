@@ -207,6 +207,9 @@ pub async fn invoke_handler(
         "overdrive_list_runs" => dispatch_overdrive_list_runs(&state).await,
         "overdrive_approve_run" => dispatch_overdrive_approve_run(&state, request.args).await,
         "overdrive_reject_run" => dispatch_overdrive_reject_run(&state, request.args).await,
+        "overdrive_ensure_workspace" => {
+            dispatch_overdrive_ensure_workspace(&state, request.args).await
+        }
         "load_workspace_state" => dispatch_load_workspace_state(&state, request.args).await,
         "save_workspace_state" => dispatch_save_workspace_state(&state, request.args).await,
         "load_chat_index" => dispatch_load_chat_index(&state, request.args).await,
@@ -1559,6 +1562,20 @@ async fn dispatch_overdrive_reject_run(
     };
     match state.overdrive.reject_run(&run_id).await {
         Ok(()) => ovr_ok(None),
+        Err(e) => ovr_err(StatusCode::CONFLICT, e),
+    }
+}
+
+async fn dispatch_overdrive_ensure_workspace(
+    state: &HttpSharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let run_id = match ovr_str_arg(&args, "runId") {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    match state.overdrive.ensure_workspace(&run_id) {
+        Ok(ws) => ovr_ok(Some(serde_json::json!(ws))),
         Err(e) => ovr_err(StatusCode::CONFLICT, e),
     }
 }

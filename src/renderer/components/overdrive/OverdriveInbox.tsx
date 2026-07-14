@@ -1,7 +1,9 @@
 import { useEffect } from "react"
 import { observer } from "mobx-react-lite"
+import { backend } from "../../backend"
 import { overdriveRunStore } from "../../stores/OverdriveRunStore"
 import { projectRegistry } from "../../stores/ProjectRegistry"
+import { toastStore } from "../../stores/ToastStore"
 import type { OverdriveRun } from "../../types"
 
 const STATUS_DOT: Record<string, string> = {
@@ -16,15 +18,27 @@ function repoName(repoId: string): string {
 
 /** Open a run's workspace (chat + changed files) for review, like any workspace. */
 async function openRun(run: OverdriveRun): Promise<void> {
-  // Reload so the engine-registered workspace surfaces with its id.
+  // Ensure the workspace is registered + chat indexed (backfills older runs),
+  // then reload so it surfaces with its engine-assigned id.
+  let workspaceId = run.workspaceId
+  try {
+    const ensured = await backend.invoke<string | null>("overdrive_ensure_workspace", {
+      runId: run.id,
+    })
+    if (ensured) workspaceId = ensured
+  } catch (err) {
+    toastStore.show(String(err instanceof Error ? err.message : err) || "Could not open run")
+    return
+  }
+
   await projectRegistry.reload()
   const project = projectRegistry.projects.find((p) => p.id === run.repoId)
-  const ws = project?.workspaces.find(
-    (w) => w.id === run.workspaceId || w.path === run.workspacePath
-  )
+  const ws = project?.workspaces.find((w) => w.id === workspaceId || w.path === run.workspacePath)
   if (project && ws) {
     projectRegistry.selectProject(project.id)
     projectRegistry.selectWorkspace(ws.id)
+  } else {
+    toastStore.show("Run workspace not found (it may have been archived)")
   }
 }
 

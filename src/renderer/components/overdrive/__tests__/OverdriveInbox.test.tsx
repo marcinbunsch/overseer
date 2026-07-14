@@ -68,11 +68,15 @@ describe("OverdriveInbox", () => {
   })
 
   it("navigates to the run's workspace on click", async () => {
+    mockInvoke.mockImplementation((cmd: string) =>
+      cmd === "overdrive_ensure_workspace" ? Promise.resolve("ws-1") : Promise.resolve(undefined)
+    )
     overdriveRunStore.runs = [makeRun()]
     render(<OverdriveInbox />)
     fireEvent.click(screen.getByTestId("overdrive-run-row"))
 
     await waitFor(() => expect(mockSelectWorkspace).toHaveBeenCalledWith("ws-1"))
+    expect(mockInvoke.mock.calls.some(([cmd]) => cmd === "overdrive_ensure_workspace")).toBe(true)
     expect(mockReload).toHaveBeenCalled()
     expect(mockSelectProject).toHaveBeenCalledWith("repo-1")
   })

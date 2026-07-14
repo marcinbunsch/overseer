@@ -182,6 +182,46 @@ impl OverdriveManager {
         Ok(())
     }
 
+    /// Ensure a run's worktree is registered as a workspace and its chat is
+    /// indexed, so it can be opened for review. Idempotent — a no-op for runs
+    /// registered at provisioning, a backfill for older runs. Returns the
+    /// workspace id.
+    pub fn ensure_workspace(&self, run_id: &str) -> Result<Option<String>, String> {
+        let config_dir = self.ctx.config_dir().ok_or("config directory not set")?;
+        let mut run = get_run(&config_dir, run_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("run not found: {run_id}"))?;
+        let workspace_path = run.workspace_path.clone().ok_or("run has no workspace")?;
+        let (name, _path, _mb) =
+            resolve_project(&config_dir, &run.repo_id).ok_or("repo not found in registry")?;
+        let workspace_name = Path::new(&workspace_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .ok_or("invalid workspace path")?;
+        let chat_label = task_title(&config_dir, &name, &run.task_id)
+            .or_else(|| run.branch.clone())
+            .unwrap_or_else(|| "Overdrive run".to_string());
+
+        let ws_id = super::engine::register_run_workspace(
+            &self.ctx,
+            &config_dir,
+            &run.repo_id,
+            &name,
+            &workspace_name,
+            &workspace_path,
+            run.branch.as_deref().unwrap_or(""),
+            run_id,
+            &chat_label,
+        );
+        if let Some(id) = &ws_id {
+            if run.workspace_id.as_deref() != Some(id.as_str()) {
+                run.workspace_id = Some(id.clone());
+                let _ = upsert_run(&config_dir, run);
+            }
+        }
+        Ok(ws_id)
+    }
+
     /// Emit an `overdrive:run-status` event for a run.
     fn emit_status(&self, run: &OverdriveRun) {
         self.ctx.event_bus.emit(
@@ -290,6 +330,15 @@ fn archive_workspace_in_registry(config_dir: &Path, project_id: &str, workspace_
             }
         }
     }
+}
+
+/// A task's title by id (for labelling the run's chat).
+fn task_title(config_dir: &Path, repo: &str, task_id: &str) -> Option<String> {
+    list_tasks(config_dir, repo)
+        .ok()?
+        .into_iter()
+        .find(|t| t.id == task_id)
+        .map(|t| t.title)
 }
 
 /// Set a task's status by id (no-op if the task is gone).
@@ -472,6 +521,66 @@ mod tests {
         let mgr = OverdriveManager::new(ctx);
         let err = mgr.approve_run("r1").await.unwrap_err();
         assert!(err.contains("not awaiting review"), "got: {err}");
+    }
+
+    #[test]
+    fn ensure_workspace_backfills_and_is_idempotent() {
+        use crate::persistence::types::{Project, ProjectRegistry};
+
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project {
+            id: "repo-id".into(),
+            name: "myrepo".into(),
+            path: "/repo".into(),
+            is_git_repo: true,
+            workspaces: vec![],
+            worktrees: vec![],
+            init_prompt: None,
+            pr_prompt: None,
+            post_create: None,
+            workspace_filter: None,
+            worktree_filter: None,
+            use_github: None,
+            allow_merge_to_main: None,
+            main_branch: None,
+            overdrive_enabled: None,
+            overdrive_instructions: None,
+            overdrive_check_command: None,
+        };
+        crate::persistence::save_project_registry(
+            dir.path(),
+            &ProjectRegistry {
+                projects: vec![project],
+            },
+        )
+        .unwrap();
+
+        let mut run = OverdriveRun::new("r1".into(), "t1".into(), "repo-id".into());
+        run.workspace_path = Some("/repo/narwhal".into());
+        run.branch = Some("overdrive/x".into());
+        upsert_run(dir.path(), run).unwrap();
+
+        let ctx = Arc::new(
+            OverseerContext::builder()
+                .config_dir(dir.path().to_path_buf())
+                .build(),
+        );
+        let mgr = OverdriveManager::new(ctx);
+
+        let id1 = mgr.ensure_workspace("r1").unwrap();
+        assert!(id1.is_some());
+
+        let count = |dir: &std::path::Path| {
+            load_project_registry(dir).unwrap().projects[0]
+                .workspaces
+                .len()
+        };
+        assert_eq!(count(dir.path()), 1);
+
+        // Second call reuses the same workspace (idempotent, no duplicate).
+        let id2 = mgr.ensure_workspace("r1").unwrap();
+        assert_eq!(id1, id2);
+        assert_eq!(count(dir.path()), 1);
     }
 
     #[tokio::test]

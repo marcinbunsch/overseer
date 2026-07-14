@@ -92,3 +92,13 @@ pub async fn overdrive_reject_run(
 ) -> Result<(), String> {
     manager.reject_run(&run_id).await
 }
+
+/// Ensure a run's workspace is registered + chat indexed (backfill for older
+/// runs). Returns the workspace id.
+#[tauri::command]
+pub fn overdrive_ensure_workspace(
+    manager: State<Arc<OverdriveManager>>,
+    run_id: String,
+) -> Result<Option<String>, String> {
+    manager.ensure_workspace(&run_id)
+}

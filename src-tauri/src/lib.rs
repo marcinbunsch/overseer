@@ -638,6 +638,7 @@ pub fn run() {
             overdrive::overdrive_list_runs,
             overdrive::overdrive_approve_run,
             overdrive::overdrive_reject_run,
+            overdrive::overdrive_ensure_workspace,
             persistence::run_post_create_command,
             persistence::save_json_config,
             persistence::load_json_config,
