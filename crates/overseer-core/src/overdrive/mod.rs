@@ -55,6 +55,8 @@ pub struct TurnParams {
     pub model: Option<String>,
     /// Optional session id to resume.
     pub session_id: Option<String>,
+    /// Chat label written to metadata (defaults to "Overdrive run" if None).
+    pub chat_label: Option<String>,
     /// Optional log directory for the agent process (raw stdin/stdout/stderr).
     /// Set to the run's log dir so the conversation lands in the run log.
     pub log_dir: Option<String>,

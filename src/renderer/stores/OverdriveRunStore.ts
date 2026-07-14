@@ -49,6 +49,12 @@ class OverdriveRunStore {
     return this.runs.find((r) => r.id === id)
   }
 
+  /** The run whose workspace is at `path`, if any (for the chat-header strip). */
+  runForWorkspace(path: string | undefined): OverdriveRun | undefined {
+    if (!path) return undefined
+    return this.runs.find((r) => r.workspacePath === path)
+  }
+
   async loadRuns(): Promise<void> {
     this.loading = true
     try {

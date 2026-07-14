@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { observer } from "mobx-react-lite"
 import { overdriveRunStore } from "../../stores/OverdriveRunStore"
 import { projectRegistry } from "../../stores/ProjectRegistry"
-import { RunReviewDialog } from "./RunReviewDialog"
+import type { OverdriveRun } from "../../types"
 
 const STATUS_DOT: Record<string, string> = {
   needsReview: "bg-ovr-ok",
@@ -14,9 +14,21 @@ function repoName(repoId: string): string {
   return projectRegistry.projects.find((p) => p.id === repoId)?.name ?? repoId
 }
 
-export const OverdriveInbox = observer(function OverdriveInbox() {
-  const [reviewingId, setReviewingId] = useState<string | null>(null)
+/** Open a run's workspace (chat + changed files) for review, like any workspace. */
+async function openRun(run: OverdriveRun): Promise<void> {
+  // Reload so the engine-registered workspace surfaces with its id.
+  await projectRegistry.reload()
+  const project = projectRegistry.projects.find((p) => p.id === run.repoId)
+  const ws = project?.workspaces.find(
+    (w) => w.id === run.workspaceId || w.path === run.workspacePath
+  )
+  if (project && ws) {
+    projectRegistry.selectProject(project.id)
+    projectRegistry.selectWorkspace(ws.id)
+  }
+}
 
+export const OverdriveInbox = observer(function OverdriveInbox() {
   useEffect(() => {
     overdriveRunStore.start()
   }, [])
@@ -42,7 +54,7 @@ export const OverdriveInbox = observer(function OverdriveInbox() {
           <button
             key={run.id}
             data-testid="overdrive-run-row"
-            onClick={() => setReviewingId(run.id)}
+            onClick={() => openRun(run)}
             className="group flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-ovr-text-primary transition-colors hover:bg-ovr-bg-elevated/50"
           >
             <span
@@ -53,14 +65,6 @@ export const OverdriveInbox = observer(function OverdriveInbox() {
           </button>
         ))}
       </div>
-
-      <RunReviewDialog
-        runId={reviewingId}
-        open={reviewingId !== null}
-        onOpenChange={(open) => {
-          if (!open) setReviewingId(null)
-        }}
-      />
     </div>
   )
 })

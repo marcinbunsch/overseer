@@ -36,7 +36,10 @@ pub async fn run_turn(ctx: &OverseerContext, params: TurnParams) -> TurnOutcome 
     let metadata = ChatMetadata {
         id: params.conversation_id.clone(),
         workspace_id: params.workspace_name.clone(),
-        label: "Overdrive run".to_string(),
+        label: params
+            .chat_label
+            .clone()
+            .unwrap_or_else(|| "Overdrive run".to_string()),
         agent_type: Some("claude".to_string()),
         agent_session_id: params.session_id.clone(),
         model_version: params.model.clone(),

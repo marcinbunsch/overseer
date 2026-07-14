@@ -6,10 +6,21 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 
 const mockInvoke: Mock = vi.fn(() => Promise.resolve(undefined))
 const mockListen = vi.fn(() => Promise.resolve(() => {}))
+const mockReload = vi.fn(() => Promise.resolve())
+const mockSelectProject = vi.fn()
+const mockSelectWorkspace = vi.fn()
 vi.mock("../../../backend", () => ({
   backend: {
     invoke: (cmd: string, args: unknown) => mockInvoke(cmd, args),
     listen: () => mockListen(),
+  },
+}))
+vi.mock("../../../stores/ProjectRegistry", () => ({
+  projectRegistry: {
+    projects: [{ id: "repo-1", name: "myrepo", workspaces: [{ id: "ws-1", path: "/tmp/ws" }] }],
+    reload: () => mockReload(),
+    selectProject: (id: string) => mockSelectProject(id),
+    selectWorkspace: (id: string) => mockSelectWorkspace(id),
   },
 }))
 
@@ -22,8 +33,9 @@ function makeRun(overrides: Partial<OverdriveRun> = {}): OverdriveRun {
     id: "run-1",
     taskId: "task-1",
     repoId: "repo-1",
-    branch: "overdrive/add-foo-abcd1234",
+    workspaceId: "ws-1",
     workspacePath: "/tmp/ws",
+    branch: "overdrive/add-foo-abcd1234",
     status: "needsReview",
     verifyBounces: 0,
     iterationsUsed: 2,
@@ -36,6 +48,9 @@ describe("OverdriveInbox", () => {
   beforeEach(() => {
     mockInvoke.mockReset()
     mockInvoke.mockResolvedValue(undefined)
+    mockReload.mockClear()
+    mockSelectProject.mockClear()
+    mockSelectWorkspace.mockClear()
     overdriveRunStore.runs = []
   })
 
@@ -45,37 +60,20 @@ describe("OverdriveInbox", () => {
     expect(container.querySelector('[data-testid="overdrive-inbox"]')).toBeNull()
   })
 
-  it("shows a badge and a row for an actionable run", async () => {
+  it("shows a badge and a row for an actionable run", () => {
     overdriveRunStore.runs = [makeRun()]
-    mockInvoke.mockResolvedValue([makeRun()]) // start()'s reload keeps it
     render(<OverdriveInbox />)
     expect(screen.getByTestId("overdrive-inbox-badge").textContent).toBe("1")
     expect(screen.getByTestId("overdrive-run-row")).toHaveTextContent("overdrive/add-foo-abcd1234")
   })
 
-  it("opens the review dialog and approves", async () => {
+  it("navigates to the run's workspace on click", async () => {
     overdriveRunStore.runs = [makeRun()]
-    mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === "overdrive_list_runs") return Promise.resolve([makeRun()])
-      if (cmd === "list_changed_files") return Promise.resolve({ files: [], uncommitted: [] })
-      if (cmd === "overdrive_approve_run")
-        return Promise.resolve({ success: true, conflicts: [], message: "" })
-      return Promise.resolve(undefined)
-    })
-
     render(<OverdriveInbox />)
     fireEvent.click(screen.getByTestId("overdrive-run-row"))
 
-    await waitFor(() => expect(screen.getByTestId("run-review-title")).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId("run-approve"))
-
-    await waitFor(() =>
-      expect(
-        mockInvoke.mock.calls.some(
-          ([cmd, args]) =>
-            cmd === "overdrive_approve_run" && (args as { runId: string }).runId === "run-1"
-        )
-      ).toBe(true)
-    )
+    await waitFor(() => expect(mockSelectWorkspace).toHaveBeenCalledWith("ws-1"))
+    expect(mockReload).toHaveBeenCalled()
+    expect(mockSelectProject).toHaveBeenCalledWith("repo-1")
   })
 })

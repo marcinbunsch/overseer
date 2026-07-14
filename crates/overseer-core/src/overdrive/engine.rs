@@ -147,6 +147,21 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
         return run;
     }
 
+    // Register the worktree as an Overseer workspace + index the run's chat, so
+    // the user can select it and review the driving conversation + diff in the
+    // normal three-pane flow. Best-effort — a failure here doesn't fail the run.
+    run.workspace_id = register_run_workspace(
+        ctx,
+        &config_dir,
+        &params.task.repo_id,
+        &params.project_name,
+        &workspace_name,
+        &workspace_path,
+        &branch,
+        &run_id,
+        &params.task.title,
+    );
+
     // Helper closure inputs shared by every turn. The agent logs its raw
     // conversation to the same file as this run's engine log.
     let drive = TurnDriver {
@@ -157,6 +172,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
         working_dir: &workspace_path,
         agent_path: &params.agent_path,
         model: &params.model,
+        chat_label: &params.task.title,
         log_target: logger.agent_target(),
         per_turn: params.budgets.per_turn,
     };
@@ -419,6 +435,8 @@ struct TurnDriver<'a> {
     working_dir: &'a str,
     agent_path: &'a str,
     model: &'a Option<String>,
+    /// Chat label (task title) written to the chat metadata.
+    chat_label: &'a str,
     /// (log_dir, log_id) so the agent's raw conversation lands in the run log.
     log_target: Option<(String, String)>,
     per_turn: Duration,
@@ -444,6 +462,7 @@ impl TurnDriver<'_> {
                 prompt: prompt.to_string(),
                 model: self.model.clone(),
                 session_id: None,
+                chat_label: Some(self.chat_label.to_string()),
                 log_dir,
                 log_id,
                 timeout: self.per_turn,
@@ -451,6 +470,67 @@ impl TurnDriver<'_> {
         )
         .await
     }
+}
+
+/// Register the run's worktree as an Overseer workspace and index its chat, so
+/// the workspace is selectable and the chat shows up. Best-effort; returns the
+/// new workspace id on success.
+#[allow(clippy::too_many_arguments)]
+fn register_run_workspace(
+    ctx: &OverseerContext,
+    config_dir: &Path,
+    project_id: &str,
+    project_name: &str,
+    workspace_name: &str,
+    workspace_path: &str,
+    branch: &str,
+    chat_id: &str,
+    chat_label: &str,
+) -> Option<String> {
+    use crate::persistence::types::{ChatIndexEntry, Workspace};
+
+    // 1. Add the worktree as a Workspace in projects.json.
+    let mut registry = crate::persistence::load_project_registry(config_dir).ok()?;
+    let project = registry.projects.iter_mut().find(|p| p.id == project_id)?;
+    let workspace_id = Uuid::new_v4().to_string();
+    project.workspaces.push(Workspace {
+        id: workspace_id.clone(),
+        project_id: Some(project_id.to_string()),
+        repo_id: None,
+        branch: branch.to_string(),
+        path: workspace_path.to_string(),
+        is_archived: false,
+        created_at: Utc::now(),
+        pr_number: None,
+        pr_url: None,
+        pr_state: None,
+        is_creating: None,
+        is_archiving: None,
+        ssh_host_id: None,
+    });
+    crate::persistence::save_project_registry(config_dir, &registry).ok()?;
+
+    // 2. Add the run's chat to the workspace's chat index.
+    if let Some(chat_dir) = ctx.get_chat_dir(project_name, workspace_name) {
+        if let Ok(mut index) = crate::persistence::index::load_chat_index(&chat_dir) {
+            let now = Utc::now();
+            crate::persistence::index::upsert_chat_entry(
+                &mut index,
+                ChatIndexEntry {
+                    id: chat_id.to_string(),
+                    label: chat_label.to_string(),
+                    agent_type: Some("claude".to_string()),
+                    created_at: now,
+                    updated_at: now,
+                    is_archived: None,
+                    archived_at: None,
+                },
+            );
+            let _ = crate::persistence::index::save_chat_index(&chat_dir, &index);
+        }
+    }
+
+    Some(workspace_id)
 }
 
 fn over_budget(start: Instant, cap: Duration) -> bool {
@@ -736,5 +816,68 @@ mod tests {
         assert_eq!(b.verify_bounce_cap, 2);
         assert_eq!(b.harness_cap, 2);
         assert_eq!(b.wall_clock, Duration::from_secs(1800));
+    }
+
+    #[test]
+    fn register_run_workspace_adds_workspace_and_indexes_chat() {
+        use crate::persistence::types::{Project, ProjectRegistry};
+
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project {
+            id: "repo-id".into(),
+            name: "myrepo".into(),
+            path: "/repo".into(),
+            is_git_repo: true,
+            workspaces: vec![],
+            worktrees: vec![],
+            init_prompt: None,
+            pr_prompt: None,
+            post_create: None,
+            workspace_filter: None,
+            worktree_filter: None,
+            use_github: None,
+            allow_merge_to_main: None,
+            main_branch: None,
+            overdrive_enabled: None,
+            overdrive_instructions: None,
+            overdrive_check_command: None,
+        };
+        crate::persistence::save_project_registry(
+            dir.path(),
+            &ProjectRegistry {
+                projects: vec![project],
+            },
+        )
+        .unwrap();
+
+        let ctx = OverseerContext::builder()
+            .config_dir(dir.path().to_path_buf())
+            .build();
+
+        let ws_id = register_run_workspace(
+            &ctx,
+            dir.path(),
+            "repo-id",
+            "myrepo",
+            "narwhal",
+            "/repo/narwhal",
+            "overdrive/x",
+            "run-1",
+            "My Task",
+        );
+        assert!(ws_id.is_some());
+
+        let reg = crate::persistence::load_project_registry(dir.path()).unwrap();
+        let p = reg.projects.iter().find(|p| p.id == "repo-id").unwrap();
+        assert_eq!(p.workspaces.len(), 1);
+        assert_eq!(p.workspaces[0].path, "/repo/narwhal");
+        assert_eq!(p.workspaces[0].branch, "overdrive/x");
+
+        let chat_dir = ctx.get_chat_dir("myrepo", "narwhal").unwrap();
+        let idx = crate::persistence::index::load_chat_index(&chat_dir).unwrap();
+        assert!(idx
+            .chats
+            .iter()
+            .any(|c| c.id == "run-1" && c.label == "My Task"));
     }
 }

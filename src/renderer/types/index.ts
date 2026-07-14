@@ -99,6 +99,7 @@ export interface OverdriveRun {
   taskId: string
   repoId: string
   workspacePath?: string
+  workspaceId?: string
   branch?: string
   chatId?: string
   status: RunStatus

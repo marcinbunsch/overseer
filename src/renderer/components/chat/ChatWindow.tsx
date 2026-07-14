@@ -18,6 +18,7 @@ import { PlanApprovalPanel } from "./PlanApprovalPanel"
 import { PlanReviewDialog } from "./PlanReviewDialog"
 import { AgentQuestionPanel } from "./AgentQuestionPanel"
 import { ChatTabs } from "./ChatTabs"
+import { OverdriveRunStatusStrip } from "./OverdriveRunStatusStrip"
 import { NewChatScreen } from "./NewChatScreen"
 import { QueuedMessagesPanel } from "./QueuedMessagesPanel"
 import { SaveChatButton } from "./SaveChatButton"
@@ -274,6 +275,8 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
           </button>
         </div>
       </div>
+
+      <OverdriveRunStatusStrip workspacePath={workspace.path} />
 
       {workspaceStore.loading ? null : workspaceStore.activeChats.length === 0 ? (
         <NewChatScreen />

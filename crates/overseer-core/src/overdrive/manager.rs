@@ -169,6 +169,11 @@ impl OverdriveManager {
             .await
             .map_err(|e| e.to_string())?;
 
+        // Drop the workspace out of the repo tree (worktree is gone).
+        if let Some(ws_id) = &run.workspace_id {
+            archive_workspace_in_registry(&config_dir, &run.repo_id, ws_id);
+        }
+
         run.status = RunStatus::Rejected;
         run.ended_at = Some(Utc::now());
         upsert_run(&config_dir, run.clone()).map_err(|e| e.to_string())?;
@@ -273,6 +278,18 @@ fn resolve_project(
     let registry = load_project_registry(config_dir).ok()?;
     let p = find_project(&registry, project_id)?;
     Some((p.name.clone(), p.path.clone(), p.main_branch.clone()))
+}
+
+/// Mark a workspace archived in projects.json (no-op if not found).
+fn archive_workspace_in_registry(config_dir: &Path, project_id: &str, workspace_id: &str) {
+    if let Ok(mut registry) = load_project_registry(config_dir) {
+        if let Some(project) = registry.projects.iter_mut().find(|p| p.id == project_id) {
+            if let Some(ws) = project.workspaces.iter_mut().find(|w| w.id == workspace_id) {
+                ws.is_archived = true;
+                let _ = crate::persistence::save_project_registry(config_dir, &registry);
+            }
+        }
+    }
 }
 
 /// Set a task's status by id (no-op if the task is gone).

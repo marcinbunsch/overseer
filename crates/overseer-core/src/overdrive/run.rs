@@ -84,6 +84,9 @@ pub struct OverdriveRun {
     pub repo_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_path: Option<String>,
+    /// The registered Overseer Workspace id (so the UI can select it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -112,6 +115,7 @@ impl OverdriveRun {
             task_id,
             repo_id,
             workspace_path: None,
+            workspace_id: None,
             branch: None,
             chat_id: None,
             status: RunStatus::Provisioning,

@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import type { Workspace } from "../../types"
 import { configStore } from "../../stores/ConfigStore"
+import { overdriveRunStore } from "../../stores/OverdriveRunStore"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { toastStore } from "../../stores/ToastStore"
 import { uiStore } from "../../stores/UIStore"
@@ -70,6 +71,14 @@ export const WorkspaceList = observer(function WorkspaceList({ project }: Worksp
                 <span className="size-3 shrink-0" />
               )}
               <span className="flex-1 truncate">{wt.branch}</span>
+              {overdriveRunStore.runForWorkspace(wt.path) && (
+                <span
+                  title="Overdrive run"
+                  className="shrink-0 rounded bg-ovr-bg-panel px-1 py-0.5 text-[9px] text-ovr-text-dim"
+                >
+                  OD
+                </span>
+              )}
               {wt.prState === "MERGED" ? (
                 <span title={`PR #${wt.prNumber} merged`} className="shrink-0 text-ovr-diff-add">
                   <GitPullRequestArrow size={12} />

@@ -675,6 +675,29 @@ class ProjectRegistry {
     })
   }
 
+  /**
+   * Re-read projects.json and sync cached ProjectStores. Used after the
+   * Overdrive engine adds/removes a run's workspace so it surfaces in the tree
+   * with its engine-assigned id.
+   */
+  @action async reload(): Promise<void> {
+    try {
+      const registry = await backend.invoke<{ projects: Project[] }>("load_project_registry")
+      runInAction(() => {
+        this._projects = registry.projects
+        for (const project of this._projects) {
+          const store = this._projectStoreCache.get(project.id)
+          if (store) {
+            store.workspaces = project.workspaces
+            store.cleanupWorkspaceCache()
+          }
+        }
+      })
+    } catch (err) {
+      console.error("Failed to reload projects:", err)
+    }
+  }
+
   private async saveToFile(): Promise<void> {
     try {
       // Rust handles backward compatibility (writes to both projects.json and repos.json)
