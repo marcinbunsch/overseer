@@ -18,8 +18,12 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+pub mod harness;
 mod iterator;
 
+pub use harness::{
+    diff_harness, run_check, snapshot_harness, CheckResult, CommandOutcome, HarnessSnapshot,
+};
 pub use iterator::run_turn;
 
 /// Parameters for a single headless turn.

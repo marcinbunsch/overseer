@@ -76,7 +76,9 @@ pub fn run_shell_command(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    let output = cmd.output().map_err(|e| format!("Failed to run command: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to run command: {}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -137,6 +139,80 @@ pub async fn run_shell_command_async(
         stderr,
         success: output.status.success(),
     })
+}
+
+/// Outcome of a command run with a wall-clock bound.
+///
+/// Distinguishes a process that finished (with whatever exit code) from one the
+/// engine had to kill because it blew past its timeout — the harness runner
+/// needs to tell these apart (a hung `pnpm test` is not the same as a failing
+/// one).
+#[derive(Debug)]
+pub enum CommandRun {
+    /// The command ran to completion (success or non-zero exit).
+    Finished(ShellCommandResult),
+    /// The command exceeded its timeout and was killed.
+    TimedOut,
+}
+
+/// Run a shell command in a login shell, bounded by a wall-clock `timeout`.
+///
+/// Same login-shell semantics as [`run_shell_command_async`], but the child is
+/// spawned with `kill_on_drop(true)`; if the `timeout` elapses first, the wait
+/// future is dropped and the OS kills the process tree. Returns
+/// [`CommandRun::TimedOut`] in that case rather than hanging forever.
+///
+/// # Arguments
+/// * `command` - The command to run (passed to the shell as a single arg)
+/// * `working_dir` - The directory to run the command in
+/// * `shell_prefix` - Optional shell prefix override (e.g., "/bin/zsh -l -c")
+/// * `timeout` - Maximum wall-clock time before the command is killed
+pub async fn run_shell_command_with_timeout(
+    command: &str,
+    working_dir: &str,
+    shell_prefix: Option<&str>,
+    timeout: std::time::Duration,
+) -> Result<CommandRun, String> {
+    let prefix = get_shell_prefix(shell_prefix);
+
+    let prefix_parts: Vec<&str> = prefix.split_whitespace().collect();
+    if prefix_parts.is_empty() {
+        return Err("Empty shell prefix".to_string());
+    }
+
+    let shell_program = prefix_parts[0];
+    let shell_args = &prefix_parts[1..];
+
+    let mut cmd = AsyncCommand::new(shell_program);
+    cmd.args(shell_args)
+        .arg(command)
+        .current_dir(working_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        // Ensure a timed-out command doesn't linger after we stop waiting.
+        .kill_on_drop(true);
+
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn command: {}", e))?;
+
+    // On timeout the wait future is dropped, which drops the Child and (via
+    // kill_on_drop) sends SIGKILL — so no zombie survives the deadline.
+    match tokio::time::timeout(timeout, child.wait_with_output()).await {
+        Ok(Ok(output)) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let exit_code = output.status.code().unwrap_or(-1);
+            Ok(CommandRun::Finished(ShellCommandResult {
+                exit_code,
+                stdout,
+                stderr,
+                success: output.status.success(),
+            }))
+        }
+        Ok(Err(e)) => Err(format!("Failed to wait for command: {}", e)),
+        Err(_elapsed) => Ok(CommandRun::TimedOut),
+    }
 }
 
 /// Prepend the binary's parent directory to PATH so node/etc. are found.
@@ -289,6 +365,7 @@ pub fn build_login_shell_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn agent_exit_serializes() {
@@ -387,5 +464,69 @@ mod tests {
 
         let args: Vec<_> = cmd.get_args().collect();
         assert_eq!(args[0].to_str().unwrap(), "-c");
+    }
+
+    // ------------------------------------------------------------------------
+    // run_shell_command_with_timeout
+    // ------------------------------------------------------------------------
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn timeout_command_success_finishes() {
+        let run = run_shell_command_with_timeout("true", "/tmp", None, Duration::from_secs(5))
+            .await
+            .unwrap();
+        match run {
+            CommandRun::Finished(result) => {
+                assert!(result.success);
+                assert_eq!(result.exit_code, 0);
+            }
+            CommandRun::TimedOut => panic!("`true` should not time out"),
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn timeout_command_failure_reports_exit_code() {
+        let run = run_shell_command_with_timeout("exit 3", "/tmp", None, Duration::from_secs(5))
+            .await
+            .unwrap();
+        match run {
+            CommandRun::Finished(result) => {
+                assert!(!result.success);
+                assert_eq!(result.exit_code, 3);
+            }
+            CommandRun::TimedOut => panic!("`exit 3` should not time out"),
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn timeout_command_captures_stdout() {
+        let run =
+            run_shell_command_with_timeout("echo hello", "/tmp", None, Duration::from_secs(5))
+                .await
+                .unwrap();
+        match run {
+            CommandRun::Finished(result) => assert!(result.stdout.contains("hello")),
+            CommandRun::TimedOut => panic!("`echo` should not time out"),
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn timeout_kills_a_hung_command_promptly() {
+        let start = std::time::Instant::now();
+        let run =
+            run_shell_command_with_timeout("sleep 5", "/tmp", None, Duration::from_millis(100))
+                .await
+                .unwrap();
+        assert!(matches!(run, CommandRun::TimedOut));
+        // Must return near the deadline, not after the full sleep.
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "timed-out command should return promptly, took {:?}",
+            start.elapsed()
+        );
     }
 }
