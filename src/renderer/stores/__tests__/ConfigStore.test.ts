@@ -203,9 +203,9 @@ describe("ConfigStore", () => {
     expect(configStore.claudeModels).toEqual([
       { alias: "claude-fable-5", displayName: "Fable 5" },
       { alias: "claude-opus-4-8", displayName: "Opus 4.8" },
+      { alias: "claude-sonnet-5", displayName: "Sonnet 5" },
       { alias: "claude-opus-4-7", displayName: "Opus 4.7" },
       { alias: "claude-opus-4-6", displayName: "Opus 4.6" },
-
       { alias: "claude-sonnet-4-6", displayName: "Sonnet 4.6" },
       { alias: "claude-sonnet-4-5", displayName: "Sonnet 4.5" },
       { alias: "claude-opus-4-5", displayName: "Opus 4.5" },
@@ -230,12 +230,13 @@ describe("ConfigStore", () => {
     })
 
     expect(configStore.codexModels).toEqual([
+      { alias: "gpt-5.6-sol", displayName: "GPT-5.6 Sol" },
+      { alias: "gpt-5.6-terra", displayName: "GPT-5.6 Terra" },
+      { alias: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
       { alias: "gpt-5.5", displayName: "GPT-5.5" },
       { alias: "gpt-5.4", displayName: "GPT-5.4" },
       { alias: "gpt-5.4-mini", displayName: "GPT-5.4 Mini" },
-      { alias: "gpt-5.3-codex", displayName: "GPT-5.3 Codex" },
       { alias: "gpt-5.3-codex-spark", displayName: "GPT-5.3 Codex Spark" },
-      { alias: "gpt-5.2", displayName: "GPT-5.2" },
     ])
   })
 

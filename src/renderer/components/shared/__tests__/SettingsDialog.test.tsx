@@ -267,12 +267,12 @@ describe("SettingsDialog Agents tab - default models", () => {
   })
 
   it("displays selected model name when set for Codex", () => {
-    configStore.defaultCodexModel = "gpt-5.3-codex"
+    configStore.defaultCodexModel = "gpt-5.6-sol"
 
     render(<SettingsDialog open={true} onOpenChange={() => {}} />)
     goToTab("agents")
 
-    expect(screen.getByText("GPT-5.3 Codex")).toBeInTheDocument()
+    expect(screen.getByText("GPT-5.6 Sol")).toBeInTheDocument()
   })
 
   it("displays selected model name when set for Copilot", () => {

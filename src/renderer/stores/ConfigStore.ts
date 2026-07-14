@@ -111,6 +111,7 @@ const RemoteModelsSchema = z.object({
 export const DEFAULT_CLAUDE_MODELS: AgentModel[] = [
   { alias: "claude-fable-5", displayName: "Fable 5" },
   { alias: "claude-opus-4-8", displayName: "Opus 4.8" },
+  { alias: "claude-sonnet-5", displayName: "Sonnet 5" },
   { alias: "claude-opus-4-7", displayName: "Opus 4.7" },
   { alias: "claude-opus-4-6", displayName: "Opus 4.6" },
   { alias: "claude-sonnet-4-6", displayName: "Sonnet 4.6" },
@@ -120,46 +121,54 @@ export const DEFAULT_CLAUDE_MODELS: AgentModel[] = [
 ]
 
 export const DEFAULT_CODEX_MODELS: AgentModel[] = [
+  { alias: "gpt-5.6-sol", displayName: "GPT-5.6 Sol" },
+  { alias: "gpt-5.6-terra", displayName: "GPT-5.6 Terra" },
+  { alias: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
   { alias: "gpt-5.5", displayName: "GPT-5.5" },
   { alias: "gpt-5.4", displayName: "GPT-5.4" },
   { alias: "gpt-5.4-mini", displayName: "GPT-5.4 Mini" },
-  { alias: "gpt-5.3-codex", displayName: "GPT-5.3 Codex" },
   { alias: "gpt-5.3-codex-spark", displayName: "GPT-5.3 Codex Spark" },
-  { alias: "gpt-5.2", displayName: "GPT-5.2" },
 ]
 
 const DEFAULT_COPILOT_MODELS: AgentModel[] = [
+  { alias: "claude-fable-5", displayName: "Claude Fable 5" },
+  { alias: "claude-opus-4.8", displayName: "Claude Opus 4.8" },
+  { alias: "claude-opus-4.8-fast", displayName: "Claude Opus 4.8 Fast" },
+  { alias: "claude-opus-4.7", displayName: "Claude Opus 4.7" },
   { alias: "claude-opus-4.6", displayName: "Claude Opus 4.6" },
-  { alias: "claude-opus-4.6-fast", displayName: "Claude Opus 4.6 Fast" },
   { alias: "claude-opus-4.5", displayName: "Claude Opus 4.5" },
+  { alias: "claude-sonnet-5", displayName: "Claude Sonnet 5" },
+  { alias: "claude-sonnet-4.6", displayName: "Claude Sonnet 4.6" },
   { alias: "claude-sonnet-4.5", displayName: "Claude Sonnet 4.5" },
-  { alias: "claude-sonnet-4", displayName: "Claude Sonnet 4" },
   { alias: "claude-haiku-4.5", displayName: "Claude Haiku 4.5" },
+  { alias: "gpt-5.6-sol", displayName: "GPT-5.6 Sol" },
+  { alias: "gpt-5.6-terra", displayName: "GPT-5.6 Terra" },
+  { alias: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
+  { alias: "gpt-5.5", displayName: "GPT-5.5" },
+  { alias: "gpt-5.4", displayName: "GPT-5.4" },
+  { alias: "gpt-5.4-mini", displayName: "GPT-5.4 Mini" },
+  { alias: "gpt-5.4-nano", displayName: "GPT-5.4 Nano" },
   { alias: "gpt-5.3-codex", displayName: "GPT-5.3 Codex" },
-  { alias: "gpt-5.2-codex", displayName: "GPT-5.2 Codex" },
-  { alias: "gpt-5.2", displayName: "GPT-5.2" },
-  { alias: "gpt-5.1-codex-max", displayName: "GPT-5.1 Codex Max" },
-  { alias: "gpt-5.1-codex", displayName: "GPT-5.1 Codex" },
-  { alias: "gpt-5.1", displayName: "GPT-5.1" },
-  { alias: "gpt-5", displayName: "GPT-5" },
-  { alias: "gpt-5.1-codex-mini", displayName: "GPT-5.1 Codex Mini" },
   { alias: "gpt-5-mini", displayName: "GPT-5 Mini" },
-  { alias: "gpt-4.1", displayName: "GPT-4.1" },
-  { alias: "gemini-3-pro-preview", displayName: "Gemini 3 Pro Preview" },
+  { alias: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro" },
+  { alias: "gemini-3.5-flash", displayName: "Gemini 3.5 Flash" },
+  { alias: "gemini-3-flash", displayName: "Gemini 3 Flash" },
+  { alias: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
 ]
 
 const DEFAULT_GEMINI_MODELS: AgentModel[] = [
+  { alias: "gemini-3.1-pro-preview", displayName: "Gemini 3.1 Pro Preview" },
+  { alias: "gemini-3.5-flash", displayName: "Gemini 3.5 Flash" },
+  { alias: "gemini-3.1-flash-lite", displayName: "Gemini 3.1 Flash Lite" },
   { alias: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
   { alias: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
-  { alias: "gemini-2.0-pro", displayName: "Gemini 2.0 Pro" },
-  { alias: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash" },
 ]
 
 const DEFAULT_OPENCODE_MODELS: AgentModel[] = [
-  { alias: "anthropic/claude-sonnet-4-5", displayName: "Claude Sonnet 4.5" },
-  { alias: "anthropic/claude-opus-4-5", displayName: "Claude Opus 4.5" },
-  { alias: "openai/gpt-5.2", displayName: "GPT 5.2" },
-  { alias: "google/gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
+  { alias: "anthropic/claude-opus-4-8", displayName: "Claude Opus 4.8" },
+  { alias: "anthropic/claude-sonnet-5", displayName: "Claude Sonnet 5" },
+  { alias: "openai/gpt-5.5", displayName: "GPT-5.5" },
+  { alias: "google/gemini-3.1-pro-preview", displayName: "Gemini 3.1 Pro Preview" },
 ]
 
 // Pi's model list is environment-dependent (local ollama, configured API keys,
