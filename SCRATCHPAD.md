@@ -88,6 +88,13 @@ To preview all design system elements, enable dev mode and go to Settings → De
 - Archived chats: `~/.config/overseer[-dev]/chats/{repo}.archived/`
 - Settings load async from `~/.config/overseer[-dev]/` — don't assume ready at mount
 
+### Overdrive (headless run engine)
+
+- **Driving a session from core, no frontend** — `overdrive::run_turn` (`crates/overseer-core/src/overdrive/`) proves Phase 1: `chat_sessions.register_session(...)` → subscribe to the event bus → `claude_agents.send_message(config, event_bus, approval_manager, chat_sessions)` → await completion by reading the bus. No WebSocket/IPC/frontend needed; the managers already emit everything. Trigger it manually with `cargo run -p overseer-core --example overdrive_spike -- --workspace <dir> --prompt "..."`.
+- **Turn completion = event-bus observation, not process exit** — a turn is done when `AgentEvent::TurnComplete` (or `Done`, or `agent:close:{conv}`) lands on the bus. Claude emits `TurnComplete` on the stream-json `"result"` message; Pi emits `TurnComplete`+`Done` on `agent_end`. Isolate the "await completion" loop from the spawn side so it's unit-testable by emitting hand-built `BroadcastEvent`s onto a real `EventBus` (no CLI needed) — see `overdrive::iterator::await_turn_completion`.
+- **`agent:event:{conv}` payload is a flattened `SeqEvent`** — `SeqEvent` uses `#[serde(flatten)]` on its `event`, so the wire payload is `{"seq":N, "kind":"text", ...}`. It deserializes **directly as `AgentEvent`** (the extra `seq` is ignored by the internally-tagged enum). The persistence-failure fallback emits a bare `AgentEvent` — same deserialize path works for both.
+- **YOLO mapping belongs in core now** — unattended Claude runs force `permission_mode = "bypassPermissions"` (mirrors the frontend's `getYoloModeValueForAgent`). Safety boundary = disposable workspace + human review gate, not permission prompts.
+
 ### Pi agent
 
 - **Session resume via `--session-id`** — Pi's `--session-id <id>` flag *creates the session if missing, resumes if it exists*. Overseer generates a UUID on the first message (`pi.ts`), emits a `sessionId` event to persist it to chat metadata, and passes it to `--session-id` on every spawn so a restarted RPC process resumes context. Threaded through `start_pi_server(session_id)` → `PiStartConfig.session_id` → `PiConfig.session_id`.

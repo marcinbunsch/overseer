@@ -20,6 +20,7 @@ pub mod event_bus;
 pub mod git;
 pub mod logging;
 pub mod managers;
+pub mod overdrive;
 pub mod overseer_actions;
 pub mod paths;
 pub mod persistence;
