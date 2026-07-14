@@ -20,6 +20,39 @@ pub struct AppConfig {
     pub agent_shell: Option<String>,
     /// Default Claude model alias.
     pub default_claude_model: Option<String>,
+    /// Global Overdrive scheduler settings.
+    pub overdrive: OverdriveSettings,
+}
+
+/// Global Overdrive scheduler settings (the `overdrive` object in config.json).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OverdriveSettings {
+    /// Whether the interval scheduler is allowed to pick up work. Off by default.
+    pub scheduler_enabled: bool,
+    /// Scheduler tick interval in minutes.
+    pub interval_minutes: u32,
+    /// Pause picking new work when this many runs sit in needs-review.
+    pub backpressure_cap: u32,
+    /// Fail a run blocked on input after this many hours.
+    pub needs_input_timeout_hours: u32,
+    /// Only start runs at/after this local time ("HH:MM"). None = no lower bound.
+    pub run_window_start: Option<String>,
+    /// Only start runs before this local time ("HH:MM"). None = no upper bound.
+    pub run_window_end: Option<String>,
+}
+
+impl Default for OverdriveSettings {
+    fn default() -> Self {
+        Self {
+            scheduler_enabled: false,
+            interval_minutes: 15,
+            backpressure_cap: 3,
+            needs_input_timeout_hours: 4,
+            run_window_start: None,
+            run_window_end: None,
+        }
+    }
 }
 
 impl AppConfig {
@@ -123,5 +156,31 @@ mod tests {
         std::fs::write(dir.path().join("config.json"), "not json").unwrap();
         let cfg = read_app_config(dir.path());
         assert_eq!(cfg.resolved_claude_path(), "claude");
+    }
+
+    #[test]
+    fn overdrive_settings_default_off() {
+        let dir = tempdir().unwrap();
+        let cfg = read_app_config(dir.path());
+        assert!(!cfg.overdrive.scheduler_enabled);
+        assert_eq!(cfg.overdrive.interval_minutes, 15);
+        assert_eq!(cfg.overdrive.backpressure_cap, 3);
+        assert_eq!(cfg.overdrive.needs_input_timeout_hours, 4);
+    }
+
+    #[test]
+    fn overdrive_settings_parsed_from_config() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"overdrive": {"schedulerEnabled": true, "intervalMinutes": 5, "backpressureCap": 1, "runWindowStart": "22:00", "runWindowEnd": "07:00"}}"#,
+        )
+        .unwrap();
+        let cfg = read_app_config(dir.path());
+        assert!(cfg.overdrive.scheduler_enabled);
+        assert_eq!(cfg.overdrive.interval_minutes, 5);
+        assert_eq!(cfg.overdrive.backpressure_cap, 1);
+        assert_eq!(cfg.overdrive.run_window_start.as_deref(), Some("22:00"));
+        assert_eq!(cfg.overdrive.run_window_end.as_deref(), Some("07:00"));
     }
 }

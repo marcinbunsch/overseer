@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react"
 import { observer } from "mobx-react-lite"
 import * as AlertDialog from "@radix-ui/react-alert-dialog"
-import { X, ArrowUp, ArrowDown, Pencil, Trash2 } from "lucide-react"
+import { X, ArrowUp, ArrowDown, Pencil, Trash2, Play } from "lucide-react"
 import { Input } from "../shared/Input"
 import { Textarea } from "../shared/Textarea"
 import { Checkbox } from "../shared/Checkbox"
+import { toastStore } from "../../stores/ToastStore"
 import type { ProjectStore } from "../../stores/ProjectStore"
 import type { OverdriveTask } from "../../types"
 
@@ -35,10 +36,48 @@ export const TasksDialog = observer(function TasksDialog({
 }: TasksDialogProps) {
   const [form, setForm] = useState<TaskFormValues>(EMPTY_FORM)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [running, setRunning] = useState(false)
 
   useEffect(() => {
     if (open) project.loadTasks()
   }, [open, project])
+
+  // While open, refresh task statuses when any run transitions (a run flips a
+  // task Todo → Running → NeedsReview/Failed).
+  useEffect(() => {
+    if (!open) return
+    let unsub: (() => void) | undefined
+    let cancelled = false
+    project.backend
+      .listen("overdrive:run-status", () => project.loadTasks(true))
+      .then((fn) => {
+        if (cancelled) fn()
+        else unsub = fn
+      })
+    return () => {
+      cancelled = true
+      unsub?.()
+    }
+  }, [open, project])
+
+  const handleRunNext = async () => {
+    setRunning(true)
+    try {
+      const started = await project.backend.invoke<string | null>("overdrive_run_next", {
+        repo: project.name,
+      })
+      if (started) {
+        toastStore.show("Overdrive run started")
+        project.loadTasks(true)
+      } else {
+        toastStore.show("No pending tasks to run")
+      }
+    } catch (err) {
+      toastStore.show(String(err instanceof Error ? err.message : err) || "Could not start run")
+    } finally {
+      setRunning(false)
+    }
+  }
 
   const resetForm = () => {
     setForm(EMPTY_FORM)
@@ -90,11 +129,23 @@ export const TasksDialog = observer(function TasksDialog({
             <AlertDialog.Title className="text-sm font-semibold text-ovr-text-strong">
               Tasks — {project.name}
             </AlertDialog.Title>
-            <AlertDialog.Cancel asChild>
-              <button className="rounded p-1 text-ovr-text-dim hover:text-ovr-text-muted">
-                <X className="size-4" />
+            <div className="flex items-center gap-2">
+              <button
+                data-testid="run-next-task"
+                onClick={handleRunNext}
+                disabled={running || tasks.length === 0}
+                className="ovr-btn-ghost flex cursor-pointer items-center gap-1.5 px-2.5 py-1 text-xs disabled:opacity-40"
+                title="Run the top task now"
+              >
+                <Play className="size-3" />
+                Run next task
               </button>
-            </AlertDialog.Cancel>
+              <AlertDialog.Cancel asChild>
+                <button className="rounded p-1 text-ovr-text-dim hover:text-ovr-text-muted">
+                  <X className="size-4" />
+                </button>
+              </AlertDialog.Cancel>
+            </div>
           </div>
 
           {/* Task list */}

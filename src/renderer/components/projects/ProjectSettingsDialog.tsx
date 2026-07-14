@@ -30,6 +30,13 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
   const [useGithub, setUseGithub] = useState(project.useGithub !== false)
   const [allowMergeToMain, setAllowMergeToMain] = useState(project.allowMergeToMain !== false)
   const [mainBranch, setMainBranch] = useState(project.mainBranch || "")
+  const [overdriveEnabled, setOverdriveEnabled] = useState(project.overdriveEnabled === true)
+  const [overdriveInstructions, setOverdriveInstructions] = useState(
+    project.overdriveInstructions || ""
+  )
+  const [overdriveCheckCommand, setOverdriveCheckCommand] = useState(
+    project.overdriveCheckCommand || ""
+  )
   const [pendingArchive, setPendingArchive] = useState(false)
 
   // Load fresh approvals from Rust when dialog opens
@@ -59,6 +66,9 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
         useGithub,
         allowMergeToMain,
         mainBranch,
+        overdriveEnabled,
+        overdriveInstructions,
+        overdriveCheckCommand,
       })
       toastStore.show("Settings saved")
       onOpenChange(false)
@@ -186,6 +196,53 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
                         <span className="text-xs text-ovr-text-primary">Allow merge to main</span>
                         <span className="text-xs text-ovr-text-dim">- show Merge button</span>
                       </label>
+                    </div>
+
+                    {/* Overdrive (per-repo autonomous runner) */}
+                    <div className="space-y-2 border-t border-ovr-border-subtle pt-4">
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <Checkbox
+                          data-testid="overdrive-enabled"
+                          checked={overdriveEnabled}
+                          onChange={(e) => setOverdriveEnabled(e.target.checked)}
+                        />
+                        <span className="text-xs text-ovr-text-primary">Enable Overdrive</span>
+                        <span className="text-xs text-ovr-text-dim">
+                          - let the scheduler run this repo's tasks
+                        </span>
+                      </label>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-ovr-text-muted">
+                          Overdrive instructions
+                        </label>
+                        <Textarea
+                          data-testid="overdrive-instructions"
+                          value={overdriveInstructions}
+                          onChange={(e) => setOverdriveInstructions(e.target.value)}
+                          placeholder="How wild the agent may go: dependencies, migrations, style, risk..."
+                          rows={3}
+                          className="min-h-16 resize-y text-sm placeholder:text-ovr-text-muted"
+                        />
+                        <p className="mt-1 text-[11px] text-ovr-text-dim">
+                          Injected into every Overdrive worker run for this repo.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-ovr-text-muted">
+                          Check command
+                        </label>
+                        <Input
+                          type="text"
+                          data-testid="overdrive-check-command"
+                          value={overdriveCheckCommand}
+                          onChange={(e) => setOverdriveCheckCommand(e.target.value)}
+                          placeholder="e.g. pnpm test"
+                          className="w-full font-mono text-xs"
+                        />
+                        <p className="mt-1 text-[11px] text-ovr-text-dim">
+                          Run during final verify to catch regressions outside the harness.
+                        </p>
+                      </div>
                     </div>
                   </>
                 )}

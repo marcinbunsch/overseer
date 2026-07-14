@@ -21,6 +21,8 @@ use serde::{Deserialize, Serialize};
 pub mod engine;
 pub mod harness;
 mod iterator;
+pub mod log;
+pub mod manager;
 pub mod run;
 
 pub use engine::{execute_run, RunBudgets, RunParams};
@@ -28,6 +30,8 @@ pub use harness::{
     diff_harness, run_check, snapshot_harness, CheckResult, CommandOutcome, HarnessSnapshot,
 };
 pub use iterator::run_turn;
+pub use log::RunLogger;
+pub use manager::OverdriveManager;
 pub use run::{OverdriveRun, RunStatus};
 
 /// Parameters for a single headless turn.

@@ -206,8 +206,7 @@ async fn save_attachment(
     let path = attachment_dir.join(&filename);
 
     let size = data.len();
-    std::fs::write(&path, &data)
-        .map_err(|e| format!("Failed to write attachment: {}", e))?;
+    std::fs::write(&path, &data).map_err(|e| format!("Failed to write attachment: {}", e))?;
 
     let mime_type = guess_mime_type(&filename).to_string();
     let path_str = path
@@ -239,8 +238,7 @@ async fn save_attachment_from_path(
         .ok_or_else(|| "Invalid source path".to_string())?
         .to_string();
 
-    let data =
-        std::fs::read(source).map_err(|e| format!("Failed to read source file: {}", e))?;
+    let data = std::fs::read(source).map_err(|e| format!("Failed to read source file: {}", e))?;
 
     let config_dir = context_state
         .0
@@ -351,8 +349,8 @@ fn start_http_server(
 
     // Build a ServeDir-based fallback router for static frontend files
     let fallback = static_dir.map(|dir| {
-        let serve_dir = ServeDir::new(&dir)
-            .not_found_service(ServeFile::new(format!("{}/index.html", dir)));
+        let serve_dir =
+            ServeDir::new(&dir).not_found_service(ServeFile::new(format!("{}/index.html", dir)));
         axum::Router::new().fallback_service(serve_dir)
     });
 
@@ -383,12 +381,19 @@ pub fn run() {
     let context = Arc::new(OverseerContext::builder().build());
     let context_state = OverseerContextState(Arc::clone(&context));
 
+    // Overdrive run manager (single-flight guard + scheduler). Managed so the
+    // run-next command can reach it; the scheduler loop is spawned in setup.
+    let overdrive_manager = Arc::new(overseer_core::overdrive::OverdriveManager::new(Arc::clone(
+        &context,
+    )));
+
     tauri::Builder::default()
         .manage(context_state)
         .manage(HttpServerState::default())
         .manage(Arc::clone(&context.approval_manager))
         .manage(Arc::clone(&context.chat_sessions))
         .manage(persistence::PersistenceConfig::default())
+        .manage(overdrive_manager)
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
@@ -506,6 +511,15 @@ pub fn run() {
             let persistence_config = app.state::<persistence::PersistenceConfig>();
             persistence_config.set_config_dir(config_dir);
 
+            // Start the Overdrive scheduler loop now that config_dir is set. It
+            // no-ops until the user enables the scheduler in settings (off by
+            // default), so it is cheap to always run.
+            let overdrive = app
+                .state::<Arc<overseer_core::overdrive::OverdriveManager>>()
+                .inner()
+                .clone();
+            tauri::async_runtime::spawn(overdrive.run_scheduler());
+
             // Set up EventBus -> Tauri event forwarding
             // This allows all events emitted to the EventBus to be forwarded to Tauri's IPC
             let context_state = app.state::<OverseerContextState>();
@@ -620,6 +634,7 @@ pub fn run() {
             overdrive::overdrive_upsert_task,
             overdrive::overdrive_delete_task,
             overdrive::overdrive_reorder_tasks,
+            overdrive::overdrive_run_next,
             persistence::run_post_create_command,
             persistence::save_json_config,
             persistence::load_json_config,

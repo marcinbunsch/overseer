@@ -56,13 +56,11 @@ fn load_agent_config(state: &HttpSharedState) -> (Option<String>, Option<String>
                 }
             }
         })
-        .and_then(|s| {
-            match serde_json::from_str::<serde_json::Value>(&s) {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    log::warn!("load_agent_config: failed to parse config.json: {}", e);
-                    None
-                }
+        .and_then(|s| match serde_json::from_str::<serde_json::Value>(&s) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                log::warn!("load_agent_config: failed to parse config.json: {}", e);
+                None
             }
         });
 
@@ -136,7 +134,6 @@ async fn get_pr_status(
     }))
 }
 
-
 /// Response format for command invocation.
 #[derive(Serialize)]
 pub struct InvokeResponse {
@@ -206,6 +203,7 @@ pub async fn invoke_handler(
         "overdrive_upsert_task" => dispatch_overdrive_upsert_task(&state, request.args).await,
         "overdrive_delete_task" => dispatch_overdrive_delete_task(&state, request.args).await,
         "overdrive_reorder_tasks" => dispatch_overdrive_reorder_tasks(&state, request.args).await,
+        "overdrive_run_next" => dispatch_overdrive_run_next(&state, request.args).await,
         "load_workspace_state" => dispatch_load_workspace_state(&state, request.args).await,
         "save_workspace_state" => dispatch_save_workspace_state(&state, request.args).await,
         "load_chat_index" => dispatch_load_chat_index(&state, request.args).await,
@@ -341,7 +339,9 @@ pub async fn invoke_handler(
         // ATTACHMENTS
         // =====================================================================
         "save_attachment" => dispatch_save_attachment(&state, request.args).await,
-        "save_attachment_from_path" => dispatch_save_attachment_from_path(&state, request.args).await,
+        "save_attachment_from_path" => {
+            dispatch_save_attachment_from_path(&state, request.args).await
+        }
 
         // HTTP server commands (these wouldn't make sense via HTTP)
         "start_http_server" | "stop_http_server" | "get_http_server_status" => (
@@ -725,9 +725,7 @@ async fn dispatch_list_commits(args: serde_json::Value) -> (StatusCode, Json<Inv
     }
 }
 
-async fn dispatch_list_commit_files(
-    args: serde_json::Value,
-) -> (StatusCode, Json<InvokeResponse>) {
+async fn dispatch_list_commit_files(args: serde_json::Value) -> (StatusCode, Json<InvokeResponse>) {
     let workspace_path = match args.get("workspacePath").and_then(|v| v.as_str()) {
         Some(p) => p,
         None => {
@@ -1222,7 +1220,10 @@ async fn dispatch_list_files(args: serde_json::Value) -> (StatusCode, Json<Invok
         for entry in walker {
             match entry {
                 Ok(e) => {
-                    if e.file_type().map(|ft: std::fs::FileType| ft.is_file()).unwrap_or(false) {
+                    if e.file_type()
+                        .map(|ft: std::fs::FileType| ft.is_file())
+                        .unwrap_or(false)
+                    {
                         if let Ok(rel) = e.path().strip_prefix(root) {
                             let rel: &std::path::Path = rel;
                             files.push(rel.to_string_lossy().to_string());
@@ -1381,7 +1382,10 @@ fn ovr_err(status: StatusCode, msg: String) -> (StatusCode, Json<InvokeResponse>
 }
 
 /// Read a required string arg by key.
-fn ovr_str_arg(args: &serde_json::Value, key: &str) -> Result<String, (StatusCode, Json<InvokeResponse>)> {
+fn ovr_str_arg(
+    args: &serde_json::Value,
+    key: &str,
+) -> Result<String, (StatusCode, Json<InvokeResponse>)> {
     args.get(key)
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
@@ -1394,7 +1398,12 @@ async fn dispatch_overdrive_list_tasks(
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
         Some(dir) => dir,
-        None => return ovr_err(StatusCode::INTERNAL_SERVER_ERROR, "Config directory not set".into()),
+        None => {
+            return ovr_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Config directory not set".into(),
+            )
+        }
     };
     let repo = match ovr_str_arg(&args, "repo") {
         Ok(r) => r,
@@ -1412,7 +1421,12 @@ async fn dispatch_overdrive_upsert_task(
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
         Some(dir) => dir,
-        None => return ovr_err(StatusCode::INTERNAL_SERVER_ERROR, "Config directory not set".into()),
+        None => {
+            return ovr_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Config directory not set".into(),
+            )
+        }
     };
     let repo = match ovr_str_arg(&args, "repo") {
         Ok(r) => r,
@@ -1435,7 +1449,12 @@ async fn dispatch_overdrive_delete_task(
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
         Some(dir) => dir,
-        None => return ovr_err(StatusCode::INTERNAL_SERVER_ERROR, "Config directory not set".into()),
+        None => {
+            return ovr_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Config directory not set".into(),
+            )
+        }
     };
     let repo = match ovr_str_arg(&args, "repo") {
         Ok(r) => r,
@@ -1457,7 +1476,12 @@ async fn dispatch_overdrive_reorder_tasks(
 ) -> (StatusCode, Json<InvokeResponse>) {
     let config_dir = match state.get_config_dir() {
         Some(dir) => dir,
-        None => return ovr_err(StatusCode::INTERNAL_SERVER_ERROR, "Config directory not set".into()),
+        None => {
+            return ovr_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Config directory not set".into(),
+            )
+        }
     };
     let repo = match ovr_str_arg(&args, "repo") {
         Ok(r) => r,
@@ -1471,6 +1495,22 @@ async fn dispatch_overdrive_reorder_tasks(
     match overseer_core::persistence::reorder_tasks(&config_dir, &repo, &ordered_ids) {
         Ok(()) => ovr_ok(None),
         Err(e) => ovr_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+async fn dispatch_overdrive_run_next(
+    state: &HttpSharedState,
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    let repo = match ovr_str_arg(&args, "repo") {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    // Return the started task id (or null) so both backends yield the same shape
+    // as the Tauri command (which returns Option<String> directly).
+    match state.overdrive.run_next(&repo) {
+        Ok(started) => ovr_ok(Some(serde_json::json!(started))),
+        Err(e) => ovr_err(StatusCode::CONFLICT, e),
     }
 }
 

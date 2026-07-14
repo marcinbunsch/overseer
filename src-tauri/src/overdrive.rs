@@ -4,6 +4,9 @@
 //! `persistence` command module. The HTTP daemon exposes the same operations via
 //! its own dispatchers; both call the same core functions.
 
+use std::sync::Arc;
+
+use overseer_core::overdrive::OverdriveManager;
 use overseer_core::persistence::{self, OverdriveTask};
 use tauri::State;
 
@@ -50,4 +53,15 @@ pub fn overdrive_reorder_tasks(
 ) -> Result<(), String> {
     let dir = state.get_config_dir()?;
     persistence::reorder_tasks(&dir, &repo, &ordered_ids).map_err(|e| e.to_string())
+}
+
+/// Start a run for the top Todo task of `repo` (single-flight). Returns the
+/// started task id, or None if there was no work. Async so it runs on Tauri's
+/// tokio runtime (the manager spawns the run).
+#[tauri::command]
+pub async fn overdrive_run_next(
+    manager: State<'_, Arc<OverdriveManager>>,
+    repo: String,
+) -> Result<Option<String>, String> {
+    manager.run_next(&repo)
 }

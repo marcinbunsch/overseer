@@ -20,6 +20,7 @@
 //!
 //! This allows HttpSharedState to be shared across all HTTP handler tasks.
 
+use overseer_core::overdrive::OverdriveManager;
 use overseer_core::OverseerContext;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -66,6 +67,10 @@ pub struct HttpSharedState {
     /// The token is typically generated randomly when the HTTP server starts
     /// and displayed in the UI for the user to copy.
     pub auth_token: Option<String>,
+
+    /// The Overdrive run manager (single-flight guard + scheduler). Built from
+    /// the context so the daemon can also start its scheduler loop.
+    pub overdrive: Arc<OverdriveManager>,
 }
 
 impl HttpSharedState {
@@ -89,6 +94,7 @@ impl HttpSharedState {
         Self {
             context: Arc::clone(context),
             auth_token,
+            overdrive: Arc::new(OverdriveManager::new(Arc::clone(context))),
         }
     }
 
@@ -97,9 +103,11 @@ impl HttpSharedState {
     /// Useful for testing or development when auth is not needed.
     #[allow(dead_code)]
     pub fn new(context: Arc<OverseerContext>) -> Self {
+        let overdrive = Arc::new(OverdriveManager::new(Arc::clone(&context)));
         Self {
             context,
             auth_token: None,
+            overdrive,
         }
     }
 
@@ -125,9 +133,11 @@ impl HttpSharedState {
         context.approval_manager.set_config_dir(config_dir.clone());
         context.chat_sessions.set_config_dir(config_dir);
 
+        let overdrive = Arc::new(OverdriveManager::new(Arc::clone(&context)));
         Self {
             context,
             auth_token: None,
+            overdrive,
         }
     }
 

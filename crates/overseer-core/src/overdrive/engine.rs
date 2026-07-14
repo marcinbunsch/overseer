@@ -18,6 +18,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::harness::{diff_harness, run_check, snapshot_harness, CheckResult, HarnessSnapshot};
+use super::log::RunLogger;
 use super::run::{
     decide_after_final_verify, decide_after_red_check, harness_from_actions, result_from_actions,
     upsert_run, FinalDecision, OverdriveRun, RedCheckDecision, RunResult, RunStatus,
@@ -103,17 +104,28 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
     run.chat_id = Some(run_id.clone());
     let start = Instant::now();
 
+    let logger = RunLogger::open(
+        Some(&config_dir),
+        &params.project_name,
+        &run_id,
+        run.started_at,
+    );
+    logger.line(format!(
+        "run {run_id} — task {:?} (repo {})",
+        params.task.title, params.task.repo_id
+    ));
+
     // --- Provisioning ---
     let branch = branch_name(&params.task);
     run.branch = Some(branch.clone());
-    persist_and_emit(ctx, &config_dir, &run);
+    persist_and_emit(ctx, &config_dir, &logger, &run);
 
     let workspace_path =
         match crate::git::worktree::add_workspace(Path::new(&params.repo_path), &branch).await {
             Ok(p) => p.to_string_lossy().to_string(),
             Err(e) => {
                 fail(&mut run, format!("failed to provision workspace: {e}"));
-                persist_and_emit(ctx, &config_dir, &run);
+                persist_and_emit(ctx, &config_dir, &logger, &run);
                 return run;
             }
         };
@@ -125,7 +137,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
 
     if let Err(e) = write_memory_files(Path::new(&workspace_path), &params) {
         fail(&mut run, format!("failed to write memory files: {e}"));
-        persist_and_emit(ctx, &config_dir, &run);
+        persist_and_emit(ctx, &config_dir, &logger, &run);
         return run;
     }
 
@@ -143,7 +155,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
 
     // --- Harness phase + red check (interleaved, capped) ---
     set_status(&mut run, RunStatus::Harness);
-    persist_and_emit(ctx, &config_dir, &run);
+    persist_and_emit(ctx, &config_dir, &logger, &run);
 
     let expect_green = params.task.expect_green_harness;
     let mut harness_attempt: u32 = 0;
@@ -152,7 +164,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
     let (commands, files, red_check, before_snapshot) = loop {
         if over_budget(start, params.budgets.wall_clock) {
             fail(&mut run, "wall-clock budget exceeded".to_string());
-            persist_and_emit(ctx, &config_dir, &run);
+            persist_and_emit(ctx, &config_dir, &logger, &run);
             return run;
         }
         harness_attempt += 1;
@@ -169,7 +181,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
                     None => {
                         if harness_attempt >= params.budgets.harness_cap {
                             fail(&mut run, "no verification registered".to_string());
-                            persist_and_emit(ctx, &config_dir, &run);
+                            persist_and_emit(ctx, &config_dir, &logger, &run);
                             return run;
                         }
                         retry_reason = Some(
@@ -180,8 +192,11 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
                     }
                 };
 
+                logger.line(format!(
+                    "harness registered: commands={commands:?} files={files:?}"
+                ));
                 set_status(&mut run, RunStatus::RedCheck);
-                persist_and_emit(ctx, &config_dir, &run);
+                persist_and_emit(ctx, &config_dir, &logger, &run);
 
                 let before = snapshot_harness(Path::new(&workspace_path), &files);
                 let red = run_check(
@@ -191,6 +206,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
                     params.budgets.per_command,
                 )
                 .await;
+                log_check(&logger, "red check", &red);
 
                 match decide_after_red_check(
                     &red,
@@ -206,29 +222,29 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
                                 .to_string(),
                         );
                         set_status(&mut run, RunStatus::Harness);
-                        persist_and_emit(ctx, &config_dir, &run);
+                        persist_and_emit(ctx, &config_dir, &logger, &run);
                         continue;
                     }
                     RedCheckDecision::Fail => {
                         fail(&mut run, "harness stayed green before any work".to_string());
-                        persist_and_emit(ctx, &config_dir, &run);
+                        persist_and_emit(ctx, &config_dir, &logger, &run);
                         return run;
                     }
                 }
             }
             TurnOutcome::NeedsInput { question } => {
                 needs_input(&mut run, question);
-                persist_and_emit(ctx, &config_dir, &run);
+                persist_and_emit(ctx, &config_dir, &logger, &run);
                 return run;
             }
             TurnOutcome::Failed { reason } => {
                 fail(&mut run, format!("harness phase failed: {reason}"));
-                persist_and_emit(ctx, &config_dir, &run);
+                persist_and_emit(ctx, &config_dir, &logger, &run);
                 return run;
             }
             TurnOutcome::TimedOut => {
                 fail(&mut run, "harness phase timed out".to_string());
-                persist_and_emit(ctx, &config_dir, &run);
+                persist_and_emit(ctx, &config_dir, &logger, &run);
                 return run;
             }
         }
@@ -236,7 +252,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
 
     // --- Working loop + final verify (final-verify bounces reopen the loop) ---
     set_status(&mut run, RunStatus::Working);
-    persist_and_emit(ctx, &config_dir, &run);
+    persist_and_emit(ctx, &config_dir, &logger, &run);
 
     let mut verify_bounces: u32 = 0;
     let mut total_iterations: u32 = 0;
@@ -248,11 +264,12 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
         while total_iterations < params.budgets.max_iterations {
             if over_budget(start, params.budgets.wall_clock) {
                 fail(&mut run, "wall-clock budget exceeded".to_string());
-                persist_and_emit(ctx, &config_dir, &run);
+                persist_and_emit(ctx, &config_dir, &logger, &run);
                 return run;
             }
             total_iterations += 1;
             run.iterations_used = total_iterations;
+            logger.line(format!("iteration {total_iterations}: implementation"));
 
             // Implementation phase.
             match drive
@@ -265,22 +282,23 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
                 TurnOutcome::Completed { .. } => {}
                 TurnOutcome::NeedsInput { question } => {
                     needs_input(&mut run, question);
-                    persist_and_emit(ctx, &config_dir, &run);
+                    persist_and_emit(ctx, &config_dir, &logger, &run);
                     return run;
                 }
                 TurnOutcome::Failed { reason } => {
                     fail(&mut run, format!("implementation failed: {reason}"));
-                    persist_and_emit(ctx, &config_dir, &run);
+                    persist_and_emit(ctx, &config_dir, &logger, &run);
                     return run;
                 }
                 TurnOutcome::TimedOut => {
                     fail(&mut run, "implementation timed out".to_string());
-                    persist_and_emit(ctx, &config_dir, &run);
+                    persist_and_emit(ctx, &config_dir, &logger, &run);
                     return run;
                 }
             }
 
             // Review phase.
+            logger.line(format!("iteration {total_iterations}: review"));
             let review_text = match drive
                 .turn(&review_prompt(
                     total_iterations,
@@ -291,17 +309,17 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
                 TurnOutcome::Completed { text } => text,
                 TurnOutcome::NeedsInput { question } => {
                     needs_input(&mut run, question);
-                    persist_and_emit(ctx, &config_dir, &run);
+                    persist_and_emit(ctx, &config_dir, &logger, &run);
                     return run;
                 }
                 TurnOutcome::Failed { reason } => {
                     fail(&mut run, format!("review failed: {reason}"));
-                    persist_and_emit(ctx, &config_dir, &run);
+                    persist_and_emit(ctx, &config_dir, &logger, &run);
                     return run;
                 }
                 TurnOutcome::TimedOut => {
                     fail(&mut run, "review timed out".to_string());
-                    persist_and_emit(ctx, &config_dir, &run);
+                    persist_and_emit(ctx, &config_dir, &logger, &run);
                     return run;
                 }
             };
@@ -321,13 +339,13 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
                 &mut run,
                 "iteration budget exhausted without completion".to_string(),
             );
-            persist_and_emit(ctx, &config_dir, &run);
+            persist_and_emit(ctx, &config_dir, &logger, &run);
             return run;
         }
 
         // Final verify: registered commands + the repo's standard check.
         set_status(&mut run, RunStatus::FinalVerify);
-        persist_and_emit(ctx, &config_dir, &run);
+        persist_and_emit(ctx, &config_dir, &logger, &run);
 
         let mut final_cmds = commands.clone();
         if let Some(cc) = params.check_command.as_ref() {
@@ -342,6 +360,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
             params.budgets.per_command,
         )
         .await;
+        log_check(&logger, "final verify", &check);
 
         match decide_after_final_verify(&check, verify_bounces, params.budgets.verify_bounce_cap) {
             FinalDecision::Done => break check,
@@ -349,7 +368,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
                 verify_bounces += 1;
                 run.verify_bounces = verify_bounces;
                 set_status(&mut run, RunStatus::Working);
-                persist_and_emit(ctx, &config_dir, &run);
+                persist_and_emit(ctx, &config_dir, &logger, &run);
                 continue;
             }
             FinalDecision::Fail => {
@@ -362,7 +381,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
                     Path::new(&workspace_path),
                 ));
                 fail(&mut run, "final verify kept failing".to_string());
-                persist_and_emit(ctx, &config_dir, &run);
+                persist_and_emit(ctx, &config_dir, &logger, &run);
                 return run;
             }
         }
@@ -379,7 +398,7 @@ pub async fn execute_run(ctx: &OverseerContext, params: RunParams) -> OverdriveR
     ));
     run.result = last_result;
     set_status(&mut run, RunStatus::NeedsReview);
-    persist_and_emit(ctx, &config_dir, &run);
+    persist_and_emit(ctx, &config_dir, &logger, &run);
     run
 }
 
@@ -438,6 +457,23 @@ fn needs_input(run: &mut OverdriveRun, question: String) {
     run.ended_at = Some(Utc::now());
 }
 
+/// Log a check's outcome plus per-command exit codes to the run log.
+fn log_check(logger: &RunLogger, label: &str, check: &CheckResult) {
+    logger.line(format!(
+        "{label}: {}",
+        if check.passed { "green" } else { "red" }
+    ));
+    for c in &check.commands {
+        logger.line(format!(
+            "  exit {} ({}ms){} — {}",
+            c.exit_code,
+            c.duration_ms,
+            if c.timed_out { " TIMED OUT" } else { "" },
+            c.command,
+        ));
+    }
+}
+
 fn build_evidence(
     commands: &[String],
     files: &[String],
@@ -456,7 +492,16 @@ fn build_evidence(
     }
 }
 
-fn persist_and_emit(ctx: &OverseerContext, config_dir: &Path, run: &OverdriveRun) {
+fn persist_and_emit(
+    ctx: &OverseerContext,
+    config_dir: &Path,
+    logger: &RunLogger,
+    run: &OverdriveRun,
+) {
+    match &run.error {
+        Some(err) => logger.line(format!("status → {:?} ({err})", run.status)),
+        None => logger.line(format!("status → {:?}", run.status)),
+    }
     if let Err(e) = upsert_run(config_dir, run.clone()) {
         log::warn!("Failed to persist Overdrive run {}: {}", run.id, e);
     }

@@ -1182,4 +1182,63 @@ describe("ConfigStore", () => {
       expect(savedConfig!.systemNotificationEnabled).toBe(true)
     })
   })
+
+  describe("Overdrive settings", () => {
+    it("defaults to scheduler off", async () => {
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+      await vi.waitFor(() => expect(configStore.loaded).toBe(true))
+      expect(configStore.overdriveSchedulerEnabled).toBe(false)
+      expect(configStore.overdriveIntervalMinutes).toBe(15)
+      expect(configStore.overdriveBackpressureCap).toBe(3)
+    })
+
+    it("loads the overdrive object from disk", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({
+            overdrive: {
+              schedulerEnabled: true,
+              intervalMinutes: 5,
+              backpressureCap: 1,
+              runWindowStart: "22:00",
+              runWindowEnd: "07:00",
+            },
+          })
+        }
+        return Promise.resolve(undefined)
+      })
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+      await vi.waitFor(() => expect(configStore.loaded).toBe(true))
+      expect(configStore.overdriveSchedulerEnabled).toBe(true)
+      expect(configStore.overdriveIntervalMinutes).toBe(5)
+      expect(configStore.overdriveRunWindowStart).toBe("22:00")
+    })
+
+    it("persists overdrive settings via a setter", async () => {
+      let savedConfig: Record<string, unknown> | null = null
+      mockInvoke((cmd: string, args?: unknown) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") return Promise.resolve(null)
+        if (cmd === "save_json_config") {
+          savedConfig = (args as { content: Record<string, unknown> }).content
+          return Promise.resolve(undefined)
+        }
+        return Promise.resolve(undefined)
+      })
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+      await vi.waitFor(() => expect(configStore.loaded).toBe(true))
+
+      configStore.setOverdriveSchedulerEnabled(true)
+
+      await vi.waitFor(() => expect(savedConfig).not.toBeNull())
+      expect(
+        (savedConfig as unknown as { overdrive: { schedulerEnabled: boolean } }).overdrive
+          .schedulerEnabled
+      ).toBe(true)
+    })
+  })
 })

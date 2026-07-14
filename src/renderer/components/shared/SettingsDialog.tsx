@@ -877,6 +877,105 @@ const AdvancedTab = observer(function AdvancedTab() {
         </div>
       </div>
 
+      {/* Overdrive scheduler */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-ovr-text-muted">Overdrive</label>
+        <p className="mb-3 text-[11px] text-ovr-text-dim">
+          The autonomous runner that works through a repo's task queue. The scheduler is off by
+          default — enable it per-repo in project settings, then turn the global scheduler on here.
+          The "Run next task" button works regardless.
+        </p>
+        <div className="space-y-3 rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-ovr-text-muted">Enable scheduler</span>
+            <Switch.Root
+              checked={configStore.overdriveSchedulerEnabled}
+              onCheckedChange={(checked: boolean) =>
+                configStore.setOverdriveSchedulerEnabled(checked)
+              }
+              className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500"
+              data-testid="overdrive-scheduler-toggle"
+            >
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="mb-1 block text-[11px] text-ovr-text-muted">Interval (min)</label>
+              <input
+                type="number"
+                min={1}
+                value={configStore.overdriveIntervalMinutes}
+                onChange={(e) =>
+                  configStore.setOverdriveIntervalMinutes(Number(e.target.value) || 15)
+                }
+                className="ovr-input w-full px-2 py-1.5 text-xs"
+                data-testid="overdrive-interval-input"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="mb-1 block text-[11px] text-ovr-text-muted">Backpressure cap</label>
+              <input
+                type="number"
+                min={1}
+                value={configStore.overdriveBackpressureCap}
+                onChange={(e) =>
+                  configStore.setOverdriveBackpressureCap(Number(e.target.value) || 3)
+                }
+                className="ovr-input w-full px-2 py-1.5 text-xs"
+                data-testid="overdrive-backpressure-input"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="mb-1 block text-[11px] text-ovr-text-muted">
+                Input timeout (h)
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={configStore.overdriveNeedsInputTimeoutHours}
+                onChange={(e) =>
+                  configStore.setOverdriveNeedsInputTimeoutHours(Number(e.target.value) || 4)
+                }
+                className="ovr-input w-full px-2 py-1.5 text-xs"
+                data-testid="overdrive-timeout-input"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="mb-1 block text-[11px] text-ovr-text-muted">
+                Run window start (HH:MM)
+              </label>
+              <input
+                type="text"
+                value={configStore.overdriveRunWindowStart}
+                onChange={(e) => configStore.setOverdriveRunWindowStart(e.target.value)}
+                placeholder="e.g. 22:00"
+                className="ovr-input w-full px-2 py-1.5 font-mono text-xs"
+                data-testid="overdrive-window-start-input"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="mb-1 block text-[11px] text-ovr-text-muted">
+                Run window end (HH:MM)
+              </label>
+              <input
+                type="text"
+                value={configStore.overdriveRunWindowEnd}
+                onChange={(e) => configStore.setOverdriveRunWindowEnd(e.target.value)}
+                placeholder="e.g. 07:00"
+                className="ovr-input w-full px-2 py-1.5 font-mono text-xs"
+                data-testid="overdrive-window-end-input"
+              />
+            </div>
+          </div>
+          <p className="text-[10px] text-ovr-text-dim">
+            Leave the run window empty to allow runs at any time.
+          </p>
+        </div>
+      </div>
+
       {/* Remote Servers */}
       <RemoteServersSettings />
     </div>

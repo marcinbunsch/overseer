@@ -140,10 +140,7 @@ async fn main() {
     let args = Args::parse();
 
     // Initialize logging
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    )
-    .init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // Determine config directory
     let config_dir = determine_config_dir(&args);
@@ -174,26 +171,28 @@ async fn main() {
     };
 
     // Create HTTP shared state
-    let shared_state = Arc::new(
-        overseer_http::HttpSharedState::from_context_with_auth(&context, auth_token.clone()),
-    );
+    let shared_state = Arc::new(overseer_http::HttpSharedState::from_context_with_auth(
+        &context,
+        auth_token.clone(),
+    ));
+
+    // Start the Overdrive scheduler loop. It is a no-op until the user enables
+    // the scheduler in settings (off by default), so this is cheap to always run.
+    let overdrive = std::sync::Arc::clone(&shared_state.overdrive);
+    tokio::spawn(overdrive.run_scheduler());
 
     // Build the embedded frontend fallback router
     let fallback = axum::Router::new().fallback(serve_embedded_asset);
 
     // Start the HTTP server
-    let mut handle = match overseer_http::start(
-        shared_state,
-        args.host.clone(),
-        args.port,
-        Some(fallback),
-    ) {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("Failed to start server: {}", e);
-            std::process::exit(1);
-        }
-    };
+    let mut handle =
+        match overseer_http::start(shared_state, args.host.clone(), args.port, Some(fallback)) {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("Failed to start server: {}", e);
+                std::process::exit(1);
+            }
+        };
 
     println!(
         "Overseer daemon listening on http://{}:{}",
@@ -315,7 +314,10 @@ mod tests {
         let s = dir.to_string_lossy();
         assert!(s.contains(".config"), "should be under .config: {s}");
         assert!(s.contains("overseer"), "should contain overseer: {s}");
-        assert!(!s.contains("overseer-dev"), "should not use overseer-dev: {s}");
+        assert!(
+            !s.contains("overseer-dev"),
+            "should not use overseer-dev: {s}"
+        );
     }
 
     // --- dirs_or_home ---
@@ -351,10 +353,7 @@ mod tests {
         if has_dist {
             // dist/ is embedded: unknown paths fall back to index.html (SPA routing)
             assert_eq!(response.status(), axum::http::StatusCode::OK);
-            assert_eq!(
-                response.headers().get("content-type").unwrap(),
-                "text/html"
-            );
+            assert_eq!(response.headers().get("content-type").unwrap(), "text/html");
         } else {
             // dist/ absent (#[allow_missing = true]): no assets → 404
             assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
@@ -384,9 +383,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
-        assert_eq!(
-            response.headers().get("content-type").unwrap(),
-            "text/html"
-        );
+        assert_eq!(response.headers().get("content-type").unwrap(), "text/html");
     }
 }

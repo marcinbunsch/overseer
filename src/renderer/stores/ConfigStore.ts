@@ -17,6 +17,15 @@ interface HttpServerConfig {
   autoStart: boolean
 }
 
+interface OverdriveConfig {
+  schedulerEnabled: boolean
+  intervalMinutes: number
+  backpressureCap: number
+  needsInputTimeoutHours: number
+  runWindowStart?: string
+  runWindowEnd?: string
+}
+
 interface Config {
   claudePath: string
   codexPath: string
@@ -51,6 +60,7 @@ interface Config {
   systemNotificationEnabled?: boolean
   showReviewPrs?: boolean
   httpServer?: HttpServerConfig
+  overdrive?: OverdriveConfig
   remoteServers?: RemoteServerConfig[]
 }
 
@@ -215,6 +225,14 @@ class ConfigStore {
   @observable httpServerEnableAuth: boolean = true
   @observable httpServerAutoStart: boolean = false
 
+  // Overdrive scheduler settings (global). Off by default.
+  @observable overdriveSchedulerEnabled: boolean = false
+  @observable overdriveIntervalMinutes: number = 15
+  @observable overdriveBackpressureCap: number = 3
+  @observable overdriveNeedsInputTimeoutHours: number = 4
+  @observable overdriveRunWindowStart: string = ""
+  @observable overdriveRunWindowEnd: string = ""
+
   private loadPromise: Promise<void> | null = null
   private home: string = ""
   private rawClaudePath: string = DEFAULT_CONFIG.claudePath
@@ -325,6 +343,15 @@ class ConfigStore {
           this.httpServerEnableAuth = parsed.httpServer.enableAuth ?? true
           this.httpServerAutoStart = parsed.httpServer.autoStart ?? false
         }
+        // Overdrive scheduler settings
+        if (parsed.overdrive) {
+          this.overdriveSchedulerEnabled = parsed.overdrive.schedulerEnabled ?? false
+          this.overdriveIntervalMinutes = parsed.overdrive.intervalMinutes ?? 15
+          this.overdriveBackpressureCap = parsed.overdrive.backpressureCap ?? 3
+          this.overdriveNeedsInputTimeoutHours = parsed.overdrive.needsInputTimeoutHours ?? 4
+          this.overdriveRunWindowStart = parsed.overdrive.runWindowStart ?? ""
+          this.overdriveRunWindowEnd = parsed.overdrive.runWindowEnd ?? ""
+        }
         // Remote servers
         if (Array.isArray(parsed.remoteServers)) {
           remoteServerStore.initFromConfig(parsed.remoteServers)
@@ -394,6 +421,14 @@ class ConfigStore {
           port: this.httpServerPort,
           enableAuth: this.httpServerEnableAuth,
           autoStart: this.httpServerAutoStart,
+        },
+        overdrive: {
+          schedulerEnabled: this.overdriveSchedulerEnabled,
+          intervalMinutes: this.overdriveIntervalMinutes,
+          backpressureCap: this.overdriveBackpressureCap,
+          needsInputTimeoutHours: this.overdriveNeedsInputTimeoutHours,
+          runWindowStart: this.overdriveRunWindowStart || undefined,
+          runWindowEnd: this.overdriveRunWindowEnd || undefined,
         },
         remoteServers: remoteServerStore.getConfigs(),
       }
@@ -669,6 +704,38 @@ class ConfigStore {
 
   @action setHttpServerAutoStart(enabled: boolean) {
     this.httpServerAutoStart = enabled
+    this.save()
+  }
+
+  // --- Overdrive scheduler settings ---
+
+  @action setOverdriveSchedulerEnabled(enabled: boolean) {
+    this.overdriveSchedulerEnabled = enabled
+    this.save()
+  }
+
+  @action setOverdriveIntervalMinutes(minutes: number) {
+    this.overdriveIntervalMinutes = minutes
+    this.save()
+  }
+
+  @action setOverdriveBackpressureCap(cap: number) {
+    this.overdriveBackpressureCap = cap
+    this.save()
+  }
+
+  @action setOverdriveNeedsInputTimeoutHours(hours: number) {
+    this.overdriveNeedsInputTimeoutHours = hours
+    this.save()
+  }
+
+  @action setOverdriveRunWindowStart(value: string) {
+    this.overdriveRunWindowStart = value
+    this.save()
+  }
+
+  @action setOverdriveRunWindowEnd(value: string) {
+    this.overdriveRunWindowEnd = value
     this.save()
   }
 
