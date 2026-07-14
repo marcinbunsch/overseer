@@ -236,4 +236,4 @@ interface ChangedFile {
 See `docs/plans/` for detailed specs:
 
 - **Result Metadata** — Surface cost, token usage, and duration from Claude result events
-- **Auto Mode** — Local task ledger + scheduler + verified autonomous runs ([plans/auto-mode.md](plans/auto-mode.md))
+- **Overdrive** — Headless autonomous work engine in Rust: task ledger + scheduler + verified runs, daemon-first ([plans/overdrive.md](plans/overdrive.md))
