@@ -743,5 +743,16 @@ describe("ProjectStore", () => {
 
       expect(mockBackendInvoke).not.toHaveBeenCalled()
     })
+
+    it("activeTasks excludes done and rejected", () => {
+      const store = new ProjectStore(createProject())
+      store.tasks = [
+        makeTask({ id: "a", status: "todo", order: 0 }),
+        makeTask({ id: "b", status: "done", order: 1 }),
+        makeTask({ id: "c", status: "rejected", order: 2 }),
+        makeTask({ id: "d", status: "needsReview", order: 3 }),
+      ]
+      expect(store.activeTasks.map((t) => t.id)).toEqual(["a", "d"])
+    })
   })
 })

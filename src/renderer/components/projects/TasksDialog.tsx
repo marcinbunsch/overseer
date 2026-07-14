@@ -39,7 +39,9 @@ export const TasksDialog = observer(function TasksDialog({
   const [running, setRunning] = useState(false)
 
   useEffect(() => {
-    if (open) project.loadTasks()
+    // Force a reload so statuses settled while the dialog was closed (e.g. a run
+    // approved from the chat header) are reflected.
+    if (open) project.loadTasks(true)
   }, [open, project])
 
   // While open, refresh task statuses when any run transitions (a run flips a
@@ -118,7 +120,7 @@ export const TasksDialog = observer(function TasksDialog({
     resetForm()
   }
 
-  const tasks = project.sortedTasks
+  const tasks = project.activeTasks
 
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>

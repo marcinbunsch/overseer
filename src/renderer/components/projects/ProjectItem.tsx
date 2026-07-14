@@ -32,9 +32,24 @@ export const ProjectItem = observer(function ProjectItem({ project }: ProjectIte
   const [tasksOpen, setTasksOpen] = useState(false)
   const isSelected = projectRegistry.selectedProjectId === project.id
 
-  // Load tasks lazily once the project is expanded (for the Tasks count).
+  // Load tasks lazily once the project is expanded (for the Tasks count), and
+  // refresh when a run settles a task (approve/reject/complete) so the count
+  // stays accurate.
   useEffect(() => {
-    if (expanded) project.loadTasks()
+    if (!expanded) return
+    project.loadTasks()
+    let unsub: (() => void) | undefined
+    let cancelled = false
+    project.backend
+      .listen("overdrive:run-status", () => project.loadTasks(true))
+      .then((fn) => {
+        if (cancelled) fn()
+        else unsub = fn
+      })
+    return () => {
+      cancelled = true
+      unsub?.()
+    }
   }, [expanded, project])
 
   // Persist expanded state to localStorage
@@ -113,7 +128,7 @@ export const ProjectItem = observer(function ProjectItem({ project }: ProjectIte
               data-testid="project-tasks-button"
               className="mb-0.5 w-full rounded-md px-2 py-1.5 text-left text-xs text-ovr-text-dim transition-colors hover:bg-ovr-bg-elevated/50 hover:text-ovr-text-muted"
             >
-              Tasks{project.tasks.length > 0 ? ` (${project.tasks.length})` : ""}
+              Tasks{project.activeTasks.length > 0 ? ` (${project.activeTasks.length})` : ""}
             </button>
 
             <WorkspaceList project={project} />

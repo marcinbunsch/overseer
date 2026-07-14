@@ -280,6 +280,15 @@ export class ProjectStore {
   }
 
   /**
+   * Active tasks — the queue, excluding finished ones (approved → done,
+   * rejected). These are hidden from the list once a run settles them.
+   */
+  @computed
+  get activeTasks(): OverdriveTask[] {
+    return this.sortedTasks.filter((t) => t.status !== "done" && t.status !== "rejected")
+  }
+
+  /**
    * Load tasks for this repo from the backend.
    * @param force Reload even if already loaded.
    */
