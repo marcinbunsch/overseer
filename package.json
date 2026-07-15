@@ -12,7 +12,7 @@
     "dev": "tauri dev",
     "dev:demo": "OVERSEER_DEMO=1 tauri dev",
     "build": "tauri build --bundles app",
-    "build:linux": "tauri build --bundles appimage,deb",
+    "build:linux": "tauri build --bundles appimage,deb --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'",
     "start": "pnpm build && pnpm open",
     "open": "open src-tauri/target/release/bundle/macos/Overseer.app",
     "format": "prettier --write src --experimental-cli",
