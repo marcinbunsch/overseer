@@ -219,8 +219,12 @@ export const ChatInput = observer(function ChatInput({
       }
       setAtSearch(null)
 
-      // Check for / skill trigger (Claude skills only)
-      const slashQuery = agentType === "claude" ? findSlashQuery(newValue, cursorPos) : null
+      // Check for / skill trigger. Claude-only, and only when the workspace
+      // uses the Tauri backend — the web/remote HTTP backend doesn't route
+      // `list_skills`, so the picker would never populate there.
+      const skillsSupported =
+        agentType === "claude" && projectRegistry.selectedWorkspaceStore?.backend.type === "tauri"
+      const slashQuery = skillsSupported ? findSlashQuery(newValue, cursorPos) : null
       if (slashQuery) {
         setSlashSearch(slashQuery)
         setSelectedIndex(0)
@@ -263,12 +267,14 @@ export const ChatInput = observer(function ChatInput({
       if (!slashSearch) return
 
       const el = textareaRef.current
-      const cursorPos = el?.selectionStart ?? input.length
 
-      // Replace /query with the skill invocation, leaving the cursor after it
-      // so the user can type arguments.
+      // Replace the entire /command token (up to the first whitespace), not
+      // just up to the cursor — otherwise trailing characters remain if the
+      // cursor sits in the middle of the token (e.g. "/rev|iew").
       const before = input.slice(0, slashSearch.start)
-      const after = input.slice(cursorPos)
+      const rest = input.slice(slashSearch.start)
+      const tokenLength = rest.match(/^\S*/)?.[0].length ?? 0
+      const after = input.slice(slashSearch.start + tokenLength)
       const insert = `/${name} `
       const newValue = before + insert + after
 
