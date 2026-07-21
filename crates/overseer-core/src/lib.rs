@@ -25,6 +25,7 @@ pub mod paths;
 pub mod persistence;
 pub mod session;
 pub mod shell;
+pub mod skills;
 pub mod spawn;
 pub mod usage;
 

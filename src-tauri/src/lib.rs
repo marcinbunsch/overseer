@@ -4,6 +4,7 @@ mod chat_session;
 mod git;
 mod persistence;
 mod pty;
+mod skills;
 
 use overseer_core::overseer_actions::{extract_overseer_blocks, OverseerAction};
 use overseer_core::paths;
@@ -543,6 +544,7 @@ pub fn run() {
             git::get_file_diff,
             git::get_uncommitted_diff,
             git::get_submodule_file_diff,
+            skills::list_skills,
             git::get_submodule_uncommitted_diff,
             git::list_commits,
             git::list_commit_files,
