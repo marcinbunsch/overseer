@@ -18,7 +18,7 @@ function formatResetTime(isoString: string | null) {
   const date = new Date(isoString)
   if (Number.isNaN(date.getTime())) return "Unknown"
 
-  const diffMs = date.getTime() - Date.now()
+  const diffMs = Math.max(0, date.getTime() - Date.now())
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
   const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
 
@@ -71,6 +71,7 @@ export function UsageCircleIndicator({ utilization, label, resetsAt }: UsageCirc
           <Tooltip.Content
             className="z-50 rounded bg-ovr-bg-elevated px-3 py-2 text-xs text-ovr-text-primary shadow-lg"
             sideOffset={5}
+            data-testid={`usage-indicator-tooltip-${label.toLowerCase().replace(/\s+/g, "-")}`}
           >
             <div className="font-medium">{label}</div>
             <div className="text-ovr-text-muted">

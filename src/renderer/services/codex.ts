@@ -62,13 +62,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseUsageWindow(value: unknown): CodexUsageData["primary"] {
-  if (!isRecord(value) || typeof value.usedPercent !== "number") return null
+  if (
+    !isRecord(value) ||
+    typeof value.usedPercent !== "number" ||
+    !Number.isFinite(value.usedPercent)
+  ) {
+    return null
+  }
 
   return {
     usedPercent: value.usedPercent,
     windowDurationMins:
-      typeof value.windowDurationMins === "number" ? value.windowDurationMins : null,
-    resetsAt: typeof value.resetsAt === "number" ? value.resetsAt : null,
+      typeof value.windowDurationMins === "number" && Number.isFinite(value.windowDurationMins)
+        ? value.windowDurationMins
+        : null,
+    resetsAt:
+      typeof value.resetsAt === "number" && Number.isFinite(value.resetsAt) ? value.resetsAt : null,
   }
 }
 

@@ -1,11 +1,18 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { ClaudeUsageIndicator } from "../ClaudeUsageIndicator"
+import { UsageCircleIndicator } from "../UsageCircleIndicator"
 import { claudeUsageStore } from "../../../stores/ClaudeUsageStore"
 import { configStore } from "../../../stores/ConfigStore"
+
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 
 // Mock the stores
 vi.mock("../../../stores/ClaudeUsageStore", () => ({
@@ -25,6 +32,12 @@ describe("ClaudeUsageIndicator", () => {
   beforeEach(() => {
     vi.mocked(configStore).showClaudeUsageIndicator = false
     vi.mocked(claudeUsageStore).usageData = null
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
   })
 
   it("renders nothing when setting is disabled", () => {
@@ -149,5 +162,27 @@ describe("ClaudeUsageIndicator", () => {
     const svg = screen.getByTestId("usage-indicator-5-hour-limit")
     const progressCircle = svg.querySelector("circle:last-child")
     expect(progressCircle).toHaveAttribute("stroke", "#ff4d6d") // ovr-bad red
+  })
+
+  it("shows zero minutes when the reset time has passed", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-02-17T12:00:00Z"))
+
+    render(
+      <UsageCircleIndicator
+        utilization={50}
+        label="Expired Limit"
+        resetsAt="2026-02-17T11:59:00Z"
+      />
+    )
+
+    fireEvent.pointerMove(screen.getByTestId("usage-indicator-expired-limit"))
+    act(() => {
+      vi.advanceTimersByTime(100)
+    })
+
+    expect(screen.getByTestId("usage-indicator-tooltip-expired-limit")).toHaveTextContent(
+      "Resets in 0m"
+    )
   })
 })
