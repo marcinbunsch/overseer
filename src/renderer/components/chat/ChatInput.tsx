@@ -10,6 +10,7 @@ import { ModelSelector } from "./ModelSelector"
 import { ClaudePermissionModeSelector } from "./ClaudePermissionModeSelector"
 import { EffortLevelSelector } from "./EffortLevelSelector"
 import { ClaudeUsageIndicator } from "./ClaudeUsageIndicator"
+import { CodexUsageIndicator } from "./CodexUsageIndicator"
 import { WebSocketConnectionIndicator } from "./WebSocketConnectionIndicator"
 import { AtSearch } from "./AtSearch"
 import { SlashSearch } from "./SlashSearch"
@@ -494,6 +495,7 @@ export const ChatInput = observer(function ChatInput({
               />
             )}
             {agentType === "claude" && <ClaudeUsageIndicator />}
+            {agentType === "codex" && <CodexUsageIndicator />}
             <WebSocketConnectionIndicator />
           </div>
           <div className="flex shrink-0 gap-2">

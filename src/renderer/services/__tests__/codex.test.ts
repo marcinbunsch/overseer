@@ -236,6 +236,110 @@ describe("CodexAgentService", () => {
     service.stopChat("chat-1")
   })
 
+  it("updates Codex usage data from a rate-limit notification", async () => {
+    const service = await freshService()
+    const { codexUsageStore } = await import("../../stores/CodexUsageStore")
+    codexUsageStore.usageData = null
+
+    // @ts-expect-error - exercising JSON-RPC notification handling directly
+    service.handleResponseLine(
+      "chat-1",
+      JSON.stringify({
+        method: "account/rateLimits/updated",
+        params: {
+          rateLimits: {
+            limitId: "codex",
+            limitName: "Codex",
+            primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1_800_000_000 },
+            secondary: null,
+            credits: { hasCredits: true, unlimited: false, balance: "$12.34" },
+            planType: "pro",
+          },
+        },
+      })
+    )
+
+    expect(codexUsageStore.usageData).toEqual({
+      limitId: "codex",
+      limitName: "Codex",
+      primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1_800_000_000 },
+      secondary: null,
+      credits: { hasCredits: true, unlimited: false, balance: "$12.34" },
+      planType: "pro",
+    })
+  })
+
+  it("updates Codex usage data from the rate-limit read response", async () => {
+    const service = await freshService()
+    const { codexUsageStore } = await import("../../stores/CodexUsageStore")
+    codexUsageStore.usageData = null
+
+    // @ts-expect-error - setting up the chat required by the private request helper
+    service.getOrCreateChat("chat-1")
+    // @ts-expect-error - exercising the private rate-limit request helper
+    const readPromise = service.fetchRateLimits("chat-1")
+
+    // @ts-expect-error - resolving the request through the JSON-RPC response handler
+    service.handleResponseLine(
+      "chat-1",
+      JSON.stringify({
+        id: 1,
+        result: {
+          rateLimits: {
+            limitId: "codex",
+            limitName: "Codex",
+            primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1_800_000_000 },
+            secondary: null,
+            credits: null,
+            planType: "plus",
+          },
+          rateLimitsByLimitId: { codex: {} },
+        },
+      })
+    )
+    await readPromise
+
+    expect(codexUsageStore.usageData).toEqual({
+      limitId: "codex",
+      limitName: "Codex",
+      primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1_800_000_000 },
+      secondary: null,
+      credits: null,
+      planType: "plus",
+    })
+  })
+
+  it("requests rate limits after app-server initialization", async () => {
+    const service = await freshService()
+    const stdinCalls: string[] = []
+
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+      if (cmd === "start_codex_server") return undefined
+      if (cmd === "codex_stdin") {
+        stdinCalls.push((args as { data: string }).data)
+        return undefined
+      }
+      return undefined
+    })
+
+    void service.sendMessage("chat-1", "hello", "/tmp/workdir")
+
+    await vi.waitFor(() => {
+      expect(stdinCalls[0]).toContain('"method":"initialize"')
+    })
+
+    // @ts-expect-error - resolve the initialize response to continue the handshake
+    service.handleResponseLine("chat-1", JSON.stringify({ id: 1, result: {} }))
+
+    await vi.waitFor(() => {
+      expect(stdinCalls).toContainEqual(
+        expect.stringContaining('"method":"account/rateLimits/read"')
+      )
+    })
+
+    service.stopChat("chat-1")
+  })
+
   it("sendMessage uses passed permissionMode for approvalPolicy", async () => {
     const service = await freshService()
     const stdinCalls: string[] = []
