@@ -114,6 +114,8 @@ export class ChatStore {
   private sessionRegistered: boolean = false
   /** True during loadFromDisk - prevents re-executing overseer actions on replay */
   private isReplaying: boolean = false
+  /** Tracks the current Codex streamed assistant draft so the final message can replace it. */
+  private activeCodexStreamMessageId: string | null = null
   /** Cached agent service instance for this chat */
   private _service: AgentService | null = null
   /** Agent type the cached service was created for */
@@ -1032,23 +1034,34 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
           }
           // Push the message (with or without the overseer blocks removed)
           const contentToShow = actions.length > 0 ? cleanContent : event.content
+          const replacedCodexDraft =
+            contentToShow.trim() &&
+            this.chat.agentType === "codex" &&
+            !event.toolMeta &&
+            !event.isInfo &&
+            this.replaceActiveCodexStreamMessage(contentToShow)
+
           if (contentToShow.trim()) {
-            this.pushMsg(
-              contentToShow,
-              event.toolMeta,
-              event.isInfo,
-              event.parentToolUseId,
-              event.toolUseId
-            )
+            if (!replacedCodexDraft) {
+              this.pushMsg(
+                contentToShow,
+                event.toolMeta,
+                event.isInfo,
+                event.parentToolUseId,
+                event.toolUseId
+              )
+            }
           }
           // Track message content for autonomous mode completion detection
-          if (this.autonomousRunning && !event.toolMeta) {
+          if (this.autonomousRunning && !event.toolMeta && !replacedCodexDraft) {
             this.autonomousCurrentIterationText += event.content
           }
+          this.activeCodexStreamMessageId = null
           break
         }
 
         case "userMessage": {
+          this.activeCodexStreamMessageId = null
           this.pushUserMsgFromEvent(event)
           break
         }
@@ -1066,8 +1079,14 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
             !last.isThinking
           ) {
             last.content += event.text
+            if (this.chat.agentType === "codex") {
+              this.activeCodexStreamMessageId = last.id
+            }
           } else {
-            this.pushMsg(event.text)
+            const streamedMessage = this.pushMsg(event.text)
+            if (this.chat.agentType === "codex") {
+              this.activeCodexStreamMessageId = streamedMessage.id
+            }
           }
           // Track text for autonomous mode completion detection
           if (this.autonomousRunning) {
@@ -1077,6 +1096,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
         }
 
         case "bashOutput": {
+          this.activeCodexStreamMessageId = null
           // Append to existing bash output message or create new one
           const last = messages[messages.length - 1]
           if (last && last.role === "assistant" && last.isBashOutput) {
@@ -1094,6 +1114,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
         }
 
         case "thinking": {
+          this.activeCodexStreamMessageId = null
           // Accumulate streaming reasoning into a single thinking message
           const last = messages[messages.length - 1]
           if (last && last.role === "assistant" && last.isThinking) {
@@ -1111,6 +1132,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
         }
 
         case "turnComplete": {
+          this.activeCodexStreamMessageId = null
           this.isSending = false
           // Show "done" status unless user is actively viewing this chat
           // (window focused + this workspace selected + this chat active)
@@ -1241,9 +1263,9 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
     isInfo?: boolean,
     parentToolUseId?: string | null,
     toolUseId?: string
-  ): void {
+  ): Message {
     const id = crypto.randomUUID()
-    this.chat.messages.push({
+    const message: Message = {
       id,
       role: "assistant",
       content,
@@ -1252,12 +1274,40 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
       ...(isInfo && { isInfo }),
       ...(parentToolUseId !== undefined && { parentToolUseId }),
       ...(toolUseId && { toolUseId }),
-    })
+    }
+    this.chat.messages.push(message)
     eventBus.emit("agent:messageReceived", {
       agentType: this.chat.agentType ?? "claude",
       chatId: this.chat.id,
       messageId: id,
     })
+    return message
+  }
+
+  private replaceActiveCodexStreamMessage(content: string): boolean {
+    if (!this.activeCodexStreamMessageId) {
+      return false
+    }
+
+    for (let i = this.chat.messages.length - 1; i >= 0; i--) {
+      const message = this.chat.messages[i]
+      if (message.id !== this.activeCodexStreamMessageId) {
+        continue
+      }
+      if (
+        message.role !== "assistant" ||
+        message.toolMeta ||
+        message.isBashOutput ||
+        message.isThinking ||
+        message.isInfo
+      ) {
+        return false
+      }
+      message.content = content
+      return true
+    }
+
+    return false
   }
 
   private pushUserMsg(content: string, meta?: MessageMeta, attachments?: Attachment[]): void {

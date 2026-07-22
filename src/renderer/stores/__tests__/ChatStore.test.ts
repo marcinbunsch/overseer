@@ -308,6 +308,31 @@ describe("ChatStore", () => {
     expect(store.messages[0].content).toBe("Start more text")
   })
 
+  it("replaces a streamed Codex draft with the final message", () => {
+    const store = createChatStore({ agentType: "codex" })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({
+      kind: "text",
+      text: "Hello",
+    })
+    eventCallback({
+      kind: "text",
+      text: " world",
+    })
+    eventCallback({
+      kind: "message",
+      content: "Hello world",
+    })
+
+    expect(store.messages).toHaveLength(1)
+    expect(store.messages[0].content).toBe("Hello world")
+  })
+
   it("handleAgentEvent keeps text out of a preceding thinking block", () => {
     const store = createChatStore()
 
