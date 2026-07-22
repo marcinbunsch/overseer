@@ -1,6 +1,7 @@
 import { backend, type Unsubscribe } from "../backend"
 import type { AgentService, AgentEventCallback, AgentDoneCallback, AgentEvent } from "./types"
 import { configStore } from "../stores/ConfigStore"
+import { codexUsageStore, type CodexUsageData } from "../stores/CodexUsageStore"
 import { toolAvailabilityStore } from "../stores/ToolAvailabilityStore"
 
 /**
@@ -49,6 +50,64 @@ interface JsonRpcResponse {
   id: number | string
   result?: unknown
   error?: { code: number; message: string }
+}
+
+interface JsonRpcNotification {
+  method: string
+  params?: unknown
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function parseUsageWindow(value: unknown): CodexUsageData["primary"] {
+  if (
+    !isRecord(value) ||
+    typeof value.usedPercent !== "number" ||
+    !Number.isFinite(value.usedPercent)
+  ) {
+    return null
+  }
+
+  return {
+    usedPercent: value.usedPercent,
+    windowDurationMins:
+      typeof value.windowDurationMins === "number" && Number.isFinite(value.windowDurationMins)
+        ? value.windowDurationMins
+        : null,
+    resetsAt:
+      typeof value.resetsAt === "number" && Number.isFinite(value.resetsAt) ? value.resetsAt : null,
+  }
+}
+
+function parseUsageData(value: unknown): CodexUsageData | null {
+  if (!isRecord(value)) return null
+
+  return {
+    limitId: typeof value.limitId === "string" ? value.limitId : null,
+    limitName: typeof value.limitName === "string" ? value.limitName : null,
+    primary: parseUsageWindow(value.primary),
+    secondary: parseUsageWindow(value.secondary),
+    credits: isRecord(value.credits)
+      ? {
+          hasCredits: value.credits.hasCredits === true,
+          unlimited: value.credits.unlimited === true,
+          balance: typeof value.credits.balance === "string" ? value.credits.balance : null,
+        }
+      : null,
+    planType: typeof value.planType === "string" ? value.planType : null,
+  }
+}
+
+function parseRateLimitNotification(value: unknown): CodexUsageData | null {
+  if (!isRecord(value)) return null
+  return parseUsageData(value.rateLimits)
+}
+
+function parseRateLimitResponse(value: unknown): CodexUsageData | null {
+  if (!isRecord(value)) return null
+  return parseUsageData(value.rateLimits)
 }
 
 /**
@@ -202,6 +261,9 @@ class CodexAgentService implements AgentService {
       })
       // Send initialized notification (no response expected)
       this.sendNotification(chatId, "initialized", {})
+      void this.fetchRateLimits(chatId).catch((error) => {
+        console.warn(`Failed to read Codex rate limits [${chatId}]:`, error)
+      })
     }
 
     // Use passed permission mode or fall back to configStore
@@ -323,13 +385,13 @@ class CodexAgentService implements AgentService {
   private async sendRequest(
     chatId: string,
     method: string,
-    params: Record<string, unknown>
+    params?: Record<string, unknown>
   ): Promise<unknown> {
     const chat = this.chats.get(chatId)
     if (!chat) throw new Error(`No chat for ${chatId}`)
 
     const id = this.nextId++
-    const msg = JSON.stringify({ method, id, params })
+    const msg = JSON.stringify(params ? { method, id, params } : { method, id })
 
     return new Promise((resolve, reject) => {
       this.pendingResponses.set(id, { chatId, resolve, reject })
@@ -364,6 +426,17 @@ class CodexAgentService implements AgentService {
       return // Not valid JSON, ignore
     }
 
+    if (typeof msg === "object" && msg !== null && "method" in msg) {
+      const notification = msg as JsonRpcNotification
+      if (notification.method === "account/rateLimits/updated") {
+        const usageData = parseRateLimitNotification(notification.params)
+        if (usageData) {
+          codexUsageStore.setUsageData(usageData)
+        }
+      }
+      return
+    }
+
     // Only handle responses (has id, no method)
     if (typeof msg === "object" && msg !== null && "id" in msg && !("method" in msg)) {
       const resp = msg as JsonRpcResponse
@@ -377,6 +450,14 @@ class CodexAgentService implements AgentService {
           pending.resolve(resp.result)
         }
       }
+    }
+  }
+
+  private async fetchRateLimits(chatId: string): Promise<void> {
+    const response = await this.sendRequest(chatId, "account/rateLimits/read")
+    const usageData = parseRateLimitResponse(response)
+    if (usageData) {
+      codexUsageStore.setUsageData(usageData)
     }
   }
 
