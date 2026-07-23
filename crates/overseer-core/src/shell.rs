@@ -56,6 +56,7 @@ pub fn run_shell_command(
     command: &str,
     working_dir: &str,
     shell_prefix: Option<&str>,
+    env_vars: &[(&str, &str)],
 ) -> Result<ShellCommandResult, String> {
     // Get the shell prefix (either custom or default)
     let prefix = get_shell_prefix(shell_prefix);
@@ -73,6 +74,7 @@ pub fn run_shell_command(
     cmd.args(shell_args)
         .arg(command)
         .current_dir(working_dir)
+        .envs(env_vars.iter().copied())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
@@ -102,6 +104,7 @@ pub async fn run_shell_command_async(
     command: &str,
     working_dir: &str,
     shell_prefix: Option<&str>,
+    env_vars: &[(&str, &str)],
 ) -> Result<ShellCommandResult, String> {
     // Get the shell prefix (either custom or default)
     let prefix = get_shell_prefix(shell_prefix);
@@ -119,6 +122,7 @@ pub async fn run_shell_command_async(
     cmd.args(shell_args)
         .arg(command)
         .current_dir(working_dir)
+        .envs(env_vars.iter().copied())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
@@ -387,5 +391,20 @@ mod tests {
 
         let args: Vec<_> = cmd.get_args().collect();
         assert_eq!(args[0].to_str().unwrap(), "-c");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_run_shell_command_passes_env_vars() {
+        let result = run_shell_command(
+            "printf '%s' \"$WORKSPACE_ROOT\"",
+            ".",
+            Some("/bin/sh -c"),
+            &[("WORKSPACE_ROOT", "/tmp/workspace-root")],
+        )
+        .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.stdout, "/tmp/workspace-root");
     }
 }

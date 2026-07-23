@@ -351,6 +351,7 @@ pub async fn run_post_create_command(
         &command,
         &workspace_path,
         shell_prefix.as_deref(),
+        &[("WORKSPACE_ROOT", workspace_path.as_str())],
     )
     .await
 }
