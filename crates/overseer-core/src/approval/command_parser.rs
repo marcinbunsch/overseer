@@ -30,30 +30,77 @@ pub fn parse_command_prefixes(command: &str) -> Vec<String> {
 }
 
 /// Split a command string on &&, ||, ;, and |.
+///
+/// Separators inside single quotes, double quotes, or preceded by a backslash
+/// are treated as literal text, not pipeline breaks (so `grep "a\|b" | head`
+/// splits only at the real `|`).
+///
+/// Scans byte-by-byte. Every separator, quote, and backslash is a single-byte
+/// ASCII character, and UTF-8 continuation bytes never collide with ASCII, so
+/// byte scanning is safe for multi-byte input. Slice boundaries only ever land
+/// on ASCII separator positions, so this never slices mid-character (indexing a
+/// `&str` off a char index used to panic on multi-byte input).
 fn split_on_separators(command: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut current_start = 0;
-    let chars: Vec<char> = command.chars().collect();
+    let bytes = command.as_bytes();
+    let mut in_single = false;
+    let mut in_double = false;
     let mut i = 0;
 
-    while i < chars.len() {
-        let c = chars[i];
+    while i < bytes.len() {
+        let c = bytes[i];
 
-        // Handle && and ||
-        if i + 1 < chars.len() {
-            let next = chars[i + 1];
-            if (c == '&' && next == '&') || (c == '|' && next == '|') {
-                if current_start < i {
-                    parts.push(&command[current_start..i]);
-                }
-                current_start = i + 2;
-                i += 2;
+        // Backslash escapes the next byte (bash: literal inside single quotes).
+        if c == b'\\' && !in_single {
+            i += 2;
+            continue;
+        }
+
+        if in_single {
+            if c == b'\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_double {
+            if c == b'"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        match c {
+            b'\'' => {
+                in_single = true;
+                i += 1;
                 continue;
             }
+            b'"' => {
+                in_double = true;
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+
+        // Handle && and ||
+        if (c == b'&' && bytes.get(i + 1) == Some(&b'&'))
+            || (c == b'|' && bytes.get(i + 1) == Some(&b'|'))
+        {
+            if current_start < i {
+                parts.push(&command[current_start..i]);
+            }
+            i += 2;
+            current_start = i;
+            continue;
         }
 
         // Handle ; and single |
-        if c == ';' || c == '|' {
+        if c == b';' || c == b'|' {
             if current_start < i {
                 parts.push(&command[current_start..i]);
             }
@@ -649,6 +696,90 @@ mod tests {
             assert_eq!(
                 split_on_separators("a && b; c | d || e"),
                 vec!["a ", " b", " c ", " d ", " e"]
+            );
+        }
+
+        #[test]
+        fn escaped_pipe_in_double_quotes_not_split() {
+            // grep pattern with an escaped alternation must stay in one part
+            assert_eq!(
+                split_on_separators("grep -n \"a\\|b\" file | head"),
+                vec!["grep -n \"a\\|b\" file ", " head"]
+            );
+        }
+
+        #[test]
+        fn separators_in_single_quotes_not_split() {
+            assert_eq!(
+                split_on_separators("echo 'a; b | c && d'"),
+                vec!["echo 'a; b | c && d'"]
+            );
+        }
+
+        #[test]
+        fn separators_in_double_quotes_not_split() {
+            assert_eq!(
+                split_on_separators("grep \"a|b|c\" file"),
+                vec!["grep \"a|b|c\" file"]
+            );
+        }
+
+        #[test]
+        fn multibyte_before_separator_does_not_panic() {
+            // Regression: char index was used to slice a byte-indexed &str, which
+            // panicked ("byte index is not a char boundary") on multi-byte input.
+            let cmd = format!(
+                "pnpm test | grep -iE \"p|{}|{}\" | tail",
+                '\u{2713}', '\u{2717}'
+            );
+            assert_eq!(
+                split_on_separators(&cmd),
+                vec![
+                    "pnpm test ".to_string(),
+                    format!(" grep -iE \"p|{}|{}\" ", '\u{2713}', '\u{2717}'),
+                    " tail".to_string(),
+                ]
+            );
+        }
+    }
+
+    // ============================================
+    // Quoting and multi-byte (regression) via public API
+    // ============================================
+
+    mod quoting_and_multibyte {
+        use super::*;
+
+        #[test]
+        fn escaped_pipe_in_grep_pattern() {
+            assert_eq!(
+                parse_command_prefixes("grep -n \"trans\\|class\" file | head -20"),
+                vec!["grep", "head"]
+            );
+        }
+
+        #[test]
+        fn single_quoted_separators_ignored() {
+            assert_eq!(parse_command_prefixes("echo 'a; b | c'"), vec!["echo"]);
+        }
+
+        #[test]
+        fn glyphs_before_pipe_do_not_panic() {
+            let cmd = format!(
+                "pnpm test 2>&1 | grep -iE \"passed|{}|{}\" | tail -20",
+                '\u{2713}', '\u{2717}'
+            );
+            assert_eq!(
+                parse_command_prefixes(&cmd),
+                vec!["pnpm test", "grep", "tail"]
+            );
+        }
+
+        #[test]
+        fn multibyte_path_before_separator() {
+            assert_eq!(
+                parse_command_prefixes("cat caf\u{e9}.txt | grep x"),
+                vec!["cat", "grep"]
             );
         }
     }
