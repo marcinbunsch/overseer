@@ -131,7 +131,9 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
                         className="w-full text-xs"
                       />
                       <p className="mt-1 text-[11px] text-ovr-text-dim">
-                        Runs in the workspace after a new workspace is created.
+                        Runs in the workspace after a new workspace is created.{" "}
+                        <code>$WORKSPACE_ROOT</code> is the new workspace,{" "}
+                        <code>$PROJECT_ROOT</code> is the project root.
                       </p>
                     </div>
 

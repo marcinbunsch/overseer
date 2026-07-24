@@ -236,6 +236,22 @@ fn get_shell_prefix(custom_prefix: Option<&str>) -> String {
     // If user provided a custom prefix, use it as-is
     if let Some(prefix) = custom_prefix {
         if !prefix.is_empty() {
+            let prefix_parts: Vec<&str> = prefix.split_whitespace().collect();
+            if prefix_parts.len() == 1 {
+                let shell_name = std::path::Path::new(prefix_parts[0])
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+
+                let non_posix = ["fish", "nu", "nushell", "elvish", "xonsh", "ion"];
+
+                if non_posix.iter().any(|&s| shell_name == s) {
+                    return format!("{} -c", prefix_parts[0]);
+                }
+
+                return format!("{} -l -c", prefix_parts[0]);
+            }
+
             return prefix.to_string();
         }
     }
@@ -333,6 +349,20 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
+    fn test_get_shell_prefix_bare_posix_shell_adds_default_flags() {
+        let result = get_shell_prefix(Some("/bin/zsh"));
+        assert_eq!(result, "/bin/zsh -l -c");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_get_shell_prefix_bare_non_posix_shell_adds_command_flag() {
+        let result = get_shell_prefix(Some("/opt/homebrew/bin/fish"));
+        assert_eq!(result, "/opt/homebrew/bin/fish -c");
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn test_get_shell_prefix_empty_uses_default() {
         // Empty prefix should fall back to default
         let result = get_shell_prefix(Some(""));
@@ -400,6 +430,44 @@ mod tests {
             "printf '%s' \"$WORKSPACE_ROOT\"",
             ".",
             Some("/bin/sh -c"),
+            &[("WORKSPACE_ROOT", "/tmp/workspace-root")],
+        )
+        .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.stdout, "/tmp/workspace-root");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_run_shell_command_expands_project_root_and_workspace_root() {
+        // Mirrors the post-create use case: a command that references both
+        // $PROJECT_ROOT (the repo) and $WORKSPACE_ROOT (the new workspace copy).
+        let result = run_shell_command(
+            "printf '%s|%s' \"$PROJECT_ROOT\" \"$WORKSPACE_ROOT\"",
+            ".",
+            Some("/bin/sh -c"),
+            &[
+                ("WORKSPACE_ROOT", "/tmp/workspaces/cases/koala"),
+                ("PROJECT_ROOT", "/tmp/workspace/breakout/cases"),
+            ],
+        )
+        .unwrap();
+
+        assert!(result.success);
+        assert_eq!(
+            result.stdout,
+            "/tmp/workspace/breakout/cases|/tmp/workspaces/cases/koala"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_run_shell_command_passes_env_vars_with_bare_shell_prefix() {
+        let result = run_shell_command(
+            "printf '%s' \"$WORKSPACE_ROOT\"",
+            ".",
+            Some("/bin/sh"),
             &[("WORKSPACE_ROOT", "/tmp/workspace-root")],
         )
         .unwrap();

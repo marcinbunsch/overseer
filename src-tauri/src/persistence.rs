@@ -336,6 +336,11 @@ pub async fn run_post_create_command(
 
     let workspace_path = workspace.path.clone();
 
+    // The project root is where the repository lives; workspaces are copies/worktrees
+    // created under a separate directory. Expose it so post-create commands can pull
+    // files in from the root, e.g. `cp $PROJECT_ROOT/some/file .`.
+    let project_root = project.path.clone();
+
     // Get post_create command
     let command = project
         .post_create
@@ -351,7 +356,10 @@ pub async fn run_post_create_command(
         &command,
         &workspace_path,
         shell_prefix.as_deref(),
-        &[("WORKSPACE_ROOT", workspace_path.as_str())],
+        &[
+            ("WORKSPACE_ROOT", workspace_path.as_str()),
+            ("PROJECT_ROOT", project_root.as_str()),
+        ],
     )
     .await
 }
