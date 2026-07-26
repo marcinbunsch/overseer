@@ -35,7 +35,7 @@ fn expand_env_vars(s: &str) -> String {
 }
 
 /// Load agent configuration from config.json.
-fn load_agent_config(state: &HttpSharedState) -> (Option<String>, Option<String>) {
+pub(crate) fn load_agent_config(state: &HttpSharedState) -> (Option<String>, Option<String>) {
     let config_dir = state.get_config_dir();
     log::debug!("load_agent_config: config_dir = {:?}", config_dir);
 
@@ -56,13 +56,11 @@ fn load_agent_config(state: &HttpSharedState) -> (Option<String>, Option<String>
                 }
             }
         })
-        .and_then(|s| {
-            match serde_json::from_str::<serde_json::Value>(&s) {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    log::warn!("load_agent_config: failed to parse config.json: {}", e);
-                    None
-                }
+        .and_then(|s| match serde_json::from_str::<serde_json::Value>(&s) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                log::warn!("load_agent_config: failed to parse config.json: {}", e);
+                None
             }
         });
 
@@ -135,7 +133,6 @@ async fn get_pr_status(
         is_draft: parsed["isDraft"].as_bool().unwrap_or(false),
     }))
 }
-
 
 /// Response format for command invocation.
 #[derive(Serialize)]
@@ -333,7 +330,9 @@ pub async fn invoke_handler(
         // ATTACHMENTS
         // =====================================================================
         "save_attachment" => dispatch_save_attachment(&state, request.args).await,
-        "save_attachment_from_path" => dispatch_save_attachment_from_path(&state, request.args).await,
+        "save_attachment_from_path" => {
+            dispatch_save_attachment_from_path(&state, request.args).await
+        }
 
         // HTTP server commands (these wouldn't make sense via HTTP)
         "start_http_server" | "stop_http_server" | "get_http_server_status" => (
@@ -717,9 +716,7 @@ async fn dispatch_list_commits(args: serde_json::Value) -> (StatusCode, Json<Inv
     }
 }
 
-async fn dispatch_list_commit_files(
-    args: serde_json::Value,
-) -> (StatusCode, Json<InvokeResponse>) {
+async fn dispatch_list_commit_files(args: serde_json::Value) -> (StatusCode, Json<InvokeResponse>) {
     let workspace_path = match args.get("workspacePath").and_then(|v| v.as_str()) {
         Some(p) => p,
         None => {
@@ -1214,7 +1211,10 @@ async fn dispatch_list_files(args: serde_json::Value) -> (StatusCode, Json<Invok
         for entry in walker {
             match entry {
                 Ok(e) => {
-                    if e.file_type().map(|ft: std::fs::FileType| ft.is_file()).unwrap_or(false) {
+                    if e.file_type()
+                        .map(|ft: std::fs::FileType| ft.is_file())
+                        .unwrap_or(false)
+                    {
                         if let Ok(rel) = e.path().strip_prefix(root) {
                             let rel: &std::path::Path = rel;
                             files.push(rel.to_string_lossy().to_string());
@@ -3871,7 +3871,7 @@ async fn dispatch_fetch_claude_usage() -> (StatusCode, Json<InvokeResponse>) {
 // ATTACHMENT COMMAND DISPATCHERS
 // ============================================================================
 
-fn guess_mime_type(filename: &str) -> &'static str {
+pub(crate) fn guess_mime_type(filename: &str) -> &'static str {
     let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
     match ext.as_str() {
         "png" => "image/png",

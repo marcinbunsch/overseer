@@ -36,6 +36,7 @@
 //! nest Tokio runtimes. The separate thread/runtime allows the HTTP server to
 //! operate independently without blocking Tauri's event loop.
 
+mod api_v1;
 mod auth;
 mod routes;
 mod state;
@@ -149,6 +150,7 @@ pub fn start(
                     axum::routing::post(routes::invoke_handler),
                 )
                 .route("/ws/events", get(websocket::ws_handler))
+                .merge(api_v1::router())
                 .layer(middleware::from_fn_with_state(
                     Arc::clone(&state),
                     auth::auth_middleware,
