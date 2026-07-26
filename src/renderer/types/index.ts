@@ -17,6 +17,8 @@ export interface Project {
   remoteServerUrl?: string
   /** Name of the main/default branch (e.g., "main", "master", "develop"). Auto-detected at project add time, editable in settings. */
   mainBranch?: string
+  /** Whether new chats in this project start sandboxed (default: false) */
+  defaultSandboxed?: boolean
 }
 
 export interface Workspace {

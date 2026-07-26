@@ -1,9 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { invoke } from "@tauri-apps/api/core"
+import { projectRegistry } from "../ProjectRegistry"
 
 vi.mock("../ConfigStore", () => ({
   configStore: {
     defaultAgent: "claude",
+    getDefaultModelForAgent: () => null,
   },
 }))
 
@@ -20,6 +22,12 @@ vi.mock("../../services/agentRegistry", () => ({
     spawn: vi.fn(),
     stopChat: mockStopChat,
     removeChat: mockRemoveChat,
+  })),
+  // ChatStore's service getter (hit when a chat with an agentType is created)
+  createAgentService: vi.fn(() => ({
+    onEvent: vi.fn(),
+    onDone: vi.fn(),
+    isRunning: vi.fn(() => false),
   })),
 }))
 
@@ -226,6 +234,47 @@ describe("WorkspaceStore", () => {
       await store.deleteChat("nonexistent-chat")
 
       expect(store.allChats).toHaveLength(1)
+    })
+  })
+
+  describe("new chat sandbox default", () => {
+    afterEach(() => {
+      projectRegistry.setProjects([])
+    })
+
+    it("new chats start sandboxed when the project default is on", () => {
+      projectRegistry.setProjects([
+        {
+          id: "proj-1",
+          name: "myrepo",
+          path: "/home/testuser/myrepo",
+          isGitRepo: true,
+          workspaces: [],
+          defaultSandboxed: true,
+        },
+      ])
+      const store = new WorkspaceStore(mockWorkspace, "myrepo")
+
+      store.newChat("claude")
+
+      expect(store.activeChat!.sandboxed).toBe(true)
+    })
+
+    it("new chats start unsandboxed when the project has no default", () => {
+      projectRegistry.setProjects([
+        {
+          id: "proj-1",
+          name: "myrepo",
+          path: "/home/testuser/myrepo",
+          isGitRepo: true,
+          workspaces: [],
+        },
+      ])
+      const store = new WorkspaceStore(mockWorkspace, "myrepo")
+
+      store.newChat("claude")
+
+      expect(store.activeChat!.sandboxed).toBe(false)
     })
   })
 })

@@ -202,6 +202,29 @@ describe("ProjectStore", () => {
     expect(exported).not.toBe(store) // Should be a new object
   })
 
+  describe("defaultSandboxed", () => {
+    it("stays unset (off) when the project never set it", () => {
+      const store = new ProjectStore(createProject())
+      expect(store.defaultSandboxed).toBeUndefined()
+    })
+
+    it("initializes from the project", () => {
+      const store = new ProjectStore(createProject({ defaultSandboxed: true }))
+      expect(store.defaultSandboxed).toBe(true)
+    })
+
+    it("update sets it in both directions and toProject exports it", () => {
+      const store = new ProjectStore(createProject())
+
+      store.update({ defaultSandboxed: true })
+      expect(store.defaultSandboxed).toBe(true)
+      expect(store.toProject().defaultSandboxed).toBe(true)
+
+      store.update({ defaultSandboxed: false })
+      expect(store.defaultSandboxed).toBe(false)
+    })
+  })
+
   describe("workspaceFilter", () => {
     it("initializes with workspaceFilter from repo", () => {
       const repo = createProject({

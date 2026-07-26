@@ -643,7 +643,9 @@ export class WorkspaceStore {
       modelVersion: defaultModel,
       permissionMode: null,
       effortLevel: null,
-      sandboxed: false,
+      // Looked up live (not snapshotted in the constructor like initPrompt) so
+      // changing the project setting applies to the very next chat.
+      sandboxed: projectRegistry.getProjectStore(this.projectId)?.defaultSandboxed ?? false,
       createdAt: now,
       updatedAt: now,
     }
