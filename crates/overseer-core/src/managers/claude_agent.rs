@@ -16,8 +16,28 @@ use crate::agents::event::AgentEvent;
 use crate::event_bus::EventBus;
 use crate::logging::{log_line, open_log_file, LogHandle};
 use crate::managers::{ChatSessionManager, ProjectApprovalManager};
+use crate::sandbox::{AgentKind, SandboxSpec};
 use crate::shell::AgentExit;
 use crate::spawn::{AgentProcess, ProcessEvent};
+
+/// Build the sandbox spec for a Claude spawn from the workspace and the
+/// caller-resolved git common dir. Returns an error (rather than silently
+/// skipping the sandbox) if the git dir or `$HOME` is missing.
+fn build_claude_sandbox_spec(
+    working_dir: &str,
+    git_common_dir: Option<&str>,
+) -> Result<SandboxSpec, String> {
+    let git = git_common_dir
+        .ok_or_else(|| "Sandboxed Claude requires a resolved git directory".to_string())?;
+    let home = std::env::var("HOME").map_err(|_| "HOME is not set; cannot sandbox".to_string())?;
+    Ok(SandboxSpec::new(
+        AgentKind::Claude,
+        std::path::Path::new(working_dir),
+        std::path::Path::new(git),
+        std::path::Path::new(&home),
+        Vec::new(),
+    ))
+}
 
 /// Entry for a single Claude process.
 struct ClaudeProcessEntry {
@@ -50,6 +70,13 @@ pub struct ClaudeStartConfig {
     pub permission_mode: Option<String>,
     pub agent_shell: Option<String>,
     pub effort_level: Option<String>,
+    /// When true, run the agent inside a macOS Seatbelt sandbox with a scrubbed
+    /// environment (see [`crate::sandbox`]).
+    pub sandboxed: bool,
+    /// The shared git directory (`git rev-parse --git-common-dir`). Required when
+    /// `sandboxed` so the profile can grant write access to the worktree's git
+    /// state, which lives in the main repo's `.git`. Resolved by the caller.
+    pub git_common_dir: Option<String>,
 }
 
 /// Manages Claude CLI processes.
@@ -94,6 +121,12 @@ impl ClaudeAgentManager {
         let lid = config.log_id.as_deref().unwrap_or(&config.conversation_id);
         let log_handle = open_log_file(config.log_dir.as_deref(), lid);
 
+        // Capture what the sandbox spec needs before `config` fields move into
+        // ClaudeConfig below.
+        let sandboxed = config.sandboxed;
+        let sandbox_working_dir = config.working_dir.clone();
+        let git_common_dir = config.git_common_dir.clone();
+
         // Build config using core
         let claude_config = ClaudeConfig {
             binary_path: config.agent_path,
@@ -107,9 +140,16 @@ impl ClaudeAgentManager {
         };
 
         // Log the initial prompt
-        let spawn_config = claude_config.build();
+        let mut spawn_config = claude_config.build();
         if let Some(ref initial) = spawn_config.initial_stdin {
             log_line(&log_handle, "STDIN", initial);
+        }
+
+        // When requested, wrap the spawn in a Seatbelt sandbox. Fail loudly if the
+        // spec can't be built — never silently run an agent unsandboxed.
+        if sandboxed {
+            let spec = build_claude_sandbox_spec(&sandbox_working_dir, git_common_dir.as_deref())?;
+            spawn_config = spawn_config.sandbox(spec);
         }
 
         // Spawn the process

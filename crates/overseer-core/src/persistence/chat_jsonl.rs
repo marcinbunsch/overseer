@@ -273,6 +273,8 @@ fn write_metadata_from_chat(dir: &Path, chat: &ChatFile) -> Result<(), ChatJsonl
         agent_session_id: chat.agent_session_id.clone(),
         model_version: chat.model_version.clone(),
         permission_mode: chat.permission_mode.clone(),
+        // Legacy chat files predate the sandbox flag; they migrate as unsandboxed.
+        sandboxed: false,
         created_at: chat.created_at,
         updated_at: chat.updated_at,
     };
@@ -358,6 +360,7 @@ mod tests {
             agent_session_id: Some("session-1".to_string()),
             model_version: Some("model-1".to_string()),
             permission_mode: Some("ask".to_string()),
+            sandboxed: false,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

@@ -107,6 +107,11 @@ pub struct ChatMetadata {
     #[serde(default)]
     pub permission_mode: Option<String>,
 
+    /// Whether this chat's agent runs inside a sandbox. Chosen per chat before
+    /// the agent starts; defaults to false for chats saved before this existed.
+    #[serde(default)]
+    pub sandboxed: bool,
+
     /// When this chat was created.
     pub created_at: DateTime<Utc>,
 
