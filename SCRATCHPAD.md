@@ -51,6 +51,23 @@ My learning journal for this codebase. **Rules** are patterns I must follow. **M
 ### Rust
 
 - **Small bites with context** — When writing Rust code, make changes incrementally with explanations. The user is learning Rust, so explain concepts, idioms, and the "why" behind patterns as you go.
+- **`cargo fmt --check` is NOT clean on this repo** — Under current rustfmt, ~15 untouched files show diffs (parser.rs, git/diff.rs, skills.rs, daemon/main.rs, etc.). The `pnpm checks` gate is `rustcheck` = `cargo check`, not `cargo fmt`. So don't run a repo-wide `cargo fmt` (it reformats pre-existing files = scope creep). Format only your own new files; hand-fix width nits in edited shared files.
+- **Test git commits fail if your global `commit.gpgsign=true`** — Tests that `git commit` (e.g. git/branch.rs) fail locally with "signing failed: No secret key". It's environmental, not the code. Run with `GIT_CONFIG_GLOBAL=/dev/null` to confirm. New git tests should set `git config commit.gpgsign false` in the temp repo.
+
+### Sandboxing (macOS Seatbelt)
+
+- **A default-deny `sandbox-exec` profile MUST `(import "/System/Library/Sandbox/Profiles/bsd.sb")`** — without it every binary SIGABRTs (exit 134) before running, because dyld/libSystem can't do their startup syscalls. The import grants base operations without opening file reads (a secret outside the allow-list stays denied). Also grant `(subpath "/System/Volumes/Preboot/Cryptexes")` for the Apple-Silicon dyld cache.
+- **`sandbox-exec -f profile.sb` reads the profile *after* `Command::spawn()` returns** — a temp-file guard dropped at end of the spawn function races the child and gives "No such file or directory". Keep the profile file alive for the whole process: `AgentProcess` owns an `Option<SandboxProfileFile>` field (see spawn.rs), removed on process drop.
+- **Env scrub + filesystem box are separate mechanisms** — `.env_clear()` + allowlist (crate::sandbox::env) handles "can't read host env"; the SBPL profile handles "can't read/write host FS". Both attach in `AgentProcess::spawn` when `SpawnConfig.sandbox` is set. Sandbox spec is built in the agent manager's sync `start()`; the git common dir it needs is resolved async in the Tauri command (`get_git_common_dir`) and passed down.
+- **Worktree git writes go to the MAIN repo's `.git`** — a worktree's `.git` is a file pointing at `<main>/.git/worktrees/<name>`; objects/refs live in `<main>/.git`. The sandbox grants rw on `git rev-parse --git-common-dir`, not just the workspace, or every `git commit`/`add` fails.
+- **Keychain access needs the DB file, not just securityd** — With `(allow mach-lookup)` but no file access, `security find-generic-password` returns exit 44 "item could not be found" (not a permission error!) and Claude reports "Not logged in · Please run /login" with `apiKeySource: "none"`. Fix: `(allow file-read* (subpath "$HOME/Library/Keychains"))` — read-only suffices; decryption still goes through securityd + per-item ACLs. Verified by running the real `claude -p` under the profile.
+- **fnm needs write to `~/.local/state/fnm_multishells`** — zshrc `fnm env` creates a per-shell symlink dir at startup; under a read-only home it errors and node breaks. The profile grants rw on that one dir (it only holds symlinks to node versions).
+- **Claude Code's state must be read+WRITE, and it lives in TWO places** — (1) `~/.claude/` (the Bash tool mkdirs `session-env/<id>` before ANY command; read-only = "EPERM: mkdir" and a dead Bash tool), and (2) `~/.claude.json` (+ `.backup`), which sits NEXT TO the dir — `(subpath "~/.claude")` does NOT cover it; the profile uses a `(regex #"^…/\.claude\.json")` prefix rule.
+- **Claude's Bash tool also mkdirs `/tmp/claude-<uid>/…`** — the shared `/private/tmp`, NOT `$TMPDIR`. The profile grants rw on `/private/tmp` (world-writable scratch anyway; the boundary that matters is home/other repos, verified still denied).
+- **`sandbox-exec` never appears in `ps`** — it applies the profile then execs into the child, so the process shows as `claude`. To verify a running process is sandboxed, check its environment with `ps eww <pid>`: scrubbed = ~26 vars, no `SSH_AUTH_SOCK`/`HOMEBREW_*`.
+- **Env scrubbing can't remove what rc files re-export** — the login shell re-sources `.zshrc`/`.zprofile`, so their `export`s (EDITOR, FNM_*, etc.) re-enter the sandboxed env. Only host-session-injected vars are gone. Dropping `-l` would close this at the cost of rc conveniences.
+
+### Code Style
 
 ### Code Style
 
