@@ -185,19 +185,43 @@ pub fn build_login_shell_command(
     working_dir: Option<&str>,
     shell_prefix: Option<&str>,
 ) -> Result<Command, String> {
-    // Get the shell prefix (either custom or default)
+    let (shell_program, shell_args, full_command) =
+        resolve_shell_invocation(binary_path, args, shell_prefix)?;
+
+    let mut cmd = Command::new(&shell_program);
+    cmd.args(&shell_args).arg(&full_command);
+
+    if let Some(dir) = working_dir {
+        cmd.current_dir(dir);
+    }
+
+    // Also prepend binary directory to PATH as fallback
+    prepare_path_env(&mut cmd, binary_path);
+
+    Ok(cmd)
+}
+
+/// Resolve the shell invocation for a binary: the shell program, its arguments,
+/// and the quoted `<binary> <args...>` string the shell runs with `-c`.
+///
+/// Shared by [`build_login_shell_command`] and the sandboxed builder so both
+/// wrap the exact same inner command.
+#[cfg(unix)]
+fn resolve_shell_invocation(
+    binary_path: &str,
+    args: &[String],
+    shell_prefix: Option<&str>,
+) -> Result<(String, Vec<String>, String), String> {
     let prefix = get_shell_prefix(shell_prefix);
 
-    // Parse the prefix into shell program and its arguments
     let prefix_parts: Vec<&str> = prefix.split_whitespace().collect();
     if prefix_parts.is_empty() {
         return Err("Empty shell prefix".to_string());
     }
 
-    let shell_program = prefix_parts[0];
-    let shell_args = &prefix_parts[1..];
+    let shell_program = prefix_parts[0].to_string();
+    let shell_args: Vec<String> = prefix_parts[1..].iter().map(|s| s.to_string()).collect();
 
-    // Build the full command string with proper quoting for the inner command
     let mut command_parts = Vec::with_capacity(args.len() + 1);
     command_parts.push(
         shlex::try_quote(binary_path)
@@ -213,14 +237,49 @@ pub fn build_login_shell_command(
     }
     let full_command = command_parts.join(" ");
 
-    let mut cmd = Command::new(shell_program);
-    cmd.args(shell_args).arg(&full_command);
+    Ok((shell_program, shell_args, full_command))
+}
+
+/// Build a login-shell command wrapped in macOS `sandbox-exec`.
+///
+/// Runs `sandbox-exec -f <profile> -- <shell> -l -c '<binary> <args>'` with the
+/// environment scrubbed down to the sandbox allow-list. The `profile_path` must
+/// stay on disk until the returned command is spawned (the caller holds the
+/// [`SandboxProfileFile`](crate::sandbox::SandboxProfileFile) guard).
+#[cfg(target_os = "macos")]
+pub fn build_sandboxed_command(
+    binary_path: &str,
+    args: &[String],
+    working_dir: Option<&str>,
+    shell_prefix: Option<&str>,
+    spec: &crate::sandbox::SandboxSpec,
+    profile_path: &std::path::Path,
+) -> Result<Command, String> {
+    let (shell_program, shell_args, full_command) =
+        resolve_shell_invocation(binary_path, args, shell_prefix)?;
+
+    let mut cmd = Command::new("sandbox-exec");
+    cmd.arg("-f")
+        .arg(profile_path)
+        .arg("--")
+        .arg(&shell_program)
+        .args(&shell_args)
+        .arg(&full_command);
 
     if let Some(dir) = working_dir {
         cmd.current_dir(dir);
     }
 
-    // Also prepend binary directory to PATH as fallback
+    // Wipe the host environment, then hand back only the allow-list so the agent
+    // can't read the host's secrets. This must happen on the command that is
+    // actually spawned (the sandbox-exec process).
+    cmd.env_clear();
+    for (key, value) in crate::sandbox::sandbox_env_allowlist(spec.agent) {
+        cmd.env(key, value);
+    }
+
+    // Re-add the binary's own directory to PATH so the shell finds it even if the
+    // rc files that normally set PATH are unavailable.
     prepare_path_env(&mut cmd, binary_path);
 
     Ok(cmd)
