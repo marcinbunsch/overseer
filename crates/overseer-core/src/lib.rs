@@ -23,6 +23,7 @@ pub mod managers;
 pub mod overseer_actions;
 pub mod paths;
 pub mod persistence;
+pub mod sandbox;
 pub mod session;
 pub mod shell;
 pub mod skills;
