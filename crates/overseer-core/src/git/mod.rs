@@ -52,7 +52,7 @@ pub mod diff;
 pub mod merge;
 pub mod worktree;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
 use tokio::time::{timeout, Duration};
@@ -322,6 +322,28 @@ pub fn is_git_repo(path: &Path) -> bool {
     path.join(".git").exists()
 }
 
+/// Resolve the shared git directory for `cwd`.
+///
+/// For a normal repo this is `<repo>/.git`. For a git worktree it's the **main**
+/// repo's `.git` — where objects and refs live — not the worktree's own `.git`
+/// file. The sandbox needs write access here, because a worktree's
+/// `commit`/`add`/`diff` write to the shared object store, not just the workspace.
+///
+/// Uses `git rev-parse --git-common-dir` and resolves the result to an absolute,
+/// canonical path (git may return it relative to `cwd`).
+pub async fn get_git_common_dir(cwd: &Path) -> Result<PathBuf, GitError> {
+    let raw = run_git_success(&["rev-parse", "--git-common-dir"], cwd).await?;
+    let path = Path::new(&raw);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
+    // Canonicalize so Seatbelt matches the real path; keep the absolute form if
+    // canonicalization fails (e.g. a transient race removing the dir).
+    Ok(std::fs::canonicalize(&absolute).unwrap_or(absolute))
+}
+
 // ============================================================================
 // ANIMAL NAMES FOR WORKSPACES
 // ============================================================================
@@ -452,6 +474,64 @@ mod tests {
         // Empty string override should behave like no override
         assert!(is_default_branch_name("main", Some("")));
         assert!(!is_default_branch_name("develop", Some("")));
+    }
+
+    async fn run(cwd: &Path, args: &[&str]) {
+        let out = run_git(args, cwd).await.unwrap();
+        assert!(
+            out.success,
+            "git {} failed: {}",
+            args.join(" "),
+            out.stderr_str()
+        );
+    }
+
+    #[tokio::test]
+    async fn git_common_dir_for_plain_repo_is_its_own_git() {
+        let repo = tempdir().unwrap();
+        run(repo.path(), &["init", "-q"]).await;
+
+        let common = get_git_common_dir(repo.path()).await.unwrap();
+        let expected = std::fs::canonicalize(repo.path().join(".git")).unwrap();
+        assert_eq!(common, expected);
+    }
+
+    #[tokio::test]
+    async fn git_common_dir_for_worktree_points_at_main_repo_git() {
+        // A worktree's own `.git` is a file pointing into <main>/.git/worktrees/<name>;
+        // the common dir must resolve to <main>/.git so git writes land there.
+        let main = tempdir().unwrap();
+        run(main.path(), &["init", "-q"]).await;
+        run(main.path(), &["config", "user.email", "test@example.com"]).await;
+        run(main.path(), &["config", "user.name", "Test"]).await;
+        run(main.path(), &["config", "commit.gpgsign", "false"]).await;
+        run(
+            main.path(),
+            &["commit", "-q", "--allow-empty", "-m", "init"],
+        )
+        .await;
+
+        let wt = tempdir().unwrap();
+        let wt_path = wt.path().join("narwhal");
+        run(
+            main.path(),
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feature",
+                wt_path.to_str().unwrap(),
+            ],
+        )
+        .await;
+
+        let common = get_git_common_dir(&wt_path).await.unwrap();
+        let expected = std::fs::canonicalize(main.path().join(".git")).unwrap();
+        assert_eq!(
+            common, expected,
+            "worktree common dir should be the main repo's .git"
+        );
     }
 
     #[test]
