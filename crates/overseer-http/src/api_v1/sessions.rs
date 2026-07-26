@@ -59,6 +59,7 @@ pub(crate) async fn create_session(
         agent_session_id: None,
         model_version: body.model_version,
         permission_mode: Some(permission_mode),
+        sandboxed: false,
         created_at: now,
         updated_at: now,
     };
