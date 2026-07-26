@@ -124,6 +124,7 @@ function createTestChat(overrides?: Partial<Chat>): Chat {
     modelVersion: null,
     permissionMode: null,
     effortLevel: null,
+    sandboxed: false,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -921,7 +922,8 @@ describe("ChatStore", () => {
       "default", // permission mode
       undefined, // initPrompt
       "test-project",
-      null // effortLevel
+      null, // effortLevel
+      false // sandboxed
     )
   })
 
@@ -939,8 +941,53 @@ describe("ChatStore", () => {
       "default", // permission mode
       undefined, // initPrompt
       "test-project",
-      null // effortLevel
+      null, // effortLevel
+      false // sandboxed
     )
+  })
+
+  describe("sandboxed toggle", () => {
+    it("updates the flag on the chat", () => {
+      const store = createChatStore({ sandboxed: false })
+      store.setSandboxed(true)
+      expect(store.chat.sandboxed).toBe(true)
+    })
+
+    it("no-op when the value is unchanged", () => {
+      const store = createChatStore({ sandboxed: false })
+      store.setSandboxed(false)
+      expect(mockAgentService.stopChat).not.toHaveBeenCalled()
+    })
+
+    it("between turns with a running process -> stops it so the next message restarts fresh", () => {
+      const store = createChatStore({ sandboxed: false })
+      mockAgentService.isRunning.mockReturnValueOnce(true)
+      store.setSandboxed(true)
+      expect(mockAgentService.stopChat).toHaveBeenCalledWith("test-chat-id")
+    })
+
+    it("mid-turn -> defers the restart until the turn completes", () => {
+      const store = createChatStore({ sandboxed: false })
+      store.isSending = true
+      store.setSandboxed(true)
+      // A turn is in flight, so don't kill the process yet.
+      expect(mockAgentService.stopChat).not.toHaveBeenCalled()
+
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === "test-chat-id"
+      )
+      const eventCallback = eventCall![1] as (e: unknown) => void
+      eventCallback({ kind: "turnComplete" })
+
+      expect(mockAgentService.stopChat).toHaveBeenCalledWith("test-chat-id")
+    })
+
+    it("sendMessage forwards the sandboxed flag to the agent service", async () => {
+      const store = createChatStore({ sandboxed: true })
+      await store.sendMessage("test message", "/home/user/wt")
+      const call = vi.mocked(mockAgentService.sendMessage).mock.calls[0] as unknown[]
+      expect(call[9]).toBe(true)
+    })
   })
 
   it("handleAgentEvent processes planApproval events with plan content", () => {
@@ -1234,7 +1281,8 @@ describe("ChatStore", () => {
         "default",
         undefined,
         "test-project",
-        null // effortLevel
+        null, // effortLevel
+        false // sandboxed
       )
     })
 
@@ -1734,7 +1782,8 @@ Live text.`,
         "acceptEdits", // permission mode from chat
         undefined, // initPrompt
         "test-project",
-        null // effortLevel
+        null, // effortLevel
+        false // sandboxed
       )
     })
 
@@ -1752,7 +1801,8 @@ Live text.`,
         "default", // fallback to configStore.claudePermissionMode which is mocked as "default"
         undefined, // initPrompt
         "test-project",
-        null // effortLevel
+        null, // effortLevel
+        false // sandboxed
       )
     })
 
@@ -1773,7 +1823,8 @@ Live text.`,
         "untrusted",
         expect.stringContaining("Custom init prompt"),
         "test-project",
-        null // effortLevel (null for non-claude agents)
+        null, // effortLevel (null for non-claude agents)
+        false // sandboxed
       )
 
       // Verify the shell instruction is included

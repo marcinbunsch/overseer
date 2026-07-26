@@ -24,6 +24,7 @@ function makeChat(overrides: Partial<Chat> = {}): Chat {
     modelVersion: "opus",
     permissionMode: null,
     effortLevel: null,
+    sandboxed: false,
     createdAt: new Date("2024-01-15T09:00:00Z"),
     updatedAt: new Date("2024-01-15T12:00:00Z"),
     ...overrides,

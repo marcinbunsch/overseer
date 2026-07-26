@@ -149,6 +149,7 @@ export interface Chat {
   modelVersion: string | null
   permissionMode: string | null // Claude permission mode (default, acceptEdits, bypassPermissions)
   effortLevel: string | null // Claude effort level (low, medium, high, max)
+  sandboxed: boolean // Run the agent inside a macOS sandbox (chosen before the agent starts)
   createdAt: Date
   updatedAt: Date
   isArchived?: boolean

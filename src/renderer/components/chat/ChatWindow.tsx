@@ -348,6 +348,8 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                 onPermissionModeChange={(mode) => workspaceStore.setPermissionMode(mode)}
                 effortLevel={workspaceStore.activeChat?.effortLevel ?? null}
                 onEffortLevelChange={(level) => workspaceStore.setEffortLevel(level)}
+                sandboxed={workspaceStore.activeChat?.sandboxed ?? false}
+                onSandboxedChange={(sandboxed) => workspaceStore.setSandboxed(sandboxed)}
                 workspacePath={workspace.path}
                 externalAttachments={droppedAttachments}
                 autonomousRunning={workspaceStore.autonomousRunning}

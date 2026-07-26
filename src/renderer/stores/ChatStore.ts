@@ -78,6 +78,7 @@ type BackendChatMetadata = {
   modelVersion?: string | null
   permissionMode?: string | null
   effortLevel?: string | null
+  sandboxed?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -194,6 +195,10 @@ export class ChatStore {
 
   @computed get effortLevel(): string | null {
     return this.chat.effortLevel
+  }
+
+  @computed get sandboxed(): boolean {
+    return this.chat.sandboxed
   }
 
   // --- Private: service accessor ---
@@ -320,7 +325,8 @@ export class ChatStore {
         permissionMode,
         initPrompt,
         projectName,
-        effortLevel
+        effortLevel,
+        this.chat.sandboxed
       )
     } catch (err) {
       console.error("Error sending message:", err)
@@ -590,6 +596,27 @@ export class ChatStore {
       this.chat.effortLevel = level
       if (this.isSending) this._configChanged = true
       void this.persistMetadata()
+    }
+  }
+
+  /**
+   * Toggle whether the agent runs inside a sandbox. Changing this always
+   * restarts the agent so the new setting takes effect, in both directions:
+   * - mid-turn: restart when the current turn ends (the _configChanged path).
+   * - between turns: the agent process may still be alive waiting for input, so
+   *   stop it now — otherwise the next message would be fed to the old process
+   *   and keep the old sandbox state.
+   */
+  @action
+  setSandboxed(sandboxed: boolean): void {
+    if (this.chat.sandboxed === sandboxed) return
+    this.chat.sandboxed = sandboxed
+    void this.persistMetadata()
+
+    if (this.isSending) {
+      this._configChanged = true
+    } else if (this.service?.isRunning(this.chat.id)) {
+      void this.service.stopChat(this.chat.id)
     }
   }
 
@@ -1393,6 +1420,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
       modelVersion: this.chat.modelVersion,
       permissionMode: this.chat.permissionMode,
       effortLevel: this.chat.effortLevel,
+      sandboxed: this.chat.sandboxed,
       createdAt: this.chat.createdAt.toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -1546,6 +1574,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
           this.chat.modelVersion = metadata.modelVersion ?? this.chat.modelVersion
           this.chat.permissionMode = metadata.permissionMode ?? this.chat.permissionMode
           this.chat.effortLevel = metadata.effortLevel ?? this.chat.effortLevel
+          this.chat.sandboxed = metadata.sandboxed ?? this.chat.sandboxed
           if (needsReregister) {
             this.registerCallbacks()
           }

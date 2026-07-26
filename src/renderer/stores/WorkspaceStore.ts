@@ -565,6 +565,11 @@ export class WorkspaceStore {
     this.activeChat?.setEffortLevel(level)
   }
 
+  @action
+  setSandboxed(sandboxed: boolean): void {
+    this.activeChat?.setSandboxed(sandboxed)
+  }
+
   // --- Autonomous mode ---
 
   @action
@@ -638,6 +643,7 @@ export class WorkspaceStore {
       modelVersion: defaultModel,
       permissionMode: null,
       effortLevel: null,
+      sandboxed: false,
       createdAt: now,
       updatedAt: now,
     }
@@ -731,6 +737,8 @@ export class WorkspaceStore {
           modelVersion: null,
           permissionMode: null,
           effortLevel: null,
+          // Real value loads lazily from chat metadata (see ChatStore hydrate).
+          sandboxed: false,
           createdAt: new Date(entry.createdAt),
           updatedAt: new Date(entry.updatedAt),
           isArchived: entry.isArchived ?? false,
