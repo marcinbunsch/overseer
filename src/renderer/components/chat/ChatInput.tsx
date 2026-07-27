@@ -1,7 +1,15 @@
 import { observer } from "mobx-react-lite"
 import { useRef, useEffect, useState, useCallback } from "react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
-import { ChevronDown, Play, StopCircle, RotateCw, Paperclip, ListChecks } from "lucide-react"
+import {
+  ChevronDown,
+  Play,
+  StopCircle,
+  RotateCw,
+  Paperclip,
+  ListChecks,
+  Shield,
+} from "lucide-react"
 import { projectRegistry } from "../../stores/ProjectRegistry"
 import { configStore } from "../../stores/ConfigStore"
 import { debugStore } from "../../stores/DebugStore"
@@ -19,6 +27,7 @@ import { AttachmentChip } from "./AttachmentChip"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 import { Textarea } from "../shared/Textarea"
 import { saveAttachment } from "../../services/attachmentService"
+import { platform } from "@tauri-apps/plugin-os"
 import type { Attachment, AutonomousReviewConfig } from "../../types"
 
 // Detect touch-only devices (mobile/tablet without keyboard)
@@ -26,6 +35,21 @@ const isTouchDevice =
   typeof window !== "undefined" &&
   ("ontouchstart" in window || navigator.maxTouchPoints > 0) &&
   !window.matchMedia("(pointer: fine)").matches
+
+// The Seatbelt sandbox is macOS-only, so the toggle is hidden elsewhere.
+// Computed lazily (not at import) so Tauri's OS plugin is ready, then memoized.
+// platform() throws in web mode, where sandboxing isn't available anyway.
+let _isMacOS: boolean | null = null
+function isMacOS(): boolean {
+  if (_isMacOS === null) {
+    try {
+      _isMacOS = platform() === "macos"
+    } catch {
+      _isMacOS = false
+    }
+  }
+  return _isMacOS
+}
 
 interface ChatInputProps {
   onSend: (content: string, attachments?: Attachment[]) => void
@@ -38,6 +62,8 @@ interface ChatInputProps {
   onPermissionModeChange?: (mode: string | null) => void
   effortLevel?: string | null
   onEffortLevelChange?: (level: string | null) => void
+  sandboxed?: boolean
+  onSandboxedChange?: (sandboxed: boolean) => void
   workspacePath: string
   /** External attachments to add (e.g. from Tauri drag-drop on parent container) */
   externalAttachments?: Attachment[] | null
@@ -107,6 +133,8 @@ export const ChatInput = observer(function ChatInput({
   onPermissionModeChange,
   effortLevel,
   onEffortLevelChange,
+  sandboxed,
+  onSandboxedChange,
   workspacePath,
   externalAttachments,
   autonomousRunning,
@@ -494,6 +522,32 @@ export const ChatInput = observer(function ChatInput({
                 disabled={autonomousRunning}
               />
             )}
+            {/* Sandbox is macOS-local (sandbox-exec), so only offer it on macOS
+                and the Tauri backend — the remote HTTP backend ignores the flag
+                and a sandboxed spawn errors on other platforms. */}
+            {agentType === "claude" &&
+              onSandboxedChange &&
+              isMacOS() &&
+              projectRegistry.selectedWorkspaceStore?.backend.type === "tauri" && (
+                <button
+                  onClick={() => onSandboxedChange(!sandboxed)}
+                  disabled={autonomousRunning}
+                  className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    sandboxed
+                      ? "bg-ovr-azure-500/20 text-ovr-azure-400"
+                      : "text-ovr-text-muted hover:bg-ovr-bg-elevated hover:text-ovr-text-primary"
+                  }`}
+                  title={
+                    sandboxed
+                      ? "Sandbox on: agent limited to this workspace. Click to disable (restarts the agent)."
+                      : "Sandbox off: agent can access the filesystem. Click to enable (restarts the agent)."
+                  }
+                  data-testid="sandbox-toggle"
+                >
+                  <Shield size={14} />
+                  <span>Sandbox</span>
+                </button>
+              )}
             {agentType === "claude" && <ClaudeUsageIndicator />}
             {agentType === "codex" && <CodexUsageIndicator />}
             <WebSocketConnectionIndicator />

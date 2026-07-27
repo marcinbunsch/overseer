@@ -65,7 +65,8 @@ export interface AgentService {
     permissionMode?: string | null,
     initPrompt?: string,
     projectName?: string,
-    effortLevel?: string | null
+    effortLevel?: string | null,
+    sandboxed?: boolean
   ): Promise<void>
   sendToolApproval(
     chatId: string,

@@ -246,6 +246,7 @@ class ProjectRegistry {
       useGithub?: boolean
       allowMergeToMain?: boolean
       mainBranch?: string
+      defaultSandboxed?: boolean
     }
   ): void {
     const project = this._projects.find((r) => r.id === id)
@@ -258,6 +259,7 @@ class ProjectRegistry {
     if (updates.useGithub !== undefined) project.useGithub = updates.useGithub
     if (updates.allowMergeToMain !== undefined) project.allowMergeToMain = updates.allowMergeToMain
     if (updates.mainBranch !== undefined) project.mainBranch = updates.mainBranch || undefined
+    if (updates.defaultSandboxed !== undefined) project.defaultSandboxed = updates.defaultSandboxed
     // Also update the cached ProjectStore if it exists
     const store = this._projectStoreCache.get(id)
     if (store) {

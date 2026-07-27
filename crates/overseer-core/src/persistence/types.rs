@@ -107,6 +107,11 @@ pub struct ChatMetadata {
     #[serde(default)]
     pub permission_mode: Option<String>,
 
+    /// Whether this chat's agent runs inside a sandbox. Chosen per chat before
+    /// the agent starts; defaults to false for chats saved before this existed.
+    #[serde(default)]
+    pub sandboxed: bool,
+
     /// When this chat was created.
     pub created_at: DateTime<Utc>,
 
@@ -302,6 +307,10 @@ pub struct Project {
     /// When `None`, falls back to auto-detection (looks for main/master/origin/main/origin/master).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_branch: Option<String>,
+
+    /// Whether new chats in this project start sandboxed. `None` means off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_sandboxed: Option<bool>,
 }
 
 impl Project {
@@ -501,6 +510,7 @@ mod tests {
                 use_github: Some(true),
                 allow_merge_to_main: None,
                 main_branch: None,
+                default_sandboxed: None,
             }],
         };
 

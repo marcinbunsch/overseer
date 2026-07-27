@@ -30,6 +30,8 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
   const [useGithub, setUseGithub] = useState(project.useGithub !== false)
   const [allowMergeToMain, setAllowMergeToMain] = useState(project.allowMergeToMain !== false)
   const [mainBranch, setMainBranch] = useState(project.mainBranch || "")
+  // Unlike useGithub/allowMergeToMain, this defaults to OFF when unset.
+  const [defaultSandboxed, setDefaultSandboxed] = useState(project.defaultSandboxed === true)
   const [pendingArchive, setPendingArchive] = useState(false)
 
   // Load fresh approvals from Rust when dialog opens
@@ -59,6 +61,7 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
         useGithub,
         allowMergeToMain,
         mainBranch,
+        defaultSandboxed,
       })
       toastStore.show("Settings saved")
       onOpenChange(false)
@@ -187,6 +190,18 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
                         />
                         <span className="text-xs text-ovr-text-primary">Allow merge to main</span>
                         <span className="text-xs text-ovr-text-dim">- show Merge button</span>
+                      </label>
+
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <Checkbox
+                          checked={defaultSandboxed}
+                          onChange={(e) => setDefaultSandboxed(e.target.checked)}
+                          data-testid="default-sandboxed-checkbox"
+                        />
+                        <span className="text-xs text-ovr-text-primary">Sandbox by default</span>
+                        <span className="text-xs text-ovr-text-dim">
+                          - new chats start sandboxed
+                        </span>
                       </label>
                     </div>
                   </>

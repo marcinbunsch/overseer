@@ -565,6 +565,11 @@ export class WorkspaceStore {
     this.activeChat?.setEffortLevel(level)
   }
 
+  @action
+  setSandboxed(sandboxed: boolean): void {
+    this.activeChat?.setSandboxed(sandboxed)
+  }
+
   // --- Autonomous mode ---
 
   @action
@@ -638,6 +643,9 @@ export class WorkspaceStore {
       modelVersion: defaultModel,
       permissionMode: null,
       effortLevel: null,
+      // Looked up live (not snapshotted in the constructor like initPrompt) so
+      // changing the project setting applies to the very next chat.
+      sandboxed: projectRegistry.getProjectStore(this.projectId)?.defaultSandboxed ?? false,
       createdAt: now,
       updatedAt: now,
     }
@@ -731,6 +739,8 @@ export class WorkspaceStore {
           modelVersion: null,
           permissionMode: null,
           effortLevel: null,
+          // Real value loads lazily from chat metadata (see ChatStore hydrate).
+          sandboxed: false,
           createdAt: new Date(entry.createdAt),
           updatedAt: new Date(entry.updatedAt),
           isArchived: entry.isArchived ?? false,

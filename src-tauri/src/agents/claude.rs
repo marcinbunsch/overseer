@@ -28,9 +28,9 @@ pub fn agent_stdin(
 ///
 /// agent_path and agent_shell are optional - if not provided, they are read from config.json.
 #[tauri::command]
-pub fn send_message(
-    context_state: tauri::State<OverseerContextState>,
-    persistence_config: tauri::State<PersistenceConfig>,
+pub async fn send_message(
+    context_state: tauri::State<'_, OverseerContextState>,
+    persistence_config: tauri::State<'_, PersistenceConfig>,
     conversation_id: String,
     project_name: String,
     prompt: String,
@@ -43,6 +43,7 @@ pub fn send_message(
     permission_mode: Option<String>,
     agent_shell: Option<String>,
     effort_level: Option<String>,
+    sandboxed: Option<bool>,
 ) -> Result<(), String> {
     // Get config directory for reading defaults
     let config_dir = persistence_config.get_config_dir().ok();
@@ -63,6 +64,19 @@ pub fn send_message(
             .and_then(|dir| crate::persistence::get_agent_shell_from_config(dir))
     });
 
+    // When sandboxed, resolve the shared git directory now (async) so the
+    // manager's sync spawn path can grant it write access. A worktree's git
+    // state lives in the main repo's `.git`, not the workspace.
+    let sandboxed = sandboxed.unwrap_or(false);
+    let git_common_dir = if sandboxed {
+        let resolved = overseer_core::git::get_git_common_dir(std::path::Path::new(&working_dir))
+            .await
+            .map_err(|e| format!("Failed to resolve git directory for sandbox: {e}"))?;
+        Some(resolved.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
     let config = ClaudeStartConfig {
         conversation_id,
         project_name,
@@ -76,6 +90,8 @@ pub fn send_message(
         permission_mode,
         agent_shell: resolved_agent_shell,
         effort_level,
+        sandboxed,
+        git_common_dir,
     };
 
     context_state.0.claude_agents.send_message(

@@ -70,6 +70,9 @@ pub struct SpawnConfig {
     pub initial_stdin: Option<String>,
     /// Whether the process uses stdin for communication
     pub uses_stdin: bool,
+    /// When set, run the agent inside a macOS Seatbelt sandbox with a scrubbed
+    /// environment. `None` (the default) spawns exactly as before.
+    pub sandbox: Option<crate::sandbox::SandboxSpec>,
 }
 
 impl SpawnConfig {
@@ -82,6 +85,7 @@ impl SpawnConfig {
             shell_prefix: None,
             initial_stdin: None,
             uses_stdin: true,
+            sandbox: None,
         }
     }
 
@@ -106,6 +110,12 @@ impl SpawnConfig {
     /// Disable stdin (for processes that don't use it).
     pub fn no_stdin(mut self) -> Self {
         self.uses_stdin = false;
+        self
+    }
+
+    /// Run the agent inside a macOS Seatbelt sandbox described by `spec`.
+    pub fn sandbox(mut self, spec: crate::sandbox::SandboxSpec) -> Self {
+        self.sandbox = Some(spec);
         self
     }
 }
@@ -219,6 +229,38 @@ impl ProcessSpawner for DefaultProcessSpawner {
     }
 }
 
+/// Render the sandbox profile, write it to a temp file, and build the
+/// `sandbox-exec`-wrapped command. Returns the profile-file guard alongside the
+/// command — the caller must keep it alive until the process exits, because
+/// `sandbox-exec` reads the profile a moment *after* `spawn()` returns. macOS only.
+#[cfg(target_os = "macos")]
+fn build_sandboxed_agent_command(
+    config: &SpawnConfig,
+    spec: &crate::sandbox::SandboxSpec,
+) -> Result<(std::process::Command, crate::sandbox::SandboxProfileFile), String> {
+    let profile = crate::sandbox::SandboxProfile::from_spec(spec).render();
+    let guard = crate::sandbox::SandboxProfileFile::write(&profile)?;
+    let cmd = crate::shell::build_sandboxed_command(
+        &config.binary_path,
+        &config.args,
+        config.working_dir.as_deref(),
+        config.shell_prefix.as_deref(),
+        spec,
+        guard.path(),
+    )?;
+    Ok((cmd, guard))
+}
+
+/// The sandbox uses macOS `sandbox-exec`, which doesn't exist elsewhere. Fail
+/// loudly so a "sandboxed" toggle never silently runs unsandboxed.
+#[cfg(not(target_os = "macos"))]
+fn build_sandboxed_agent_command(
+    _config: &SpawnConfig,
+    _spec: &crate::sandbox::SandboxSpec,
+) -> Result<(std::process::Command, crate::sandbox::SandboxProfileFile), String> {
+    Err("Sandboxed agents are only supported on macOS".to_string())
+}
+
 /// A running agent process.
 ///
 /// Provides methods to communicate with the process and receive events.
@@ -226,6 +268,10 @@ pub struct AgentProcess {
     child: Arc<Mutex<Option<Child>>>,
     stdin: Arc<Mutex<Option<ChildStdin>>>,
     event_receiver: Receiver<ProcessEvent>,
+    /// Keeps the Seatbelt profile file on disk for the life of the process. The
+    /// child `sandbox-exec` reads it shortly after spawn, and it's removed when
+    /// this `AgentProcess` drops. `None` for unsandboxed spawns.
+    _sandbox_profile: Option<crate::sandbox::SandboxProfileFile>,
 }
 
 impl AgentProcess {
@@ -234,12 +280,23 @@ impl AgentProcess {
     /// Returns the process handle and immediately starts background threads
     /// for stdout/stderr reading and exit monitoring.
     pub fn spawn(config: SpawnConfig) -> Result<Self, String> {
-        let mut cmd = build_login_shell_command(
-            &config.binary_path,
-            &config.args,
-            config.working_dir.as_deref(),
-            config.shell_prefix.as_deref(),
-        )?;
+        // For a sandboxed spawn we hold the profile file until the process
+        // exits (see `_sandbox_profile`); `sandbox-exec` reads it after spawn.
+        let mut sandbox_profile: Option<crate::sandbox::SandboxProfileFile> = None;
+
+        let mut cmd = match &config.sandbox {
+            None => build_login_shell_command(
+                &config.binary_path,
+                &config.args,
+                config.working_dir.as_deref(),
+                config.shell_prefix.as_deref(),
+            )?,
+            Some(spec) => {
+                let (cmd, guard) = build_sandboxed_agent_command(&config, spec)?;
+                sandbox_profile = Some(guard);
+                cmd
+            }
+        };
 
         if config.uses_stdin {
             cmd.stdin(Stdio::piped());
@@ -342,6 +399,7 @@ impl AgentProcess {
             child: child_arc,
             stdin: stdin_arc,
             event_receiver: rx,
+            _sandbox_profile: sandbox_profile,
         })
     }
 
@@ -489,6 +547,63 @@ mod tests {
         let event = ProcessEvent::Stdout("test".to_string());
         let debug = format!("{:?}", event);
         assert!(debug.contains("Stdout"));
+    }
+
+    /// End-to-end: a sandboxed spawn wipes the host environment. Sets a secret
+    /// var, runs `env` inside the sandbox, and asserts the secret is gone while
+    /// PATH survives. Proves SpawnConfig.sandbox wires through to `.env_clear()`.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sandboxed_spawn_scrubs_host_env() {
+        use crate::sandbox::{AgentKind, SandboxSpec};
+        use std::path::PathBuf;
+
+        std::env::set_var("OVERSEER_SECRET_ENV", "leaked");
+        let home = PathBuf::from(std::env::var("HOME").unwrap());
+        let workspace = tempfile::tempdir().unwrap();
+
+        // git dir and tmp point at the workspace so the test needs no real repo.
+        let spec = SandboxSpec::new(
+            AgentKind::Claude,
+            workspace.path(),
+            workspace.path(),
+            &home,
+            vec![],
+        );
+        let config = SpawnConfig::new("/usr/bin/env", vec![])
+            .no_stdin()
+            .sandbox(spec);
+
+        let process = AgentProcess::spawn(config).unwrap();
+
+        // Drain until the channel closes (all reader threads done). Don't break
+        // on Exit — stdout is forwarded on a separate thread and may still be
+        // draining when the exit watcher fires.
+        let mut output = String::new();
+        let mut errout = String::new();
+        while let Some(event) = process.recv() {
+            match event {
+                ProcessEvent::Stdout(line) => {
+                    output.push_str(&line);
+                    output.push('\n');
+                }
+                ProcessEvent::Stderr(line) => {
+                    errout.push_str(&line);
+                    errout.push('\n');
+                }
+                _ => {}
+            }
+        }
+        std::env::remove_var("OVERSEER_SECRET_ENV");
+
+        assert!(
+            !output.contains("OVERSEER_SECRET_ENV"),
+            "host secret leaked into the sandboxed process env:\n{output}"
+        );
+        assert!(
+            output.contains("PATH="),
+            "PATH should survive the scrub.\nstdout:\n{output}\nstderr:\n{errout}"
+        );
     }
 
     #[test]

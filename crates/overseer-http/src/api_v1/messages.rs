@@ -115,6 +115,9 @@ pub(crate) async fn send_message(
         permission_mode: metadata.permission_mode,
         agent_shell: config_agent_shell,
         effort_level: None,
+        // The driving API does not sandbox agents (yet), same as /api/invoke.
+        sandboxed: false,
+        git_common_dir: None,
     };
 
     // Events flow through the EventBus and are persisted to the JSONL file.

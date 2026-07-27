@@ -91,6 +91,7 @@ pub fn sample_chat_metadata(id: &str) -> ChatMetadata {
         agent_session_id: None,
         model_version: Some("opus".to_string()),
         permission_mode: None,
+        sandboxed: false,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }
