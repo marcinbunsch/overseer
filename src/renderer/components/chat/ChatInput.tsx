@@ -27,6 +27,7 @@ import { AttachmentChip } from "./AttachmentChip"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 import { Textarea } from "../shared/Textarea"
 import { saveAttachment } from "../../services/attachmentService"
+import { platform } from "@tauri-apps/plugin-os"
 import type { Attachment, AutonomousReviewConfig } from "../../types"
 
 // Detect touch-only devices (mobile/tablet without keyboard)
@@ -34,6 +35,21 @@ const isTouchDevice =
   typeof window !== "undefined" &&
   ("ontouchstart" in window || navigator.maxTouchPoints > 0) &&
   !window.matchMedia("(pointer: fine)").matches
+
+// The Seatbelt sandbox is macOS-only, so the toggle is hidden elsewhere.
+// Computed lazily (not at import) so Tauri's OS plugin is ready, then memoized.
+// platform() throws in web mode, where sandboxing isn't available anyway.
+let _isMacOS: boolean | null = null
+function isMacOS(): boolean {
+  if (_isMacOS === null) {
+    try {
+      _isMacOS = platform() === "macos"
+    } catch {
+      _isMacOS = false
+    }
+  }
+  return _isMacOS
+}
 
 interface ChatInputProps {
   onSend: (content: string, attachments?: Attachment[]) => void
@@ -506,10 +522,12 @@ export const ChatInput = observer(function ChatInput({
                 disabled={autonomousRunning}
               />
             )}
-            {/* Sandbox is macOS-local (sandbox-exec), so only offer it on the
-                Tauri backend — the remote HTTP backend ignores the flag. */}
+            {/* Sandbox is macOS-local (sandbox-exec), so only offer it on macOS
+                and the Tauri backend — the remote HTTP backend ignores the flag
+                and a sandboxed spawn errors on other platforms. */}
             {agentType === "claude" &&
               onSandboxedChange &&
+              isMacOS() &&
               projectRegistry.selectedWorkspaceStore?.backend.type === "tauri" && (
                 <button
                   onClick={() => onSandboxedChange(!sandboxed)}
