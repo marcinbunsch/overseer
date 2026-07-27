@@ -17,7 +17,10 @@ export const AgentQuestionPanel = observer(function AgentQuestionPanel({
   if (pendingQuestions.length === 0) return null
 
   return (
-    <div className="border-t border-ovr-border-subtle bg-ovr-bg-panel px-4 py-3">
+    <div
+      data-testid="agent-question-panel"
+      className="max-h-[50vh] overflow-y-auto border-t border-ovr-border-subtle bg-ovr-bg-panel px-4 py-3"
+    >
       {pendingQuestions.map((agentQ) => (
         <QuestionSet key={agentQ.id} agentQuestion={agentQ} onAnswer={onAnswer} />
       ))}
