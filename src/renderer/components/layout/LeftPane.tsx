@@ -1,6 +1,7 @@
 import { observer } from "mobx-react-lite"
 import { ProjectList } from "../projects/ProjectList"
 import { AddProjectButton } from "../projects/AddProjectButton"
+import { RefreshProjectsButton } from "../projects/RefreshProjectsButton"
 import { debugStore } from "../../stores/DebugStore"
 
 export const LeftPane = observer(function LeftPane({ width }: { width: number }) {
@@ -16,7 +17,8 @@ export const LeftPane = observer(function LeftPane({ width }: { width: number })
         <span className="text-[11px] font-semibold tracking-wider text-ovr-text-dim uppercase">
           Projects
         </span>
-        <div className="absolute right-3">
+        <div className="absolute right-3 flex items-center gap-1">
+          <RefreshProjectsButton />
           <AddProjectButton />
         </div>
       </div>
