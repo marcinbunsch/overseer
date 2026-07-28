@@ -199,13 +199,21 @@ export class PlanReviewStore {
       // Update existing note
       const noteIndex = this.notes.findIndex((n) => n.id === editingId)
       if (noteIndex !== -1) {
-        this.notes[noteIndex] = {
-          ...this.notes[noteIndex],
-          startLine,
-          endLine,
-          lineContent,
-          comment: this.pending.commentText.trim(),
-          selectedText,
+        const existing = this.notes[noteIndex]
+        if (existing.anchor) {
+          // Text-anchored preview note: only the comment is editable. Its line range,
+          // snippet and anchor must stay in sync with the painted highlight, so a
+          // diff-view line selection must not overwrite them.
+          this.notes[noteIndex] = { ...existing, comment: this.pending.commentText.trim() }
+        } else {
+          this.notes[noteIndex] = {
+            ...existing,
+            startLine,
+            endLine,
+            lineContent,
+            comment: this.pending.commentText.trim(),
+            selectedText,
+          }
         }
       }
     } else {

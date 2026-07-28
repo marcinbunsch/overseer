@@ -116,6 +116,35 @@ describe("PlanReviewStore", () => {
 
       expect(store.notes[0].id).toBe("wh-42")
     })
+
+    it("editing a preview note updates only the comment, preserving its anchor and span", () => {
+      store.addPreviewNote({
+        id: "wh-1",
+        startLine: 3,
+        endLine: 4,
+        selectedText: "exact span",
+        comment: "first",
+        anchor,
+      })
+
+      // Edit it through the diff-view flow: a line selection + a new comment must NOT
+      // overwrite the text anchor, or the note would disagree with its painted highlight.
+      store.editNote(store.notes[0])
+      store.extendSelection(9) // a different line range in the pending selection
+      store.updateComment("revised")
+      store.addNote("Line 5\nLine 6", 5, 6)
+
+      expect(store.notes).toHaveLength(1)
+      expect(store.notes[0]).toMatchObject({
+        id: "wh-1",
+        startLine: 3, // preserved
+        endLine: 4, // preserved
+        selectedText: "exact span", // preserved
+        lineContent: "exact span", // preserved
+        comment: "revised", // updated
+        anchor, // preserved
+      })
+    })
   })
 
   describe("extendSelection", () => {

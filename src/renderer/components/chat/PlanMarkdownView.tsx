@@ -142,6 +142,12 @@ export const PlanMarkdownView = observer(function PlanMarkdownView({
     setDraft(null)
   }, [draft])
 
+  // Read live so the popover can re-anchor to the selection as the preview scrolls.
+  const getAnchorRect = useCallback(
+    () => (draft ? selectionRect(highlighterRef.current, draft) : new DOMRect()),
+    [draft]
+  )
+
   return (
     <>
       <div ref={containerRef} className="relative min-h-full cursor-text p-4">
@@ -161,7 +167,7 @@ export const PlanMarkdownView = observer(function PlanMarkdownView({
 
       {draft && (
         <PlanSelectionPopover
-          anchorRect={selectionRect(highlighterRef.current, draft)}
+          getAnchorRect={getAnchorRect}
           phase={draft.phase}
           commentText={draft.comment}
           onStartComment={handleStartComment}

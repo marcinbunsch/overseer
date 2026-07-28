@@ -1,11 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { MessageSquarePlus } from "lucide-react"
 
 export type PopoverPhase = "button" | "editor"
 
 interface PlanSelectionPopoverProps {
-  /** Bounding rect of the whole selection, in viewport coordinates. */
-  anchorRect: DOMRect
+  /**
+   * Reads the current bounding rect of the whole selection, in viewport coordinates.
+   * A callback (not a static rect) so the popover can re-read it on scroll/resize.
+   */
+  getAnchorRect: () => DOMRect
   phase: PopoverPhase
   commentText: string
   /** "button" phase: user clicked the floating Comment trigger. */
@@ -47,7 +50,7 @@ function computePosition(anchor: AnchorBox, self: DOMRect): { top: number; left:
  * "Comment" button next to the selection; clicking it swaps to an inline comment editor.
  */
 export function PlanSelectionPopover({
-  anchorRect,
+  getAnchorRect,
   phase,
   commentText,
   onStartComment,
@@ -58,16 +61,27 @@ export function PlanSelectionPopover({
   const rootRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
 
-  // Depend on the primitive coordinates, not the DOMRect object (a fresh instance each
-  // render would re-run the effect endlessly).
-  const { top, left, width, bottom } = anchorRect
-
-  // Position after render so the popover's measured size drives the flip/clamp. Runs when
-  // the selection moves or the phase (and thus the size) changes.
-  useLayoutEffect(() => {
+  const reposition = useCallback(() => {
     const el = rootRef.current
-    if (el) setPosition(computePosition({ top, left, width, bottom }, el.getBoundingClientRect()))
-  }, [top, left, width, bottom, phase])
+    if (el) setPosition(computePosition(getAnchorRect(), el.getBoundingClientRect()))
+  }, [getAnchorRect])
+
+  // Position after render so the popover's measured size drives the flip/clamp. Re-runs when
+  // the selection changes (getAnchorRect identity) or the phase (and thus the size) changes.
+  useLayoutEffect(() => {
+    reposition()
+  }, [reposition, phase])
+
+  // The preview scrolls in an overflow container, so keep the popover pinned to the
+  // selection. Capture-phase scroll catches the inner container (scroll doesn't bubble).
+  useEffect(() => {
+    window.addEventListener("scroll", reposition, true)
+    window.addEventListener("resize", reposition)
+    return () => {
+      window.removeEventListener("scroll", reposition, true)
+      window.removeEventListener("resize", reposition)
+    }
+  }, [reposition])
 
   // Clicking outside dismisses the popover (Cancel), which also clears the highlight.
   useEffect(() => {
