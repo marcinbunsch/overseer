@@ -31,6 +31,24 @@ body,
   background: var(--color-ovr-text-muted);
 }
 
+/* Plan preview highlights. web-highlighter wraps the exact selected text in a <mark> with
+   the .plan-mark class; committed comments also get .committed. Styled by class (not tag)
+   so it can't break on a wrapTag change. The base mark carries its own background, so the
+   pending highlight is focus-independent — it doesn't rely on the native selection. */
+.ovr-markdown .plan-mark {
+  background-color: rgba(56, 139, 253, 0.3);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 2px;
+  margin: 0 -2px;
+  cursor: pointer;
+}
+
+.ovr-markdown .plan-mark.committed {
+  background-color: rgba(245, 158, 11, 0.28);
+  border-bottom: 2px solid var(--color-ovr-amber-500);
+}
+
 @keyframes toast-show {
   from {
     opacity: 0;

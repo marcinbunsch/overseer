@@ -76,6 +76,77 @@ describe("PlanReviewStore", () => {
     })
   })
 
+  describe("addPreviewNote", () => {
+    const anchor = {
+      startMeta: { parentTagName: "P", parentIndex: 1, textOffset: 0 },
+      endMeta: { parentTagName: "P", parentIndex: 1, textOffset: 17 },
+    }
+
+    it("adds a text-anchored note carrying the selection, comment and anchor", () => {
+      store.addPreviewNote({
+        id: "wh-1",
+        startLine: 3,
+        endLine: 4,
+        selectedText: "the exact selection",
+        comment: "  too vague  ",
+        anchor,
+      })
+
+      expect(store.notes).toHaveLength(1)
+      expect(store.notes[0]).toMatchObject({
+        id: "wh-1",
+        startLine: 3,
+        endLine: 4,
+        selectedText: "the exact selection",
+        lineContent: "the exact selection",
+        comment: "too vague", // trimmed
+        anchor,
+      })
+    })
+
+    it("keeps the web-highlighter id so the mark can be restored and removed", () => {
+      store.addPreviewNote({
+        id: "wh-42",
+        startLine: 1,
+        endLine: 1,
+        selectedText: "Title",
+        comment: "clearer please",
+        anchor,
+      })
+
+      expect(store.notes[0].id).toBe("wh-42")
+    })
+
+    it("editing a preview note updates only the comment, preserving its anchor and span", () => {
+      store.addPreviewNote({
+        id: "wh-1",
+        startLine: 3,
+        endLine: 4,
+        selectedText: "exact span",
+        comment: "first",
+        anchor,
+      })
+
+      // Edit it through the diff-view flow: a line selection + a new comment must NOT
+      // overwrite the text anchor, or the note would disagree with its painted highlight.
+      store.editNote(store.notes[0])
+      store.extendSelection(9) // a different line range in the pending selection
+      store.updateComment("revised")
+      store.addNote("Line 5\nLine 6", 5, 6)
+
+      expect(store.notes).toHaveLength(1)
+      expect(store.notes[0]).toMatchObject({
+        id: "wh-1",
+        startLine: 3, // preserved
+        endLine: 4, // preserved
+        selectedText: "exact span", // preserved
+        lineContent: "exact span", // preserved
+        comment: "revised", // updated
+        anchor, // preserved
+      })
+    })
+  })
+
   describe("extendSelection", () => {
     it("updates focusIndex when pending exists", () => {
       store.startSelection(PLAN_FILE_PATH, 3, false)
@@ -469,6 +540,46 @@ Line 6`
       const line2Index = message.indexOf("## Line 2")
       const lines45Index = message.indexOf("## Lines 4-5")
       expect(line2Index).toBeLessThan(lines45Index)
+    })
+
+    it("quotes the exact selected text for a preview note", () => {
+      // Preview note: selection spans lines 2-3 but the user only highlighted part of it.
+      store.addPreviewNote({
+        id: "wh-1",
+        startLine: 2,
+        endLine: 3,
+        selectedText: "Line 2 and half of",
+        comment: "trim this",
+        anchor: {
+          startMeta: { parentTagName: "P", parentIndex: 0, textOffset: 0 },
+          endMeta: { parentTagName: "P", parentIndex: 1, textOffset: 5 },
+        },
+      })
+
+      const message = store.formatReviewMessage(planContent)
+
+      expect(message).toContain("## Lines 2-3")
+      // Quotes the highlighted substring, not the whole source lines.
+      expect(message).toContain("> Line 2 and half of")
+      expect(message).not.toContain("> Line 3")
+    })
+
+    it("quotes a multi-line selected text with each line prefixed", () => {
+      store.addPreviewNote({
+        id: "wh-2",
+        startLine: 2,
+        endLine: 3,
+        selectedText: "Line 2\nLine 3",
+        comment: "both",
+        anchor: {
+          startMeta: { parentTagName: "P", parentIndex: 0, textOffset: 0 },
+          endMeta: { parentTagName: "P", parentIndex: 1, textOffset: 6 },
+        },
+      })
+
+      const message = store.formatReviewMessage(planContent)
+
+      expect(message).toContain("> Line 2\n> Line 3")
     })
 
     it("includes separator and closing instruction", () => {

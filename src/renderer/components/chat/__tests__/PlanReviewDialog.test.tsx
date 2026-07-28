@@ -55,9 +55,7 @@ describe("PlanReviewDialog", () => {
 
     expect(screen.getByText("Review Plan")).toBeInTheDocument()
     // In markdown mode by default
-    expect(
-      screen.getByText("Double-click to switch to diff view and add comments")
-    ).toBeInTheDocument()
+    expect(screen.getByText("Select text to add comments")).toBeInTheDocument()
   })
 
   it("does not render when closed", () => {
@@ -161,9 +159,7 @@ describe("PlanReviewDialog", () => {
       render(<PlanReviewDialog {...defaultProps} />)
 
       // Markdown view shows double-click instruction (default)
-      expect(
-        screen.getByText("Double-click to switch to diff view and add comments")
-      ).toBeInTheDocument()
+      expect(screen.getByText("Select text to add comments")).toBeInTheDocument()
 
       // Switch to diff view
       const diffButton = screen.getByRole("button", { name: /Diff/i })
