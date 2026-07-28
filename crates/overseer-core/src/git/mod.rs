@@ -95,6 +95,16 @@ pub enum GitError {
     /// Path-related error
     PathError(String),
 
+    /// A worktree could not be removed without discarding uncommitted changes.
+    ///
+    /// Returned by `archive_workspace` when `force` is false and the worktree
+    /// has modified or untracked files. The caller decides whether to prompt
+    /// the user and retry with `force: true`.
+    WorktreeDirty {
+        /// Path of the dirty worktree
+        path: String,
+    },
+
     /// Other error with message
     Other(String),
 }
@@ -105,6 +115,9 @@ impl std::fmt::Display for GitError {
             GitError::CommandFailed(e) => write!(f, "Failed to run git: {e}"),
             GitError::GitFailed { stderr, .. } => write!(f, "Git error: {stderr}"),
             GitError::PathError(msg) => write!(f, "Path error: {msg}"),
+            GitError::WorktreeDirty { path } => {
+                write!(f, "WorktreeDirty: workspace '{path}' has uncommitted or untracked changes")
+            }
             GitError::Other(msg) => write!(f, "{msg}"),
         }
     }

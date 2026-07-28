@@ -303,7 +303,7 @@ describe("ChangedFilesStore", () => {
     const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
     await store.merge(true, false)
 
-    expect(projectRegistry.archiveWorkspace).toHaveBeenCalledWith(workspaceId)
+    expect(projectRegistry.archiveWorkspace).toHaveBeenCalledWith(workspaceId, false, false)
   })
 
   it("merge shows 'workspace archived' toast when archiving", async () => {
@@ -426,6 +426,96 @@ describe("ChangedFilesStore", () => {
     expect(toastStore.show).toHaveBeenCalledWith("Branch merged and workspace archived")
     expect(store.merging).toBe(false)
     expect(store.error).toBeNull()
+  })
+
+  it("merge with alreadyUpToDate does not archive or delete branch", async () => {
+    const { projectRegistry } = await import("../ProjectRegistry")
+    const { toastStore } = await import("../ToastStore")
+
+    vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
+    vi.mocked(projectRegistry).selectedProject = { id: "repo-1", path: "/repo/path" } as never
+
+    vi.mocked(mockGitService.mergeIntoMain).mockResolvedValue({
+      success: false,
+      alreadyUpToDate: true,
+      conflicts: [],
+      message: "Nothing to merge — 'feature-branch' has no commits that aren't already on 'main'.",
+    })
+
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
+    // Ask to archive + delete branch; neither should happen for a no-op merge.
+    await store.merge(true, true)
+
+    expect(projectRegistry.archiveWorkspace).not.toHaveBeenCalled()
+    expect(mockGitService.deleteBranch).not.toHaveBeenCalled()
+    expect(toastStore.show).toHaveBeenCalledWith(expect.stringContaining("Nothing to merge"))
+    expect(store.error).toBeNull()
+    expect(store.merging).toBe(false)
+  })
+
+  it("merge prompts to discard when workspace is dirty, without deleting branch", async () => {
+    const { projectRegistry } = await import("../ProjectRegistry")
+
+    vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
+    vi.mocked(projectRegistry).selectedProject = { id: "repo-1", path: "/repo/path" } as never
+
+    vi.mocked(mockGitService.mergeIntoMain).mockResolvedValue({
+      success: true,
+      alreadyUpToDate: false,
+      conflicts: [],
+      message: "",
+    })
+    // First archive attempt (force=false) fails because the worktree is dirty.
+    vi.mocked(projectRegistry.archiveWorkspace).mockRejectedValueOnce(
+      new Error("WorktreeDirty: workspace '/tmp/workspace' has uncommitted or untracked changes")
+    )
+
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
+    await store.merge(true, true)
+
+    // Prompt shown, branch NOT deleted yet.
+    expect(store.showDiscardConfirm).toBe(true)
+    expect(mockGitService.deleteBranch).not.toHaveBeenCalled()
+    expect(store.error).toBeNull()
+
+    // User confirms → retry with force, then branch deletion proceeds.
+    vi.mocked(projectRegistry.archiveWorkspace).mockResolvedValueOnce(undefined)
+    vi.mocked(mockGitService.deleteBranch).mockResolvedValue(undefined)
+    vi.mocked(mockGitService.listChangedFiles).mockResolvedValue({
+      files: [],
+      uncommitted: [],
+      is_default_branch: false,
+      submodules: [],
+    })
+
+    await store.confirmDiscardAndArchive()
+
+    expect(store.showDiscardConfirm).toBe(false)
+    expect(projectRegistry.archiveWorkspace).toHaveBeenLastCalledWith(workspaceId, false, true)
+    expect(mockGitService.deleteBranch).toHaveBeenCalledWith("/repo/path", "feature-branch")
+  })
+
+  it("merge surfaces a non-dirty archive failure without deleting the branch", async () => {
+    const { projectRegistry } = await import("../ProjectRegistry")
+
+    vi.mocked(projectRegistry).selectedWorkspace = { branch: "feature-branch" } as never
+    vi.mocked(projectRegistry).selectedProject = { id: "repo-1", path: "/repo/path" } as never
+
+    vi.mocked(mockGitService.mergeIntoMain).mockResolvedValue({
+      success: true,
+      alreadyUpToDate: false,
+      conflicts: [],
+      message: "",
+    })
+    vi.mocked(projectRegistry.archiveWorkspace).mockRejectedValue(new Error("disk on fire"))
+
+    const store = new ChangedFilesStore(workspacePath, workspaceId, mockGitService as never)
+    await store.merge(true, true)
+
+    expect(store.showDiscardConfirm).toBe(false)
+    expect(mockGitService.deleteBranch).not.toHaveBeenCalled()
+    expect(store.error).toBe("disk on fire")
+    expect(store.merging).toBe(false)
   })
 
   it("onRunningCountChange triggers refresh when count drops to 0", async () => {

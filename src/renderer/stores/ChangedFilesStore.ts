@@ -1,6 +1,6 @@
 import { observable, action, computed, makeObservable, runInAction } from "mobx"
 import { backend, type Unsubscribe } from "../backend"
-import { GitService, type PrStatus } from "../services/git"
+import { GitService, isWorktreeDirtyError, type PrStatus } from "../services/git"
 import { projectRegistry } from "./ProjectRegistry"
 import { toastStore } from "./ToastStore"
 import { eventBus } from "../utils/eventBus"
@@ -23,6 +23,8 @@ export class ChangedFilesStore {
   @observable checking = false
   @observable merging = false
   @observable showMergeConfirm = false
+  /** True when a merge succeeded but the workspace has uncommitted changes and we're asking whether to discard them before archiving. */
+  @observable showDiscardConfirm = false
   @observable diffFile: ChangedFile | null = null
   @observable prStatus: PrStatus | null = null
   @observable prLoading = false
@@ -33,6 +35,12 @@ export class ChangedFilesStore {
   private unlisteners: Unsubscribe[] = []
   private eventBusUnsubscribers: (() => void)[] = []
   private prevRunningCount = 0
+  /** Archive context captured when a dirty-workspace discard prompt is shown. */
+  private pendingDiscardArchive: {
+    deleteBranch: boolean
+    branchName?: string
+    projectPath?: string
+  } | null = null
   private disposed = false
   private isActive = false
   private lastLoadTime = 0
@@ -192,35 +200,23 @@ export class ChangedFilesStore {
         projectRegistry.selectedProject?.mainBranch
       )
       if (result.success) {
-        let toastMessage = "Branch merged successfully"
-
         if (archiveAfter) {
-          await projectRegistry.archiveWorkspace(this.workspaceId)
-          toastMessage = "Branch merged and workspace archived"
-
-          // Delete branch after successful archive
-          if (deleteBranch && branchName && projectPath) {
-            try {
-              await this.gitService.deleteBranch(projectPath, branchName)
-              toastMessage = "Branch merged, workspace archived, and branch deleted"
-            } catch {
-              // Branch deletion failed but merge and archive succeeded
-              // Don't fail the whole operation
-            }
+          await this.archiveAfterMerge(deleteBranch, branchName, projectPath, false)
+        } else {
+          // Switch to main workspace after successful merge
+          if (project) {
+            projectRegistry.switchToMainWorkspace(project.id)
           }
-        }
-
-        // Switch to main workspace after successful merge
-        if (project) {
-          projectRegistry.switchToMainWorkspace(project.id)
-        }
-
-        toastStore.show(toastMessage)
-        await this.refresh()
-        // Refresh PR state to show merged status (skip if archiving since workspace goes away)
-        if (!archiveAfter) {
+          toastStore.show("Branch merged successfully")
+          await this.refresh()
+          // Refresh PR state to show merged status
           await this.refreshPr()
         }
+      } else if (result.alreadyUpToDate) {
+        // Nothing was merged — the branch has no commits beyond the default
+        // branch (empty branch, or all work left uncommitted). Do NOT archive
+        // or delete the branch; that would throw away the uncommitted work.
+        toastStore.show(result.message)
       } else if (result.conflicts.length > 0) {
         const uniqueList = Array.from(new Set(result.conflicts)).join(", ")
         const workspaceStore = projectRegistry.selectedWorkspaceStore
@@ -241,6 +237,93 @@ export class ChangedFilesStore {
       runInAction(() => {
         this.merging = false
       })
+    }
+  }
+
+  /**
+   * Archive the workspace after a successful merge, then optionally delete the
+   * branch. If the workspace has uncommitted changes and `force` is false, the
+   * archive is refused and we surface a discard prompt instead of losing the
+   * work. Resumes with `force: true` via {@link confirmDiscardAndArchive}.
+   */
+  private async archiveAfterMerge(
+    deleteBranch: boolean,
+    branchName: string | undefined,
+    projectPath: string | undefined,
+    force: boolean
+  ): Promise<void> {
+    const project = projectRegistry.selectedProject
+
+    try {
+      await projectRegistry.archiveWorkspace(this.workspaceId, false, force)
+    } catch (err) {
+      if (!force && isWorktreeDirtyError(err)) {
+        runInAction(() => {
+          this.pendingDiscardArchive = { deleteBranch, branchName, projectPath }
+          this.showDiscardConfirm = true
+        })
+        return
+      }
+      throw err
+    }
+
+    let toastMessage = "Branch merged and workspace archived"
+
+    // Delete branch after successful archive
+    if (deleteBranch && branchName && projectPath) {
+      try {
+        await this.gitService.deleteBranch(projectPath, branchName)
+        toastMessage = "Branch merged, workspace archived, and branch deleted"
+      } catch {
+        // Branch deletion failed but merge and archive succeeded
+        // Don't fail the whole operation
+      }
+    }
+
+    // Switch to main workspace after successful merge
+    if (project) {
+      projectRegistry.switchToMainWorkspace(project.id)
+    }
+
+    toastStore.show(toastMessage)
+    await this.refresh()
+  }
+
+  /**
+   * Called when the user confirms discarding uncommitted changes after a merge.
+   * Retries the archive with force, discarding the working-tree changes.
+   */
+  @action
+  async confirmDiscardAndArchive(): Promise<void> {
+    const pending = this.pendingDiscardArchive
+    this.showDiscardConfirm = false
+    this.pendingDiscardArchive = null
+    if (!pending) return
+
+    this.merging = true
+    try {
+      await this.archiveAfterMerge(
+        pending.deleteBranch,
+        pending.branchName,
+        pending.projectPath,
+        true
+      )
+    } catch (err) {
+      runInAction(() => {
+        this.error = err instanceof Error ? err.message : String(err)
+      })
+    } finally {
+      runInAction(() => {
+        this.merging = false
+      })
+    }
+  }
+
+  @action
+  setShowDiscardConfirm(show: boolean): void {
+    this.showDiscardConfirm = show
+    if (!show) {
+      this.pendingDiscardArchive = null
     }
   }
 

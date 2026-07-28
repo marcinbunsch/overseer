@@ -435,7 +435,11 @@ class ProjectRegistry {
     return undefined
   }
 
-  @action async archiveWorkspace(workspaceId: string, deleteBranch = false): Promise<void> {
+  @action async archiveWorkspace(
+    workspaceId: string,
+    deleteBranch = false,
+    force = false
+  ): Promise<void> {
     for (const project of this._projects) {
       const wt = project.workspaces.find((w) => w.id === workspaceId)
       if (wt) {
@@ -458,11 +462,11 @@ class ProjectRegistry {
         }
 
         try {
-          try {
-            await gitService.archiveWorkspace(project.path, wt.path)
-          } catch (err) {
-            console.warn("Failed to remove workspace from git, cleaning up anyway:", err)
-          }
+          // If the worktree can't be removed (e.g. it has uncommitted changes
+          // and force is false), let the error propagate. Do NOT continue to
+          // delete the branch or mark the workspace archived — that would lose
+          // the work. The catch below reverts the optimistic state.
+          await gitService.archiveWorkspace(project.path, wt.path, force)
           terminalService.destroy(wt.path)
 
           // Archive the chat folder using WorkspaceStore

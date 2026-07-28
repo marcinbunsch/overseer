@@ -977,9 +977,11 @@ async fn dispatch_archive_workspace(args: serde_json::Value) -> (StatusCode, Jso
         }
     };
 
+    let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+
     let repo = PathBuf::from(repo_path);
     let workspace = PathBuf::from(workspace_path);
-    match overseer_core::git::archive_workspace(&repo, &workspace).await {
+    match overseer_core::git::archive_workspace(&repo, &workspace, force).await {
         Ok(()) => (
             StatusCode::OK,
             Json(InvokeResponse {

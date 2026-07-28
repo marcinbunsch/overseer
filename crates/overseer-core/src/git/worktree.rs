@@ -301,40 +301,66 @@ pub async fn add_workspace(repo_path: &Path, branch: &str) -> Result<PathBuf, Gi
 ///
 /// * `repo_path` - Path to the repository
 /// * `workspace_path` - Path to the workspace to remove
+/// * `force` - Whether to discard uncommitted changes
 ///
 /// # Behavior
 ///
-/// 1. Tries `git worktree remove <path>`
-/// 2. If that fails (e.g., uncommitted changes), tries `--force`
+/// - `force: false` runs `git worktree remove <path>` only. If git refuses
+///   because the worktree has modified or untracked files, returns
+///   [`GitError::WorktreeDirty`] and removes nothing — it never forces behind
+///   the user's back.
+/// - `force: true` runs `git worktree remove --force <path>`, deliberately
+///   discarding any uncommitted changes.
 ///
 /// # Errors
 ///
-/// Returns an error if both normal and force removal fail.
-pub async fn archive_workspace(repo_path: &Path, workspace_path: &Path) -> Result<(), GitError> {
+/// Returns [`GitError::WorktreeDirty`] when `force` is false and the worktree
+/// is dirty, or [`GitError::GitFailed`] for any other removal failure.
+pub async fn archive_workspace(
+    repo_path: &Path,
+    workspace_path: &Path,
+    force: bool,
+) -> Result<(), GitError> {
     let workspace_str = workspace_path.to_string_lossy();
 
-    // Try normal removal first
+    if force {
+        // Deliberate discard: remove the worktree even if it has changes.
+        let output = run_git(
+            &["worktree", "remove", "--force", &workspace_str],
+            repo_path,
+        )
+        .await?;
+
+        return if output.success {
+            Ok(())
+        } else {
+            Err(GitError::GitFailed {
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            })
+        };
+    }
+
+    // Non-force: a plain remove. git refuses (and tells you to use --force)
+    // when the worktree is dirty. Surface that as WorktreeDirty so the caller
+    // can prompt before discarding anything.
     let output = run_git(&["worktree", "remove", &workspace_str], repo_path).await?;
 
     if output.success {
         return Ok(());
     }
 
-    // Force removal if normal fails (e.g., uncommitted changes)
-    let output2 = run_git(
-        &["worktree", "remove", "--force", &workspace_str],
-        repo_path,
-    )
-    .await?;
-
-    if output2.success {
-        Ok(())
-    } else {
-        Err(GitError::GitFailed {
-            stderr: String::from_utf8_lossy(&output2.stderr).to_string(),
-            stdout: String::from_utf8_lossy(&output2.stdout).to_string(),
-        })
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if stderr.contains("--force") || stderr.contains("contains modified or untracked") {
+        return Err(GitError::WorktreeDirty {
+            path: workspace_str.to_string(),
+        });
     }
+
+    Err(GitError::GitFailed {
+        stderr,
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+    })
 }
 
 // ============================================================================
@@ -344,7 +370,89 @@ pub async fn archive_workspace(repo_path: &Path, workspace_path: &Path) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
     use tempfile::tempdir;
+
+    /// Create an isolated git repository on `main` with one commit.
+    fn init_temp_repo() -> tempfile::TempDir {
+        let dir = tempdir().unwrap();
+        let path = dir.path();
+
+        let empty_config = path.join(".gitconfig-empty");
+        std::fs::write(&empty_config, "").unwrap();
+
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .env("GIT_CONFIG_GLOBAL", &empty_config)
+                .current_dir(path)
+                .output()
+                .unwrap();
+        };
+
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.email", "test@test.com"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        git(&["commit", "--allow-empty", "-m", "init"]);
+
+        dir
+    }
+
+    #[tokio::test]
+    async fn archive_workspace_refuses_dirty_worktree_without_force() {
+        let dir = init_temp_repo();
+        let repo = dir.path();
+
+        let wt = repo.join("wt");
+        Command::new("git")
+            .args(["worktree", "add", wt.to_str().unwrap(), "-b", "feature"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+
+        // Leave an untracked file so git refuses a plain remove.
+        std::fs::write(wt.join("dirty.txt"), "uncommitted work").unwrap();
+
+        let err = archive_workspace(repo, &wt, false).await.unwrap_err();
+        assert!(matches!(err, GitError::WorktreeDirty { .. }));
+
+        // Nothing was removed — the worktree and its file still exist.
+        assert!(wt.join("dirty.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn archive_workspace_force_removes_dirty_worktree() {
+        let dir = init_temp_repo();
+        let repo = dir.path();
+
+        let wt = repo.join("wt");
+        Command::new("git")
+            .args(["worktree", "add", wt.to_str().unwrap(), "-b", "feature"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        std::fs::write(wt.join("dirty.txt"), "uncommitted work").unwrap();
+
+        archive_workspace(repo, &wt, true).await.unwrap();
+        assert!(!wt.exists());
+    }
+
+    #[tokio::test]
+    async fn archive_workspace_removes_clean_worktree_without_force() {
+        let dir = init_temp_repo();
+        let repo = dir.path();
+
+        let wt = repo.join("wt");
+        Command::new("git")
+            .args(["worktree", "add", wt.to_str().unwrap(), "-b", "feature"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+
+        archive_workspace(repo, &wt, false).await.unwrap();
+        assert!(!wt.exists());
+    }
 
     #[test]
     fn workspace_info_serializes() {

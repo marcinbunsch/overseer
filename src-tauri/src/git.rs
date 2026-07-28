@@ -48,10 +48,14 @@ pub async fn add_workspace(repo_path: String, branch: String) -> Result<String, 
 
 /// Remove a workspace (worktree) from the repository.
 #[tauri::command]
-pub async fn archive_workspace(repo_path: String, workspace_path: String) -> Result<(), String> {
+pub async fn archive_workspace(
+    repo_path: String,
+    workspace_path: String,
+    force: Option<bool>,
+) -> Result<(), String> {
     let repo = std::path::PathBuf::from(&repo_path);
     let workspace = std::path::PathBuf::from(&workspace_path);
-    overseer_core::git::archive_workspace(&repo, &workspace)
+    overseer_core::git::archive_workspace(&repo, &workspace, force.unwrap_or(false))
         .await
         .map_err(|e| e.to_string())
 }

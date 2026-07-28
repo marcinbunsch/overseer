@@ -46,6 +46,13 @@ pub struct MergeResult {
     /// Whether the merge succeeded (or would succeed for check_merge)
     pub success: bool,
 
+    /// The feature branch had no commits beyond the default branch, so there
+    /// was nothing to merge. Distinct from `success` so a no-op is never
+    /// treated as a completed merge (which would trigger archive + branch
+    /// delete and silently lose uncommitted work).
+    #[serde(rename = "alreadyUpToDate")]
+    pub already_up_to_date: bool,
+
     /// List of conflicting files or conflict descriptions
     ///
     /// Empty if no conflicts.
@@ -103,6 +110,7 @@ pub async fn check_merge(
     if is_default_branch_name(&feature_branch, main_branch) {
         return Ok(MergeResult {
             success: false,
+            already_up_to_date: false,
             conflicts: vec![],
             message: "Already on the default branch, nothing to merge.".to_string(),
         });
@@ -131,6 +139,7 @@ pub async fn check_merge(
     if is_ancestor.success {
         return Ok(MergeResult {
             success: true,
+            already_up_to_date: false,
             conflicts: vec![],
             message: format!(
                 "Clean fast-forward merge of '{feature_branch}' into '{default_branch}'."
@@ -154,6 +163,7 @@ pub async fn check_merge(
     if merge_tree.success {
         return Ok(MergeResult {
             success: true,
+            already_up_to_date: false,
             conflicts: vec![],
             message: format!("Clean merge of '{feature_branch}' into '{default_branch}'."),
         });
@@ -172,6 +182,7 @@ pub async fn check_merge(
 
     Ok(MergeResult {
         success: false,
+        already_up_to_date: false,
         conflicts,
         message: format!(
             "Merge of '{feature_branch}' into '{default_branch}' has conflicts that need resolution."
@@ -227,6 +238,7 @@ pub async fn merge_into_main(
     if is_default_branch_name(&feature_branch, main_branch) {
         return Ok(MergeResult {
             success: false,
+            already_up_to_date: false,
             conflicts: vec![],
             message: "Already on the default branch, nothing to merge.".to_string(),
         });
@@ -238,6 +250,36 @@ pub async fn merge_into_main(
         .strip_prefix("origin/")
         .unwrap_or(&default_remote)
         .to_string();
+
+    // Guard against a no-op merge. `git merge` exits 0 for "Already up to date"
+    // when the feature branch has no commits beyond the default branch (empty
+    // branch, or all work left uncommitted). Reporting that as success would
+    // let the caller archive the workspace and delete the branch, throwing away
+    // the uncommitted changes. Count commits on the feature branch that aren't
+    // already on the default branch; zero means there is nothing to merge.
+    let rev_list = run_git(
+        &[
+            "rev-list",
+            "--count",
+            &format!("{default_branch}..{feature_branch}"),
+        ],
+        workspace_path,
+    )
+    .await?;
+    let commits_ahead = String::from_utf8_lossy(&rev_list.stdout)
+        .trim()
+        .parse::<u64>()
+        .unwrap_or(0);
+    if rev_list.success && commits_ahead == 0 {
+        return Ok(MergeResult {
+            success: false,
+            already_up_to_date: true,
+            conflicts: vec![],
+            message: format!(
+                "Nothing to merge — '{feature_branch}' has no commits that aren't already on '{default_branch}'."
+            ),
+        });
+    }
 
     // Find the workspace checked out on the default branch
     // We need to run the merge FROM that workspace
@@ -288,6 +330,7 @@ pub async fn merge_into_main(
     if merge_output.success {
         return Ok(MergeResult {
             success: true,
+            already_up_to_date: false,
             conflicts: vec![],
             message: format!("Successfully merged '{feature_branch}' into '{default_branch}'."),
         });
@@ -310,6 +353,7 @@ pub async fn merge_into_main(
     if !conflicts.is_empty() {
         return Ok(MergeResult {
             success: false,
+            already_up_to_date: false,
             conflicts,
             message: format!(
                 "Merge of '{feature_branch}' into '{default_branch}' has conflicts that need resolution."
@@ -320,6 +364,7 @@ pub async fn merge_into_main(
     // Non-conflict failure
     Ok(MergeResult {
         success: false,
+        already_up_to_date: false,
         conflicts: vec![],
         message: format!("Merge failed: {stderr} {stdout}"),
     })
@@ -337,12 +382,14 @@ mod tests {
     fn merge_result_serializes() {
         let result = MergeResult {
             success: true,
+            already_up_to_date: false,
             conflicts: vec![],
             message: "Clean merge".to_string(),
         };
 
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("\"success\":true"));
+        assert!(json.contains("\"alreadyUpToDate\":false"));
         assert!(json.contains("Clean merge"));
     }
 
@@ -350,6 +397,7 @@ mod tests {
     fn merge_result_with_conflicts_serializes() {
         let result = MergeResult {
             success: false,
+            already_up_to_date: false,
             conflicts: vec!["file1.rs".to_string(), "file2.rs".to_string()],
             message: "Has conflicts".to_string(),
         };
@@ -392,6 +440,63 @@ mod tests {
         assert!(conflicts[1].contains("other.rs"));
     }
 
-    // Note: Integration tests for check_merge and merge_into_main require
-    // a real git repository with multiple branches and worktrees.
+    /// Create an isolated git repository on `branch_name` with one commit.
+    fn init_temp_repo(branch_name: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+
+        let empty_config = path.join(".gitconfig-empty");
+        std::fs::write(&empty_config, "").unwrap();
+
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .env("GIT_CONFIG_GLOBAL", &empty_config)
+                .current_dir(path)
+                .output()
+                .unwrap();
+        };
+
+        git(&["init", "-b", branch_name]);
+        git(&["config", "user.email", "test@test.com"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        git(&["commit", "--allow-empty", "-m", "init"]);
+
+        dir
+    }
+
+    #[tokio::test]
+    async fn merge_into_main_reports_already_up_to_date_for_empty_branch() {
+        // A feature branch with no commits beyond main must not report success —
+        // git would no-op ("Already up to date") and the caller would then
+        // archive the workspace and delete the branch, losing uncommitted work.
+        let dir = init_temp_repo("main");
+        let path = dir.path();
+
+        std::process::Command::new("git")
+            .args(["checkout", "-b", "feature"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        let result = merge_into_main(path, None).await.unwrap();
+        assert!(!result.success);
+        assert!(result.already_up_to_date);
+        assert!(result.conflicts.is_empty());
+
+        // The default branch must be untouched: it still points at the same
+        // commit (no merge commit was created).
+        let main_head = std::process::Command::new("git")
+            .args(["rev-parse", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        let feature_head = std::process::Command::new("git")
+            .args(["rev-parse", "feature"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        assert_eq!(main_head.stdout, feature_head.stdout);
+    }
 }

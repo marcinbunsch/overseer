@@ -6,6 +6,7 @@ import { projectRegistry } from "../../stores/ProjectRegistry"
 import { toolAvailabilityStore } from "../../stores/ToolAvailabilityStore"
 import { eventBus } from "../../utils/eventBus"
 import { STATUS_STYLES } from "../../constants/git"
+import { ConfirmDialog } from "../shared/ConfirmDialog"
 import { DiffDialog } from "./DiffDialog"
 import { MergeDialog } from "./MergeDialog"
 import { SubmoduleSection } from "./SubmoduleSection"
@@ -225,6 +226,15 @@ export const ChangedFilesPane = observer(function ChangedFilesPane({
         open={store.showMergeConfirm}
         onOpenChange={(open) => store.setShowMergeConfirm(open)}
         onMerge={(archiveAfter, deleteBranch) => store.merge(archiveAfter, deleteBranch)}
+      />
+
+      <ConfirmDialog
+        open={store.showDiscardConfirm}
+        onOpenChange={(open) => store.setShowDiscardConfirm(open)}
+        title="Discard uncommitted changes?"
+        description="The branch was merged, but this workspace has uncommitted changes that were never committed. Archiving will permanently delete them. Discard and archive anyway?"
+        confirmLabel="Discard & Archive"
+        onConfirm={() => store.confirmDiscardAndArchive()}
       />
 
       {store.diffFile && (

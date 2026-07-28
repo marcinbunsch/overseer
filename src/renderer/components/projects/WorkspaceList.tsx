@@ -141,7 +141,11 @@ export const WorkspaceList = observer(function WorkspaceList({ project }: Worksp
                       const shouldDeleteBranch = deleteBranch
                       setPendingArchive(null)
                       setDeleteBranch(false)
-                      await projectRegistry.archiveWorkspace(pendingArchive.id, shouldDeleteBranch)
+                      await projectRegistry.archiveWorkspace(
+                        pendingArchive.id,
+                        shouldDeleteBranch,
+                        true // explicit "Delete workspace" — discard any uncommitted changes
+                      )
                       toastStore.show(
                         shouldDeleteBranch ? "Workspace and branch deleted" : "Workspace deleted"
                       )

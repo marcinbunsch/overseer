@@ -42,8 +42,8 @@ export class GitService {
     return this.backend.invoke<string>("add_workspace", { repoPath, branch })
   }
 
-  async archiveWorkspace(repoPath: string, workspacePath: string): Promise<void> {
-    return this.backend.invoke<void>("archive_workspace", { repoPath, workspacePath })
+  async archiveWorkspace(repoPath: string, workspacePath: string, force = false): Promise<void> {
+    return this.backend.invoke<void>("archive_workspace", { repoPath, workspacePath, force })
   }
 
   async listChangedFiles(workspacePath: string, mainBranch?: string): Promise<ChangedFilesResult> {
@@ -186,3 +186,13 @@ export class GitService {
 }
 
 export const gitService = new GitService()
+
+/**
+ * Whether an error thrown by `archiveWorkspace(..., force=false)` is the
+ * backend's "worktree has uncommitted changes" refusal. The backend maps
+ * `GitError::WorktreeDirty` to a string starting with "WorktreeDirty:".
+ */
+export function isWorktreeDirtyError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return message.includes("WorktreeDirty")
+}
