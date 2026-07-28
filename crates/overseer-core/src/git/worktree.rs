@@ -382,12 +382,17 @@ mod tests {
         std::fs::write(&empty_config, "").unwrap();
 
         let git = |args: &[&str]| {
-            Command::new("git")
+            let out = Command::new("git")
                 .args(args)
                 .env("GIT_CONFIG_GLOBAL", &empty_config)
                 .current_dir(path)
                 .output()
                 .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
         };
 
         git(&["init", "-b", "main"]);
@@ -405,11 +410,16 @@ mod tests {
         let repo = dir.path();
 
         let wt = repo.join("wt");
-        Command::new("git")
+        let add = Command::new("git")
             .args(["worktree", "add", wt.to_str().unwrap(), "-b", "feature"])
             .current_dir(repo)
             .output()
             .unwrap();
+        assert!(
+            add.status.success(),
+            "worktree add failed: {}",
+            String::from_utf8_lossy(&add.stderr)
+        );
 
         // Leave an untracked file so git refuses a plain remove.
         std::fs::write(wt.join("dirty.txt"), "uncommitted work").unwrap();
@@ -427,11 +437,16 @@ mod tests {
         let repo = dir.path();
 
         let wt = repo.join("wt");
-        Command::new("git")
+        let add = Command::new("git")
             .args(["worktree", "add", wt.to_str().unwrap(), "-b", "feature"])
             .current_dir(repo)
             .output()
             .unwrap();
+        assert!(
+            add.status.success(),
+            "worktree add failed: {}",
+            String::from_utf8_lossy(&add.stderr)
+        );
         std::fs::write(wt.join("dirty.txt"), "uncommitted work").unwrap();
 
         archive_workspace(repo, &wt, true).await.unwrap();
@@ -444,11 +459,16 @@ mod tests {
         let repo = dir.path();
 
         let wt = repo.join("wt");
-        Command::new("git")
+        let add = Command::new("git")
             .args(["worktree", "add", wt.to_str().unwrap(), "-b", "feature"])
             .current_dir(repo)
             .output()
             .unwrap();
+        assert!(
+            add.status.success(),
+            "worktree add failed: {}",
+            String::from_utf8_lossy(&add.stderr)
+        );
 
         archive_workspace(repo, &wt, false).await.unwrap();
         assert!(!wt.exists());

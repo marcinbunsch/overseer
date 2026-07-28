@@ -194,5 +194,8 @@ export const gitService = new GitService()
  */
 export function isWorktreeDirtyError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
-  return message.includes("WorktreeDirty")
+  // Match the colon too: the Display format is "WorktreeDirty: ...", so this
+  // avoids classifying an unrelated error that merely mentions "WorktreeDirty"
+  // as dirty (which would wrongly trigger the destructive discard prompt).
+  return message.includes("WorktreeDirty:")
 }

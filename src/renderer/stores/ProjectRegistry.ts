@@ -451,14 +451,15 @@ class ProjectRegistry {
         const projectStore = this._projectStoreCache.get(project.id)
         const workspaceStore = projectStore?.getWorkspaceStore(workspaceId)
 
-        // Optimistic update: mark as archiving and switch focus immediately
+        // Optimistic update: mark as archiving. Do NOT switch focus yet — if
+        // removal is refused (dirty worktree, force=false) the caller shows a
+        // discard prompt that must render in this workspace's context, and we
+        // must not navigate away from a workspace that was never archived.
+        const wasSelected = this.selectedWorkspaceId === workspaceId
         wt.isArchiving = true
         // Also update the cached ProjectStore if it exists
         if (projectStore) {
           projectStore.workspaces = project.workspaces
-        }
-        if (this.selectedWorkspaceId === workspaceId) {
-          this.switchToMainWorkspace(project.id)
         }
 
         try {
@@ -468,6 +469,11 @@ class ProjectRegistry {
           // the work. The catch below reverts the optimistic state.
           await gitService.archiveWorkspace(project.path, wt.path, force)
           terminalService.destroy(wt.path)
+
+          // Removal succeeded — now it is safe to leave the workspace.
+          if (wasSelected) {
+            this.switchToMainWorkspace(project.id)
+          }
 
           // Archive the chat folder using WorkspaceStore
           if (workspaceStore) {

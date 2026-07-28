@@ -66,6 +66,8 @@ export const WebSocketConnectionIndicator = observer(function WebSocketConnectio
           <div
             className="flex cursor-default items-center gap-1.5"
             data-testid="ws-connection-indicator"
+            role="status"
+            aria-label={`WebSocket ${getLabel()}`}
           >
             <div className={`size-2 rounded-full ${getColor()}`} />
             {/* Label hidden on narrow (mobile) screens; the dot + tooltip carry the state */}

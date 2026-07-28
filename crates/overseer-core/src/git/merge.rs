@@ -449,12 +449,17 @@ mod tests {
         std::fs::write(&empty_config, "").unwrap();
 
         let git = |args: &[&str]| {
-            std::process::Command::new("git")
+            let out = std::process::Command::new("git")
                 .args(args)
                 .env("GIT_CONFIG_GLOBAL", &empty_config)
                 .current_dir(path)
                 .output()
                 .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
         };
 
         git(&["init", "-b", branch_name]);
@@ -474,11 +479,16 @@ mod tests {
         let dir = init_temp_repo("main");
         let path = dir.path();
 
-        std::process::Command::new("git")
+        let checkout = std::process::Command::new("git")
             .args(["checkout", "-b", "feature"])
             .current_dir(path)
             .output()
             .unwrap();
+        assert!(
+            checkout.status.success(),
+            "checkout failed: {}",
+            String::from_utf8_lossy(&checkout.stderr)
+        );
 
         let result = merge_into_main(path, None).await.unwrap();
         assert!(!result.success);

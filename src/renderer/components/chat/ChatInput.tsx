@@ -511,6 +511,7 @@ export const ChatInput = observer(function ChatInput({
                       : "text-ovr-text-muted hover:bg-ovr-bg-elevated hover:text-ovr-text-primary"
                   }`}
                   title={permissionMode === "plan" ? "Disable plan mode" : "Enable plan mode"}
+                  aria-label={permissionMode === "plan" ? "Disable plan mode" : "Enable plan mode"}
                   data-testid="plan-mode-toggle"
                 >
                   <ListChecks size={14} />
@@ -546,6 +547,7 @@ export const ChatInput = observer(function ChatInput({
                       ? "Sandbox on: agent limited to this workspace. Click to disable (restarts the agent)."
                       : "Sandbox off: agent can access the filesystem. Click to enable (restarts the agent)."
                   }
+                  aria-label={sandboxed ? "Disable sandbox" : "Enable sandbox"}
                   data-testid="sandbox-toggle"
                 >
                   <Shield size={14} />
