@@ -392,6 +392,22 @@ mod tests {
     }
 
     #[test]
+    fn done_marker_reports_turn_complete() {
+        // When the agent process exits without a "result" line, the manager
+        // persists a Done marker instead of TurnComplete. The fold must treat it
+        // as turn-complete so the HTTP poller can stop. Regression for the API
+        // hang where turn_complete never flipped and the poll spun for 20+ min.
+        let events = vec![
+            seq(1, user("hello", false)),
+            seq(2, assistant_text("hi there")),
+            seq(3, AgentEvent::Done),
+        ];
+        let fold = fold_events(&events, View::Text);
+        assert!(fold.turn_complete);
+        assert_eq!(fold.last_seq, 3);
+    }
+
+    #[test]
     fn incomplete_turn_reports_not_complete() {
         // No TurnComplete/Done marker yet.
         let events = vec![

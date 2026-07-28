@@ -224,7 +224,13 @@ impl ClaudeAgentManager {
                     process_arc.lock().unwrap().take();
                 };
 
-            // Use blocking receive - no polling needed
+            // Use blocking receive - no polling needed. Capture the exit so the
+            // terminal handling after the loop runs exactly once, whether the
+            // process sent an Exit event or the channel simply closed.
+            let mut exit = AgentExit {
+                code: 0,
+                signal: None,
+            };
             while let Ok(event) = event_receiver.recv() {
                 match event {
                     ProcessEvent::Stdout(line) => {
@@ -254,21 +260,22 @@ impl ClaudeAgentManager {
                         log_line(&log_file, "STDERR", &line);
                         event_bus.emit(&format!("agent:stderr:{}", conv_id), &line);
                     }
-                    ProcessEvent::Exit(exit) => {
-                        flush_and_emit(
-                            &parser_arc,
-                            &chat_sessions,
-                            &event_bus,
-                            &conv_id,
-                            &process_arc,
-                        );
-                        event_bus.emit(&format!("agent:close:{}", conv_id), &exit);
+                    ProcessEvent::Exit(process_exit) => {
+                        exit = process_exit;
                         break;
                     }
                 }
             }
 
-            // Channel closed without Exit event - emit close anyway
+            // The process ended (Exit event, or the channel closed). Flush any
+            // buffered parser output, then persist a Done marker.
+            //
+            // Done is the only turn-end signal a stream-only reader (the HTTP API)
+            // gets when the process exits without emitting a "result" line. The
+            // Claude CLI maps "result" -> TurnComplete; on a crash, kill, or a run
+            // that just ends, no "result" arrives, so without Done the API's
+            // turn_complete never flips and pollers spin forever. The desktop UI
+            // learns of the exit separately from the agent:close event below.
             flush_and_emit(
                 &parser_arc,
                 &chat_sessions,
@@ -276,13 +283,8 @@ impl ClaudeAgentManager {
                 &conv_id,
                 &process_arc,
             );
-            event_bus.emit(
-                &format!("agent:close:{}", conv_id),
-                &AgentExit {
-                    code: 0,
-                    signal: None,
-                },
-            );
+            persist_and_emit(&chat_sessions, &event_bus, &conv_id, AgentEvent::Done);
+            event_bus.emit(&format!("agent:close:{}", conv_id), &exit);
         });
 
         Ok(())
