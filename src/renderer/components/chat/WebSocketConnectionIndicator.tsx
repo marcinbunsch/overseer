@@ -68,7 +68,8 @@ export const WebSocketConnectionIndicator = observer(function WebSocketConnectio
             data-testid="ws-connection-indicator"
           >
             <div className={`size-2 rounded-full ${getColor()}`} />
-            <span className="text-xs text-ovr-text-dim">{getLabel()}</span>
+            {/* Label hidden on narrow (mobile) screens; the dot + tooltip carry the state */}
+            <span className="hidden text-xs text-ovr-text-dim sm:inline">{getLabel()}</span>
           </div>
         </Tooltip.Trigger>
         <Tooltip.Portal>

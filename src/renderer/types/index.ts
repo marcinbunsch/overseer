@@ -275,6 +275,12 @@ export interface Commit {
 
 export interface MergeResult {
   success: boolean
+  /**
+   * The feature branch had no commits beyond the default branch, so there was
+   * nothing to merge. Distinct from `success` so a no-op is never treated as a
+   * completed merge (which would archive the workspace and delete the branch).
+   */
+  alreadyUpToDate: boolean
   conflicts: string[]
   message: string
 }

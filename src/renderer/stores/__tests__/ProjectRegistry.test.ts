@@ -724,6 +724,50 @@ describe("ProjectRegistry", () => {
       // Should still mark as archived
       expect(projectRegistry.projects[0].workspaces[0].isArchived).toBe(true)
     })
+
+    it("does not delete branch or mark archived when worktree removal fails", async () => {
+      vi.resetModules()
+      const { projectRegistry } = await import("../ProjectRegistry")
+      const { gitService } = await import("../../services/git")
+      const { runInAction } = await import("mobx")
+
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
+      })
+
+      // Worktree removal fails (e.g. dirty and force=false).
+      vi.mocked(gitService.archiveWorkspace).mockRejectedValue(
+        new Error("WorktreeDirty: workspace '/test/feature' has uncommitted or untracked changes")
+      )
+
+      runInAction(() => {
+        projectRegistry.setProjects([
+          {
+            id: "repo-1",
+            name: "test",
+            path: "/test",
+            isGitRepo: true,
+            workspaces: [
+              {
+                id: "wt-1",
+                projectId: "repo-1",
+                branch: "feature-branch",
+                path: "/test/feature",
+                isArchived: false,
+                createdAt: new Date(),
+              },
+            ],
+          },
+        ])
+      })
+
+      await expect(projectRegistry.archiveWorkspace("wt-1", true)).rejects.toThrow("WorktreeDirty")
+
+      // The branch must not be deleted and the workspace must not be archived.
+      expect(gitService.deleteBranch).not.toHaveBeenCalled()
+      expect(projectRegistry.projects[0].workspaces[0].isArchived).toBe(false)
+      expect(projectRegistry.projects[0].workspaces[0].isArchiving).toBe(false)
+    })
   })
 
   describe("persistence timing", () => {
