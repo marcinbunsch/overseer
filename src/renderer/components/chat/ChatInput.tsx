@@ -419,6 +419,9 @@ export const ChatInput = observer(function ChatInput({
     )
   }
 
+  const showAutonomousDropdown =
+    configStore.autonomousModeEnabled && !!onStartAutonomous && !isSending
+
   return (
     <div className="border-t border-ovr-border-subtle p-3">
       {/* Hidden file input for the paperclip button */}
@@ -483,7 +486,7 @@ export const ChatInput = observer(function ChatInput({
           }`}
         />
         <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:gap-2">
             {onModelChange && (
               <ModelSelector
                 value={modelVersion ?? null}
@@ -511,7 +514,8 @@ export const ChatInput = observer(function ChatInput({
                   data-testid="plan-mode-toggle"
                 >
                   <ListChecks size={14} />
-                  <span>Plan</span>
+                  {/* Label hidden on narrow (mobile) screens to reduce clutter; icon carries the meaning */}
+                  <span className="hidden sm:inline">Plan</span>
                 </button>
               </>
             )}
@@ -545,7 +549,7 @@ export const ChatInput = observer(function ChatInput({
                   data-testid="sandbox-toggle"
                 >
                   <Shield size={14} />
-                  <span>Sandbox</span>
+                  <span className="hidden sm:inline">Sandbox</span>
                 </button>
               )}
             {agentType === "claude" && <ClaudeUsageIndicator />}
@@ -571,17 +575,21 @@ export const ChatInput = observer(function ChatInput({
                 Stop
               </button>
             )}
-            {/* Split button: Send + Autonomous dropdown */}
+            {/* Split button: Send + Autonomous dropdown. Without the dropdown
+                the Send button is rounded on both sides so its right edge
+                isn't left square. */}
             <div className="flex">
               <button
                 onClick={handleSubmit}
                 disabled={!input.trim() && pendingAttachments.length === 0}
-                className="rounded-l-lg bg-ovr-azure-500 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                className={`bg-ovr-azure-500 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 ${
+                  showAutonomousDropdown ? "rounded-l-lg" : "rounded-lg"
+                }`}
                 data-testid="send-button"
               >
                 {isSending ? "Queue" : "Send"}
               </button>
-              {configStore.autonomousModeEnabled && onStartAutonomous && !isSending && (
+              {showAutonomousDropdown && (
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>
                     <button
