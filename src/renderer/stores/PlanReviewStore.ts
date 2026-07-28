@@ -1,4 +1,14 @@
 import { observable, computed, action, makeObservable } from "mobx"
+import type { DomMeta } from "@plannotator/web-highlighter/dist/types"
+
+/**
+ * web-highlighter serialization for a preview note, so its exact-text highlight can be
+ * repainted and removed by id. Absent on diff-view notes (which are line-anchored).
+ */
+export interface TextAnchor {
+  startMeta: DomMeta
+  endMeta: DomMeta
+}
 
 export interface PlanReviewNote {
   id: string
@@ -7,6 +17,14 @@ export interface PlanReviewNote {
   lineContent: string // The selected lines as plain text
   comment: string
   createdAt: number
+  /**
+   * The exact rendered text the user selected in the preview. Set for preview notes,
+   * undefined for diff-view notes (which are anchored to whole source lines). When
+   * present, formatReviewMessage quotes this instead of the raw source lines.
+   */
+  selectedText?: string
+  /** web-highlighter anchor for preview notes; undefined for diff-view notes. */
+  anchor?: TextAnchor
 }
 
 export interface PendingPlanNote {
@@ -15,6 +33,8 @@ export interface PendingPlanNote {
   focusIndex: number // 0-based index into lines array
   commentText: string
   editingNoteId?: string // If set, we're editing an existing note
+  /** Exact rendered text selected in the preview; undefined for diff-view selections. */
+  selectedText?: string
 }
 
 /**
@@ -109,6 +129,33 @@ export class PlanReviewStore {
     return lines
   }
 
+  /**
+   * Adds a preview note anchored to an exact text selection (from web-highlighter). The
+   * highlight itself lives in the DOM; the note stores the serialized anchor so it can be
+   * repainted and removed by id. Line numbers are derived from the highlighted blocks so
+   * preview notes sort and label alongside the diff-view notes.
+   */
+  @action
+  addPreviewNote(note: {
+    id: string
+    startLine: number
+    endLine: number
+    selectedText: string
+    comment: string
+    anchor: TextAnchor
+  }) {
+    this.notes.push({
+      id: note.id,
+      startLine: note.startLine,
+      endLine: note.endLine,
+      lineContent: note.selectedText,
+      comment: note.comment.trim(),
+      createdAt: Date.now(),
+      selectedText: note.selectedText,
+      anchor: note.anchor,
+    })
+  }
+
   @action
   startSelection(filePath: string, lineIndex: number, shiftKey: boolean) {
     // Clear any highlight from double-click navigation
@@ -146,6 +193,8 @@ export class PlanReviewStore {
 
     const editingId = this.pending.editingNoteId
 
+    const selectedText = this.pending.selectedText
+
     if (editingId) {
       // Update existing note
       const noteIndex = this.notes.findIndex((n) => n.id === editingId)
@@ -156,6 +205,7 @@ export class PlanReviewStore {
           endLine,
           lineContent,
           comment: this.pending.commentText.trim(),
+          selectedText,
         }
       }
     } else {
@@ -167,6 +217,7 @@ export class PlanReviewStore {
         lineContent,
         comment: this.pending.commentText.trim(),
         createdAt: Date.now(),
+        selectedText,
       }
       this.notes.push(note)
     }
@@ -184,6 +235,7 @@ export class PlanReviewStore {
       focusIndex: note.endLine - 1,
       commentText: note.comment,
       editingNoteId: note.id,
+      selectedText: note.selectedText,
     }
   }
 
@@ -240,9 +292,14 @@ export class PlanReviewStore {
           ? `Line ${note.startLine}`
           : `Lines ${note.startLine}-${note.endLine}`
 
-      // Quote the selected content
-      const selectedLines = lines.slice(note.startLine - 1, note.endLine)
-      const quoted = selectedLines.map((l) => `> ${l}`).join("\n")
+      // Quote the selected content. Preview notes quote the exact highlighted text;
+      // diff-view notes fall back to the whole source lines they cover.
+      const quotedSource =
+        note.selectedText ?? lines.slice(note.startLine - 1, note.endLine).join("\n")
+      const quoted = quotedSource
+        .split("\n")
+        .map((l) => `> ${l}`)
+        .join("\n")
 
       parts.push(`## ${lineRef}`)
       parts.push(quoted)

@@ -118,7 +118,7 @@ export const PlanReviewDialog = observer(function PlanReviewDialog({
               <span className="text-xs text-ovr-text-dim">
                 {viewMode === "diff"
                   ? "Click lines to select, then add comments"
-                  : "Double-click to switch to diff view and add comments"}
+                  : "Select text to add comments"}
               </span>
             </div>
             <button
