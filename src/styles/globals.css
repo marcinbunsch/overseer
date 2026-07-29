@@ -49,6 +49,19 @@ body,
   border-bottom: 2px solid var(--color-ovr-amber-500);
 }
 
+/* In-session search (Cmd/Ctrl-F). The CSS Custom Highlight API paints these over matched text
+   ranges without inserting nodes into the React-owned DOM, so highlights survive re-renders.
+   `chat-search` is every match; `chat-search-current` (higher priority) is the active one. */
+::highlight(chat-search) {
+  background-color: rgba(245, 158, 11, 0.3);
+  color: inherit;
+}
+
+::highlight(chat-search-current) {
+  background-color: var(--color-ovr-amber-500);
+  color: #000;
+}
+
 @keyframes toast-show {
   from {
     opacity: 0;
