@@ -1,5 +1,5 @@
 import { observable, action, makeObservable } from "mobx"
-import { SearchHighlighter, type SearchState } from "../components/chat/searchHighlighter"
+import { SearchHighlighter, type SearchState } from "../utils/chatSearchHighlighter"
 
 /**
  * State machine for in-session Cmd/Ctrl-F search, scoped to the active chat.
