@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect } from "vitest"
-import { findTextRanges } from "./searchHighlighter"
+import { findTextRanges } from "./chatSearchHighlighter"
 
 function container(html: string): HTMLElement {
   const el = document.createElement("div")

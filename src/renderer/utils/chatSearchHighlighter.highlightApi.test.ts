@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 // jsdom lacks the CSS Custom Highlight API, so stub a minimal registry and force the module's
 // feature-detect to pass. Verifies the registry is actually emptied when the query is cleared.
 describe("SearchHighlighter — CSS Highlight registry", () => {
-  let SearchHighlighter: typeof import("./searchHighlighter").SearchHighlighter
+  let SearchHighlighter: typeof import("./chatSearchHighlighter").SearchHighlighter
   let registry: Map<string, unknown>
 
   beforeEach(async () => {
@@ -31,7 +31,7 @@ describe("SearchHighlighter — CSS Highlight registry", () => {
     Element.prototype.scrollIntoView = vi.fn()
 
     vi.resetModules()
-    ;({ SearchHighlighter } = await import("./searchHighlighter"))
+    ;({ SearchHighlighter } = await import("./chatSearchHighlighter"))
   })
 
   afterEach(() => {
