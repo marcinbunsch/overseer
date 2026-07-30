@@ -19,6 +19,7 @@ import {
 import { MarkdownContent } from "./MarkdownContent"
 import { AutonomousMessage, isAutonomousMessage } from "./AutonomousMessage"
 import { AttachmentChip } from "./AttachmentChip"
+import { chatSearchStore } from "../../stores/ChatSearchStore"
 
 interface MessageItemProps {
   message: Message
@@ -82,11 +83,14 @@ function MetaMessageItem({ message }: { message: Message }) {
   )
 }
 
-function BashOutputItem({ content }: { content: string }) {
+function BashOutputItem({ content, searchActive }: { content: string; searchActive: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const lines = content.split("\n")
   const lineCount = lines.length
   const charCount = content.length
+
+  // Force open while search is active so the full output is in the DOM to search.
+  const showExpanded = expanded || searchActive
 
   // Collapse if too many lines OR too many characters (handles long single-line JSON)
   const shouldCollapseByLines = lineCount > BASH_OUTPUT_LINE_THRESHOLD
@@ -119,11 +123,12 @@ function BashOutputItem({ content }: { content: string }) {
 
   return (
     <div className="py-0.5">
-      {expanded ? (
+      {showExpanded ? (
         <>
           <pre className="whitespace-pre-wrap font-mono text-xs text-ovr-text-dim">{content}</pre>
           <button
             onClick={() => setExpanded(false)}
+            disabled={searchActive}
             className="mt-1 flex items-center gap-1 text-xs text-ovr-text-muted hover:text-ovr-text-primary"
           >
             <ChevronDown size={12} />
@@ -154,19 +159,23 @@ function BashOutputItem({ content }: { content: string }) {
  * Renders agent reasoning/thinking as a collapsible, dimmed block. Streams live
  * (content grows as deltas arrive) and sits above the final response.
  */
-function ThinkingItem({ content }: { content: string }) {
+function ThinkingItem({ content, searchActive }: { content: string; searchActive: boolean }) {
   const [expanded, setExpanded] = useState(true)
+
+  // Force open while search is active so its text is in the DOM to search.
+  const showExpanded = expanded || searchActive
 
   return (
     <div className="py-0.5" data-testid="thinking-item">
       <button
         onClick={() => setExpanded(!expanded)}
+        disabled={searchActive}
         className="flex items-center gap-1 text-xs text-ovr-text-muted hover:text-ovr-text-primary"
       >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        {showExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <span className="italic">Thinking</span>
       </button>
-      {expanded && (
+      {showExpanded && (
         <div className="mt-1 max-h-60 overflow-auto border-l-2 border-ovr-border-subtle pl-3">
           <MarkdownContent content={content} className="text-xs text-ovr-text-dim" />
         </div>
@@ -190,6 +199,7 @@ const compactTools: Record<string, React.ComponentType<{ tool: import("./tools")
 
 export const MessageItem = observer(function MessageItem({ message, compact }: MessageItemProps) {
   const isUser = message.role === "user"
+  const searchActive = chatSearchStore.active
   const tool = !isUser ? parseToolCall(message.content) : null
   if (tool && message.toolMeta) {
     tool.toolMeta = message.toolMeta
@@ -224,7 +234,7 @@ export const MessageItem = observer(function MessageItem({ message, compact }: M
 
   // Bash output (from Codex command execution)
   if (message.isBashOutput) {
-    return <BashOutputItem content={message.content} />
+    return <BashOutputItem content={message.content} searchActive={searchActive} />
   }
 
   // Info message (e.g., rate limit notifications)
@@ -234,7 +244,7 @@ export const MessageItem = observer(function MessageItem({ message, compact }: M
 
   // Reasoning/thinking block
   if (message.isThinking) {
-    return <ThinkingItem content={message.content} />
+    return <ThinkingItem content={message.content} searchActive={searchActive} />
   }
 
   // Compact tool rendering for known tools

@@ -1,12 +1,23 @@
 import { useEffect } from "react"
 import { projectRegistry } from "../stores/ProjectRegistry"
 import { configStore } from "../stores/ConfigStore"
+import { chatSearchStore } from "../stores/ChatSearchStore"
 import { externalService } from "../services/external"
 import { eventBus } from "../utils/eventBus"
+import { isMacOS } from "../utils/platform"
 
 export function useKeyboardShortcuts() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      // Cmd+F (mac) / Ctrl+F (win/linux) opens in-session search. Handled before the metaKey
+      // guard below because Ctrl never sets metaKey. preventDefault suppresses native find.
+      const searchModifier = isMacOS() ? e.metaKey : e.ctrlKey
+      if (searchModifier && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault()
+        chatSearchStore.open()
+        return
+      }
+
       if (!e.metaKey) return
 
       const workspaceStore = projectRegistry.selectedWorkspaceStore

@@ -1,12 +1,26 @@
 import { observer } from "mobx-react-lite"
-import { useRef, useState, useCallback, useEffect } from "react"
+import { useRef, useState, useCallback, useEffect, useMemo } from "react"
 import type { MessageTurn } from "../../types"
 import { TurnSection } from "./TurnSection"
 import { useEventBus } from "../../utils/eventBus"
 import { useDebouncedCallback } from "../../hooks/useDebuncedCallback"
+import { chatSearchStore } from "../../stores/ChatSearchStore"
 
 const TURNS_PER_PAGE = 10
 const SCROLL_THRESHOLD = 50 // px from bottom to consider "at bottom"
+// Above this total character count, search skips the full reveal (which would force-render
+// every collapsed section at once) and covers only the paginated/expanded content instead.
+const REVEAL_CHAR_CAP = 500_000
+
+function totalContentChars(turns: MessageTurn[]): number {
+  let total = 0
+  for (const turn of turns) {
+    total += turn.userMessage.content.length
+    for (const work of turn.workMessages) total += work.content.length
+    if (turn.resultMessage) total += turn.resultMessage.content.length
+  }
+  return total
+}
 
 interface MessageListProps {
   turns: MessageTurn[]
@@ -73,6 +87,33 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
   useEventBus("agent:messageSent", scrollToBottom)
   useEventBus("agent:messageReceived", scrollToBottomIfCloseToBottom)
 
+  // In-session search. A callback ref registers the scroll container as the search target —
+  // it fires when the container actually attaches (which is after the empty-chat early return),
+  // and with null on unmount. Kept in sync with containerRef for the scroll helpers above.
+  const attachContainer = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el
+    chatSearchStore.setContainer(el)
+  }, [])
+
+  // Close any search carried over from the previous chat (MessageList remounts per chat).
+  useEffect(() => chatSearchStore.reset(), [])
+
+  const searchActive = chatSearchStore.active
+  const totalChars = useMemo(() => totalContentChars(turns), [turns])
+  const tooBigToReveal = totalChars > REVEAL_CHAR_CAP
+  const revealAll = searchActive && !tooBigToReveal
+
+  useEffect(() => {
+    chatSearchStore.setRevealCapped(searchActive && tooBigToReveal)
+  }, [searchActive, tooBigToReveal])
+
+  // Re-find matches after the reveal render commits and as content streams in — a stale range
+  // can point at a node React has replaced. Debounced so token-by-token streaming doesn't thrash.
+  const recomputeSearch = useDebouncedCallback(() => chatSearchStore.recompute(), 300, [])
+  useEffect(() => {
+    if (searchActive) recomputeSearch()
+  }, [turns, searchActive, revealAll, recomputeSearch])
+
   if (turns.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-ovr-text-muted">
@@ -81,13 +122,17 @@ export const MessageList = observer(function MessageList({ turns }: MessageListP
     )
   }
 
-  const hiddenCount = Math.max(0, turns.length - visibleCount)
+  // While search is active (and the session is small enough), reveal every turn so matches in
+  // paginated-out turns are in the DOM and searchable.
+  const hiddenCount = revealAll ? 0 : Math.max(0, turns.length - visibleCount)
   const visibleTurns = hiddenCount > 0 ? turns.slice(hiddenCount) : turns
 
   return (
     <div
-      ref={containerRef}
+      ref={attachContainer}
       className="flex-1 overflow-y-auto p-4"
+      // Keep a scrolled-to match clear of the find bar floating at the top.
+      style={{ scrollPaddingTop: 64 }}
       onScroll={showNewMessageIndicator ? checkIfAtBottom : undefined}
     >
       {hiddenCount > 0 && (

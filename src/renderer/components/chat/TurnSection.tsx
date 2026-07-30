@@ -4,6 +4,7 @@ import type { Message, MessageTurn } from "../../types"
 import { MessageItem } from "./MessageItem"
 import { summarizeTurnWork } from "../../utils/chat"
 import { parseToolCall, TaskToolItem } from "./tools"
+import { chatSearchStore } from "../../stores/ChatSearchStore"
 
 interface TurnSectionProps {
   turn: MessageTurn
@@ -61,6 +62,11 @@ function groupWorkMessages(messages: Message[]): GroupedItem[] {
 export const TurnSection = observer(function TurnSection({ turn }: TurnSectionProps) {
   const [expanded, setExpanded] = useState(false)
 
+  // Force the work section open while search is active so its text is in the DOM to search.
+  // `expanded` is left untouched, so closing search reverts to the user's own choice.
+  const searchActive = chatSearchStore.active
+  const showExpanded = expanded || searchActive
+
   const hasWork = turn.workMessages.length > 0
   const summary = hasWork ? summarizeTurnWork(turn.workMessages) : ""
 
@@ -77,15 +83,17 @@ export const TurnSection = observer(function TurnSection({ turn }: TurnSectionPr
         <div className="mb-3">
           <button
             onClick={() => setExpanded(!expanded)}
+            // No-op while search forces it open, so the caret can't toggle hidden state.
+            disabled={searchActive}
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-ovr-text-muted transition hover:bg-ovr-bg-elevated hover:text-ovr-text-primary"
           >
-            <span className="font-mono text-[10px]">{expanded ? "▼" : "▶"}</span>
+            <span className="font-mono text-[10px]">{showExpanded ? "▼" : "▶"}</span>
             <span>{summary}</span>
             {turn.inProgress && (
               <span className="inline-block size-1.5 animate-pulse rounded-full bg-ovr-azure-500" />
             )}
           </button>
-          {expanded && (
+          {showExpanded && (
             <div className="ml-3 border-l border-ovr-border-subtle pl-3">
               {groupedItems.map((item) => {
                 if (item.type === "task") {

@@ -12,6 +12,7 @@ import { isDefaultBranch } from "../../utils/git"
 import { saveAttachmentFromPath } from "../../services/attachmentService"
 import type { Attachment } from "../../types"
 import { MessageList } from "./MessageList"
+import { ChatSearchBar } from "./ChatSearchBar"
 import { ChatInput } from "./ChatInput"
 import { ToolApprovalPanel } from "./ToolApprovalPanel"
 import { PlanApprovalPanel } from "./PlanApprovalPanel"
@@ -291,7 +292,13 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
             </div>
           ) : (
             <>
-              <MessageList key={workspaceStore.activeChatId} turns={workspaceStore.currentTurns} />
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                <ChatSearchBar />
+                <MessageList
+                  key={workspaceStore.activeChatId}
+                  turns={workspaceStore.currentTurns}
+                />
+              </div>
 
               <QueuedMessagesPanel
                 messages={workspaceStore.pendingFollowUps}

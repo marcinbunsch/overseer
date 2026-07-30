@@ -27,7 +27,7 @@ import { AttachmentChip } from "./AttachmentChip"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 import { Textarea } from "../shared/Textarea"
 import { saveAttachment } from "../../services/attachmentService"
-import { platform } from "@tauri-apps/plugin-os"
+import { isMacOS } from "../../utils/platform"
 import type { Attachment, AutonomousReviewConfig } from "../../types"
 
 // Detect touch-only devices (mobile/tablet without keyboard)
@@ -35,21 +35,6 @@ const isTouchDevice =
   typeof window !== "undefined" &&
   ("ontouchstart" in window || navigator.maxTouchPoints > 0) &&
   !window.matchMedia("(pointer: fine)").matches
-
-// The Seatbelt sandbox is macOS-only, so the toggle is hidden elsewhere.
-// Computed lazily (not at import) so Tauri's OS plugin is ready, then memoized.
-// platform() throws in web mode, where sandboxing isn't available anyway.
-let _isMacOS: boolean | null = null
-function isMacOS(): boolean {
-  if (_isMacOS === null) {
-    try {
-      _isMacOS = platform() === "macos"
-    } catch {
-      _isMacOS = false
-    }
-  }
-  return _isMacOS
-}
 
 interface ChatInputProps {
   onSend: (content: string, attachments?: Attachment[]) => void
