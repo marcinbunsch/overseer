@@ -21,7 +21,15 @@ import { configStore } from "./ConfigStore"
 import { extractOverseerBlocks, type OverseerAction } from "../utils/overseerActions"
 import { executeOverseerAction } from "../services/overseerActionExecutor"
 import { eventBus } from "../utils/eventBus"
+import { createConcurrencyLimiter } from "../utils/concurrencyLimiter"
 import { playCompletionSound, sendSystemNotification } from "../services/notificationService"
+
+/**
+ * Shared across all chats: when a dropped WebSocket reconnects, every loaded
+ * chat fires a catch-up fetch at once. Cap the burst so we don't open dozens of
+ * requests simultaneously.
+ */
+const catchUpQueue = createConcurrencyLimiter(5)
 
 export interface ChatStoreContext {
   getChatDir: () => Promise<string | null>
@@ -48,6 +56,9 @@ type BackendQuestionItem = {
 
 type BackendAgentEvent = {
   kind: string
+  /** Persisted sequence number (1-indexed JSONL line). Present on events that
+   * flow through the seq-aware backend commands and the WebSocket. */
+  seq?: number
   text?: string
   content?: string
   tool_meta?: { tool_name: string; lines_added?: number; lines_removed?: number }
@@ -125,12 +136,23 @@ export class ChatStore {
   private _reviewService: AgentService | null = null
   /** Agent type the cached review service was created for */
   private _reviewServiceAgentType: AgentType | null = null
+  /**
+   * Persisted seq numbers already applied to this chat. Dedups events that
+   * arrive both live (WebSocket) and via reconnect catch-up. Not observable —
+   * bookkeeping only, never rendered.
+   */
+  private seenSeqs: Set<number> = new Set()
+  /** Unsubscribe for the backend reconnect handler (web backend only). */
+  private unlistenReconnect: (() => void) | null = null
+  /** Guards against overlapping catch-up fetches when reconnects fire rapidly. */
+  private catchingUp: boolean = false
 
   constructor(chat: Chat, context: ChatStoreContext) {
     this.chat = chat
     this.context = context
     makeObservable(this)
     this.registerCallbacks()
+    this.registerReconnectHandler()
     this.loadDraft()
   }
 
@@ -995,6 +1017,8 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
 
   dispose(): void {
     this.sessionRegistered = false
+    this.unlistenReconnect?.()
+    this.unlistenReconnect = null
     void this.backend.invoke("unregister_chat_session", { chatId: this.chat.id })
     if (this._reviewService) {
       this._reviewService.removeChat(this.chat.id)
@@ -1010,8 +1034,8 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
    * Can be called for both the primary service and the review service.
    */
   private registerCallbacksForService(service: AgentService): void {
-    service.onEvent(this.chat.id, (event: AgentEvent) => {
-      this.handleAgentEvent(event)
+    service.onEvent(this.chat.id, (event: AgentEvent, seq?: number) => {
+      this.handleAgentEvent(event, seq)
     })
 
     service.onDone(this.chat.id, () => {
@@ -1043,7 +1067,87 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
     this.registerCallbacksForService(this.service)
   }
 
-  private handleAgentEvent(event: AgentEvent): void {
+  /**
+   * Subscribe to backend reconnects so a dropped WebSocket (phone backgrounds,
+   * screen off) recovers automatically. Only the web backend implements
+   * onReconnect; on Tauri this is a no-op. Registered once per chat.
+   */
+  private registerReconnectHandler(): void {
+    if (this.unlistenReconnect) return
+    this.unlistenReconnect =
+      this.backend.onReconnect?.(() => {
+        void this.catchUpAfterReconnect()
+      }) ?? null
+  }
+
+  /**
+   * Highest seq N such that every seq 1..N has been seen. Fetching from here
+   * never skips a gap event; over-fetching is harmless because handleAgentEvent
+   * dedups by seq.
+   */
+  private catchUpCursor(): number {
+    let n = 0
+    while (this.seenSeqs.has(n + 1)) n++
+    return n
+  }
+
+  /**
+   * After the WebSocket reconnects, fetch events persisted while it was down
+   * and replay them. Recovers the missed turnComplete (which clears isSending)
+   * and any streamed output. Deduped by seq, so events that also resume over
+   * the live socket apply exactly once regardless of arrival order.
+   */
+  private async catchUpAfterReconnect(): Promise<void> {
+    if (!this.loaded || this.catchingUp) return
+    const projectName = this.context.getProjectName()
+    const workspaceName = this.context.getWorkspaceName()
+    if (!projectName || !workspaceName) return
+
+    this.catchingUp = true
+    try {
+      const sinceSeq = this.catchUpCursor()
+      // Route through the shared limiter so a mass reconnect doesn't open a
+      // request per chat all at once.
+      const events = await catchUpQueue(() =>
+        this.backend.invoke<BackendAgentEvent[]>("load_chat_events_since_seq", {
+          projectName,
+          workspaceName,
+          chatId: this.chat.id,
+          sinceSeq,
+        })
+      )
+      if (events.length === 0) return
+      runInAction(() => {
+        // Replay flag: these events already happened, so overseer actions in
+        // them must not re-execute (e.g. don't re-open a PR).
+        this.isReplaying = true
+        for (const event of events) {
+          const mapped = this.mapRustEvent(event)
+          if (mapped) {
+            this.handleAgentEvent(mapped, event.seq)
+          } else if (event.seq !== undefined) {
+            this.seenSeqs.add(event.seq)
+          }
+        }
+        this.isReplaying = false
+      })
+    } catch (err) {
+      console.error("[ChatStore.catchUpAfterReconnect] Failed:", {
+        chatId: this.chat.id,
+        error: err,
+      })
+    } finally {
+      this.catchingUp = false
+    }
+  }
+
+  private handleAgentEvent(event: AgentEvent, seq?: number): void {
+    // Dedup by persisted seq: the same event can arrive both live and via
+    // reconnect catch-up. Apply it exactly once, regardless of arrival order.
+    if (seq !== undefined) {
+      if (this.seenSeqs.has(seq)) return
+      this.seenSeqs.add(seq)
+    }
     runInAction(() => {
       const messages = this.chat.messages
 
@@ -1558,7 +1662,9 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
         // Metadata doesn't exist yet
       }
 
-      const events = await this.backend.invoke<BackendAgentEvent[]>("load_chat_events", {
+      // Load with seq numbers so seenSeqs is seeded from disk — that seeds the
+      // cursor for reconnect catch-up and dedups events that also arrive live.
+      const events = await this.backend.invoke<BackendAgentEvent[]>("load_chat_events_with_seq", {
         projectName,
         workspaceName,
         chatId: this.chat.id,
@@ -1585,7 +1691,11 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
         for (const event of events) {
           const mapped = this.mapRustEvent(event)
           if (mapped) {
-            this.handleAgentEvent(mapped)
+            this.handleAgentEvent(mapped, event.seq)
+          } else if (event.seq !== undefined) {
+            // Record un-mappable events (e.g. unknown kinds) so the catch-up
+            // cursor advances past them instead of re-fetching from here.
+            this.seenSeqs.add(event.seq)
           }
         }
         this.isReplaying = false

@@ -45,6 +45,19 @@ export interface Backend {
   isAvailable(): boolean
 
   /**
+   * Register a callback fired when a dropped connection is re-established.
+   *
+   * Only the web (WebSocket) backend implements this — a browser socket drops
+   * when the tab/app backgrounds, and events emitted during the gap are lost.
+   * Callers use it to fetch missed events (see ChatStore's seq catch-up). The
+   * Tauri backend leaves it undefined; its IPC channel does not drop this way,
+   * so callers must guard with `?.`.
+   *
+   * @returns An unsubscribe function to remove the callback
+   */
+  onReconnect?(callback: () => void): Unsubscribe
+
+  /**
    * Get the backend type identifier.
    */
   readonly type: "tauri" | "web"

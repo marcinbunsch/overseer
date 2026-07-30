@@ -4,6 +4,7 @@ import { runInAction } from "mobx"
 import type { Chat } from "../../types"
 import { ChatStore, type ChatStoreContext } from "../ChatStore"
 import { backend } from "../../backend"
+import type { Backend } from "../../backend/types"
 
 // Mock agent services via agentRegistry
 const mockAgentService = {
@@ -159,6 +160,8 @@ describe("ChatStore", () => {
           }
         }
         case "load_chat_events":
+        case "load_chat_events_with_seq":
+        case "load_chat_events_since_seq":
           return []
         case "load_chat_metadata":
           return null
@@ -2585,6 +2588,190 @@ Live text.`,
       getEventCallback(store)({ kind: "turnComplete" })
 
       expect(mockSendSystemNotification).not.toHaveBeenCalled()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // WebSocket reconnect catch-up (seq tracking + dedup)
+  // ---------------------------------------------------------------------------
+
+  describe("reconnect catch-up", () => {
+    type BackendEvent = { kind: string; seq?: number; [k: string]: unknown }
+
+    /**
+     * A fake web backend that captures the onReconnect callback so a test can
+     * fire it, and lets each test drive the invoke responses.
+     */
+    function makeFakeWebBackend(invokeImpl: (command: string, args?: unknown) => unknown) {
+      let reconnectCb: (() => void) | null = null
+      return {
+        type: "web" as const,
+        invoke: vi.fn((command: string, args?: unknown) =>
+          Promise.resolve(invokeImpl(command, args))
+        ),
+        listen: vi.fn(() => Promise.resolve(() => {})),
+        isAvailable: () => true,
+        onReconnect: vi.fn((cb: () => void) => {
+          reconnectCb = cb
+          return () => {
+            reconnectCb = null
+          }
+        }),
+        triggerReconnect: () => reconnectCb?.(),
+      }
+    }
+
+    function getEventCallback(store: ChatStore) {
+      const eventCall = mockAgentService.onEvent.mock.calls.find(
+        (c: unknown[]) => c[0] === store.chat.id
+      )
+      return eventCall![1] as (event: unknown, seq?: number) => void
+    }
+
+    it("applies an event with a seq only once (dedup)", () => {
+      const store = createChatStore()
+      const cb = getEventCallback(store)
+
+      cb({ kind: "message", content: "Hello" }, 5)
+      cb({ kind: "message", content: "Hello" }, 5)
+
+      expect(store.messages).toHaveLength(1)
+    })
+
+    it("registers an onReconnect handler that fetches missed events", async () => {
+      const backend = makeFakeWebBackend((command) => {
+        if (command === "load_chat_events_since_seq") return []
+        return undefined
+      })
+      const store = createChatStore(undefined, { getBackend: () => backend as unknown as Backend })
+      runInAction(() => {
+        store.loaded = true
+      })
+
+      expect(backend.onReconnect).toHaveBeenCalled()
+
+      backend.triggerReconnect()
+
+      await vi.waitFor(() => {
+        expect(backend.invoke).toHaveBeenCalledWith(
+          "load_chat_events_since_seq",
+          expect.objectContaining({ chatId: "test-chat-id", sinceSeq: 0 })
+        )
+      })
+    })
+
+    it("replays a missed turnComplete on reconnect and clears isSending", async () => {
+      const backend = makeFakeWebBackend((command) => {
+        if (command === "load_chat_events_since_seq") {
+          return [{ seq: 10, kind: "turnComplete" }] as BackendEvent[]
+        }
+        return undefined
+      })
+      const store = createChatStore(undefined, { getBackend: () => backend as unknown as Backend })
+      runInAction(() => {
+        store.loaded = true
+        store.isSending = true
+        store.chat.status = "running"
+      })
+
+      await (
+        store as unknown as { catchUpAfterReconnect: () => Promise<void> }
+      ).catchUpAfterReconnect()
+
+      expect(store.isSending).toBe(false)
+      expect(store.status).toBe("idle")
+    })
+
+    it("does not double-apply an event delivered both live and via catch-up", async () => {
+      const backend = makeFakeWebBackend((command) => {
+        if (command === "load_chat_events_since_seq") {
+          // seq 5 was already applied live; seq 4 was missed during the gap.
+          return [
+            { seq: 4, kind: "message", content: "W" },
+            { seq: 5, kind: "message", content: "X" },
+          ] as BackendEvent[]
+        }
+        return undefined
+      })
+      const store = createChatStore(undefined, { getBackend: () => backend as unknown as Backend })
+      runInAction(() => {
+        store.loaded = true
+      })
+
+      // A resumed live event arrives first with the higher seq.
+      getEventCallback(store)({ kind: "message", content: "X" }, 5)
+      expect(store.messages).toHaveLength(1)
+
+      await (
+        store as unknown as { catchUpAfterReconnect: () => Promise<void> }
+      ).catchUpAfterReconnect()
+
+      // W is added; X is not duplicated regardless of arrival order.
+      expect(store.messages).toHaveLength(2)
+      expect(store.messages.filter((m) => m.content === "X")).toHaveLength(1)
+      expect(store.messages.some((m) => m.content === "W")).toBe(true)
+    })
+
+    it("does not catch up before the chat is loaded", async () => {
+      const backend = makeFakeWebBackend(() => undefined)
+      const store = createChatStore(undefined, { getBackend: () => backend as unknown as Backend })
+      // loaded stays false
+
+      await (
+        store as unknown as { catchUpAfterReconnect: () => Promise<void> }
+      ).catchUpAfterReconnect()
+
+      expect(backend.invoke).not.toHaveBeenCalledWith(
+        "load_chat_events_since_seq",
+        expect.anything()
+      )
+    })
+
+    it("seeds seenSeqs from disk via load_chat_events_with_seq", async () => {
+      const backend = makeFakeWebBackend((command) => {
+        if (command === "load_chat_events_with_seq") {
+          return [
+            { seq: 1, kind: "message", content: "A" },
+            { seq: 2, kind: "turnComplete" },
+          ] as BackendEvent[]
+        }
+        if (command === "load_chat_metadata") return null
+        return undefined
+      })
+      const store = createChatStore(undefined, { getBackend: () => backend as unknown as Backend })
+
+      await store.ensureLoaded()
+
+      const seenSeqs = (store as unknown as { seenSeqs: Set<number> }).seenSeqs
+      expect(seenSeqs.has(1)).toBe(true)
+      expect(seenSeqs.has(2)).toBe(true)
+
+      // A live re-delivery of a seeded event is deduped.
+      getEventCallback(store)({ kind: "message", content: "A" }, 1)
+      expect(store.messages.filter((m) => m.content === "A")).toHaveLength(1)
+    })
+
+    it("advances the catch-up cursor past the highest contiguous seq", async () => {
+      const store = createChatStore()
+      const cb = getEventCallback(store)
+      cb({ kind: "message", content: "A" }, 1)
+      cb({ kind: "message", content: "B" }, 2)
+      cb({ kind: "message", content: "C" }, 3)
+
+      const cursor = (store as unknown as { catchUpCursor: () => number }).catchUpCursor()
+      expect(cursor).toBe(3)
+    })
+
+    it("cursor stops at the first gap so gap events are refetched", () => {
+      const store = createChatStore()
+      const cb = getEventCallback(store)
+      cb({ kind: "message", content: "A" }, 1)
+      cb({ kind: "message", content: "B" }, 2)
+      // seq 3 missed; seq 4 arrived live
+      cb({ kind: "message", content: "D" }, 4)
+
+      const cursor = (store as unknown as { catchUpCursor: () => number }).catchUpCursor()
+      expect(cursor).toBe(2)
     })
   })
 })
