@@ -274,11 +274,15 @@ export class ClaudeAgentService implements AgentService {
     const conv = this.conversations.get(chatId)
     if (!conv) return
 
+    // The WebSocket payload is a SeqEvent (seq flattened alongside the event
+    // fields); pass the seq through so ChatStore can dedup live vs catch-up.
+    const seq = (event as { seq?: number }).seq
+
     switch (event.kind) {
       case "sessionId": {
         if (event.session_id && !conv.sessionId) {
           conv.sessionId = event.session_id
-          this.emitEvent(chatId, { kind: "sessionId", sessionId: event.session_id })
+          this.emitEvent(chatId, { kind: "sessionId", sessionId: event.session_id }, seq)
         }
         return
       }
@@ -286,7 +290,7 @@ export class ClaudeAgentService implements AgentService {
       case "bashOutput":
       case "turnComplete":
       case "done": {
-        this.emitEvent(chatId, event as import("./types").AgentEvent)
+        this.emitEvent(chatId, event as import("./types").AgentEvent, seq)
         return
       }
       case "message": {
@@ -297,27 +301,35 @@ export class ClaudeAgentService implements AgentService {
               linesRemoved: event.tool_meta.lines_removed ?? undefined,
             }
           : undefined
-        this.emitEvent(chatId, {
-          kind: "message",
-          content: event.content,
-          toolMeta,
-          parentToolUseId: event.parent_tool_use_id ?? undefined,
-          toolUseId: event.tool_use_id ?? undefined,
-          isInfo: event.is_info ?? undefined,
-        })
+        this.emitEvent(
+          chatId,
+          {
+            kind: "message",
+            content: event.content,
+            toolMeta,
+            parentToolUseId: event.parent_tool_use_id ?? undefined,
+            toolUseId: event.tool_use_id ?? undefined,
+            isInfo: event.is_info ?? undefined,
+          },
+          seq
+        )
         return
       }
       case "toolApproval": {
-        this.emitEvent(chatId, {
-          kind: "toolApproval",
-          id: event.request_id,
-          name: event.name,
-          input: event.input ?? {},
-          displayInput: event.display_input ?? "",
-          commandPrefixes: event.prefixes ?? undefined,
-          autoApproved: event.auto_approved ?? false,
-          isProcessed: event.is_processed ?? false,
-        })
+        this.emitEvent(
+          chatId,
+          {
+            kind: "toolApproval",
+            id: event.request_id,
+            name: event.name,
+            input: event.input ?? {},
+            displayInput: event.display_input ?? "",
+            commandPrefixes: event.prefixes ?? undefined,
+            autoApproved: event.auto_approved ?? false,
+            isProcessed: event.is_processed ?? false,
+          },
+          seq
+        )
         return
       }
       case "question": {
@@ -327,43 +339,59 @@ export class ClaudeAgentService implements AgentService {
           options: item.options,
           multiSelect: item.multi_select ?? false,
         }))
-        this.emitEvent(chatId, {
-          kind: "question",
-          id: event.request_id,
-          questions,
-          rawInput: event.raw_input ?? {},
-          isProcessed: event.is_processed ?? false,
-        })
+        this.emitEvent(
+          chatId,
+          {
+            kind: "question",
+            id: event.request_id,
+            questions,
+            rawInput: event.raw_input ?? {},
+            isProcessed: event.is_processed ?? false,
+          },
+          seq
+        )
         return
       }
       case "planApproval": {
-        this.emitEvent(chatId, {
-          kind: "planApproval",
-          id: event.request_id,
-          planContent: event.content ?? "",
-          isProcessed: event.is_processed ?? false,
-        })
+        this.emitEvent(
+          chatId,
+          {
+            kind: "planApproval",
+            id: event.request_id,
+            planContent: event.content ?? "",
+            isProcessed: event.is_processed ?? false,
+          },
+          seq
+        )
         return
       }
       case "userMessage": {
         // User message from another client - mark chat as running and forward event
         conv.running = true
-        this.emitEvent(chatId, {
-          kind: "userMessage",
-          id: event.id,
-          content: event.content,
-          timestamp: new Date(event.timestamp),
-          meta: event.meta as import("../types").MessageMeta | undefined,
-        })
+        this.emitEvent(
+          chatId,
+          {
+            kind: "userMessage",
+            id: event.id,
+            content: event.content,
+            timestamp: new Date(event.timestamp),
+            meta: event.meta as import("../types").MessageMeta | undefined,
+          },
+          seq
+        )
         return
       }
       case "error": {
         console.error(`Claude event error [${chatId}]:`, event.message)
-        this.emitEvent(chatId, {
-          kind: "message",
-          content: event.message,
-          isInfo: true,
-        })
+        this.emitEvent(
+          chatId,
+          {
+            kind: "message",
+            content: event.message,
+            isInfo: true,
+          },
+          seq
+        )
         return
       }
       default:
@@ -371,8 +399,8 @@ export class ClaudeAgentService implements AgentService {
     }
   }
 
-  private emitEvent(chatId: string, event: import("./types").AgentEvent): void {
-    this.eventCallbacks.get(chatId)?.(event)
+  private emitEvent(chatId: string, event: import("./types").AgentEvent, seq?: number): void {
+    this.eventCallbacks.get(chatId)?.(event, seq)
   }
 
   async interruptTurn(chatId: string): Promise<void> {

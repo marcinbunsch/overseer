@@ -52,7 +52,13 @@ export type AgentEvent =
   | { kind: "turnComplete" }
   | { kind: "done" }
 
-export type AgentEventCallback = (event: AgentEvent) => void
+/**
+ * @param seq - Persisted sequence number of the event (1-indexed JSONL line),
+ *   when the backend supplies one. Used by ChatStore to dedup events that arrive
+ *   both live and via reconnect catch-up. Undefined for agents/events without a
+ *   persisted seq.
+ */
+export type AgentEventCallback = (event: AgentEvent, seq?: number) => void
 export type AgentDoneCallback = () => void
 
 export interface AgentService {

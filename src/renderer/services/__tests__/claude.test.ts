@@ -294,9 +294,38 @@ describe("ClaudeAgentService", () => {
       },
     })
 
-    // Should emit an AgentEvent of kind "message"
+    // Should emit an AgentEvent of kind "message" (no seq in this payload)
     expect(eventCallback).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "message", content: "hi" })
+      expect.objectContaining({ kind: "message", content: "hi" }),
+      undefined
+    )
+  })
+
+  it("forwards the seq from a SeqEvent payload to the callback", async () => {
+    const service = await freshService()
+    const eventCallback = vi.fn()
+    service.onEvent("conv-1", eventCallback)
+
+    let eventHandler:
+      | ((event: { payload: { kind: string; [key: string]: unknown } }) => void)
+      | null = null
+    vi.mocked(listen).mockImplementation(async (eventName, handler) => {
+      if (typeof eventName === "string" && eventName.includes("agent:event")) {
+        eventHandler = handler as typeof eventHandler
+      }
+      return vi.fn() as unknown as () => void
+    })
+
+    await service.sendMessage("conv-1", "hello", "/tmp")
+
+    // WebSocket payload is a SeqEvent: seq flattened alongside the event fields.
+    eventHandler!({
+      payload: { kind: "message", content: "hi", seq: 42 },
+    })
+
+    expect(eventCallback).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "message", content: "hi" }),
+      42
     )
   })
 
@@ -342,7 +371,8 @@ describe("ClaudeAgentService", () => {
             multiSelect: false,
           }),
         ],
-      })
+      }),
+      undefined
     )
   })
 
@@ -398,16 +428,19 @@ describe("ClaudeAgentService", () => {
     })
 
     // Command prefixes are computed by ChatStore, not the service
-    expect(eventCallback).toHaveBeenCalledWith({
-      kind: "toolApproval",
-      id: "req-bash-1",
-      name: "Bash",
-      input: { command: "cd /foo && pnpm install" },
-      displayInput: "cd /foo && pnpm install",
-      commandPrefixes: undefined,
-      autoApproved: false,
-      isProcessed: false,
-    })
+    expect(eventCallback).toHaveBeenCalledWith(
+      {
+        kind: "toolApproval",
+        id: "req-bash-1",
+        name: "Bash",
+        input: { command: "cd /foo && pnpm install" },
+        displayInput: "cd /foo && pnpm install",
+        commandPrefixes: undefined,
+        autoApproved: false,
+        isProcessed: false,
+      },
+      undefined
+    )
   })
 
   it("handles toolApproval events for non-Bash tools from Rust parser", async () => {
@@ -437,16 +470,19 @@ describe("ClaudeAgentService", () => {
       },
     })
 
-    expect(eventCallback).toHaveBeenCalledWith({
-      kind: "toolApproval",
-      id: "req-read-1",
-      name: "Read",
-      input: { path: "/tmp/file.txt" },
-      displayInput: '{"path":"/tmp/file.txt"}',
-      commandPrefixes: undefined,
-      autoApproved: false,
-      isProcessed: false,
-    })
+    expect(eventCallback).toHaveBeenCalledWith(
+      {
+        kind: "toolApproval",
+        id: "req-read-1",
+        name: "Read",
+        input: { path: "/tmp/file.txt" },
+        displayInput: '{"path":"/tmp/file.txt"}',
+        commandPrefixes: undefined,
+        autoApproved: false,
+        isProcessed: false,
+      },
+      undefined
+    )
   })
 
   it("handles planApproval event with plan content for ExitPlanMode", async () => {
@@ -477,12 +513,15 @@ describe("ClaudeAgentService", () => {
       },
     })
 
-    expect(eventCallback).toHaveBeenCalledWith({
-      kind: "planApproval",
-      id: "req-plan-1",
-      planContent: planContent,
-      isProcessed: false,
-    })
+    expect(eventCallback).toHaveBeenCalledWith(
+      {
+        kind: "planApproval",
+        id: "req-plan-1",
+        planContent: planContent,
+        isProcessed: false,
+      },
+      undefined
+    )
   })
 
   it("handles planApproval with empty string when plan is missing", async () => {
@@ -510,12 +549,15 @@ describe("ClaudeAgentService", () => {
       },
     })
 
-    expect(eventCallback).toHaveBeenCalledWith({
-      kind: "planApproval",
-      id: "req-plan-2",
-      planContent: "",
-      isProcessed: false,
-    })
+    expect(eventCallback).toHaveBeenCalledWith(
+      {
+        kind: "planApproval",
+        id: "req-plan-2",
+        planContent: "",
+        isProcessed: false,
+      },
+      undefined
+    )
   })
 
   it("throws user-friendly error when spawn fails with command not found", async () => {
