@@ -75,4 +75,43 @@ describe("createConcurrencyLimiter", () => {
     // Queue is not wedged after a sync throw.
     await expect(run(async () => "ok")).resolves.toBe("ok")
   })
+
+  it("accepts synchronous tasks and resolves with their return value", async () => {
+    const run = createConcurrencyLimiter(2)
+    await expect(run(() => 21 * 2)).resolves.toBe(42)
+  })
+
+  it("clamps a non-positive cap to 1 instead of wedging the queue", async () => {
+    for (const cap of [0, -3, Number.NaN]) {
+      const run = createConcurrencyLimiter(cap)
+      const results = await Promise.all([1, 2, 3].map((n) => run(async () => n)))
+      expect(results).toEqual([1, 2, 3])
+    }
+  })
+
+  it("floors a fractional cap", async () => {
+    const run = createConcurrencyLimiter(2.9)
+    let active = 0
+    let peak = 0
+    const gates = Array.from({ length: 5 }, () => deferred<void>())
+
+    const tasks = gates.map((gate) =>
+      run(async () => {
+        active++
+        peak = Math.max(peak, active)
+        await gate.promise
+        active--
+      })
+    )
+
+    await Promise.resolve()
+    expect(active).toBe(2)
+
+    for (const gate of gates) {
+      gate.resolve()
+      await Promise.resolve()
+    }
+    await Promise.all(tasks)
+    expect(peak).toBe(2)
+  })
 })
