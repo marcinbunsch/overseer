@@ -606,6 +606,60 @@ mod tests {
         );
     }
 
+    /// The sandbox hands the agent Overseer's internal git API address + token
+    /// via `SandboxSpec.extra_env`. Runs `env` inside the sandbox and asserts the
+    /// injected token survives the scrub — this is how a sandboxed agent reaches
+    /// the host to push / open PRs.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sandboxed_spawn_injects_extra_env() {
+        use crate::sandbox::{AgentKind, SandboxSpec};
+        use std::path::PathBuf;
+
+        let home = PathBuf::from(std::env::var("HOME").unwrap());
+        let workspace = tempfile::tempdir().unwrap();
+
+        let spec = SandboxSpec::new(
+            AgentKind::Claude,
+            workspace.path(),
+            workspace.path(),
+            &home,
+            vec![],
+        )
+        .with_extra_env(vec![
+            (
+                "OVERSEER_API_URL".to_string(),
+                "http://127.0.0.1:6789".to_string(),
+            ),
+            (
+                "OVERSEER_API_TOKEN".to_string(),
+                "test-token-abc123".to_string(),
+            ),
+        ]);
+        let config = SpawnConfig::new("/usr/bin/env", vec![])
+            .no_stdin()
+            .sandbox(spec);
+
+        let process = AgentProcess::spawn(config).unwrap();
+
+        let mut output = String::new();
+        while let Some(event) = process.recv() {
+            if let ProcessEvent::Stdout(line) = event {
+                output.push_str(&line);
+                output.push('\n');
+            }
+        }
+
+        assert!(
+            output.contains("OVERSEER_API_TOKEN=test-token-abc123"),
+            "injected token should reach the sandboxed env:\n{output}"
+        );
+        assert!(
+            output.contains("OVERSEER_API_URL=http://127.0.0.1:6789"),
+            "injected API url should reach the sandboxed env:\n{output}"
+        );
+    }
+
     #[test]
     #[cfg(unix)]
     fn spawn_echo_process() {

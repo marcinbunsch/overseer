@@ -258,6 +258,7 @@ mod tests {
                 PathBuf::from("/opt/homebrew"),
                 PathBuf::from("/Users/dev/.zshrc"),
             ],
+            extra_env: vec![],
         }
     }
 
@@ -396,6 +397,7 @@ mod tests {
             tmpdir: std::fs::canonicalize(workspace.path()).unwrap(),
             home: PathBuf::from("/Users/nobody"),
             read_paths: vec![],
+            extra_env: vec![],
         };
         let profile = SandboxProfile::from_spec(&s).render();
         let guard = SandboxProfileFile::write(&profile).unwrap();

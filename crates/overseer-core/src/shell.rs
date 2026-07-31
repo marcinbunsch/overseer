@@ -278,6 +278,13 @@ pub fn build_sandboxed_command(
         cmd.env(key, value);
     }
 
+    // Inject Overseer-provided extras (e.g. the internal git API address + token)
+    // after the allow-list so the agent can reach the host git API. These carry
+    // no host secrets — the token is scoped to this one session's workspace.
+    for (key, value) in &spec.extra_env {
+        cmd.env(key, value);
+    }
+
     // Re-add the binary's own directory to PATH so the shell finds it even if the
     // rc files that normally set PATH are unavailable.
     prepare_path_env(&mut cmd, binary_path);
