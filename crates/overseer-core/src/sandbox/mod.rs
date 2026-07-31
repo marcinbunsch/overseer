@@ -163,6 +163,16 @@ pub fn default_read_paths(home: &Path) -> Vec<PathBuf> {
         candidates.push(home.join(rel));
     }
 
+    // Global git config and excludes. cargo's build-script fingerprinting walks
+    // the repo with gix, which reads the user's global config (`~/.gitconfig`,
+    // `~/.config/git/config`) and the global excludes it points at (default
+    // `~/.config/git/ignore`). Without these `cargo check` fails with "Could not
+    // read repository exclude: Operation not permitted". Read-only: the agent
+    // never needs to write the host's git config.
+    for rel in [".gitconfig", ".config/git"] {
+        candidates.push(home.join(rel));
+    }
+
     candidates.into_iter().filter(|p| p.exists()).collect()
 }
 
@@ -227,5 +237,20 @@ mod tests {
         assert!(paths.contains(&home.path().join(".cargo")));
         // A candidate that doesn't exist is not included.
         assert!(!paths.contains(&home.path().join(".nvm")));
+    }
+
+    // Regression: sandboxed `cargo check` failed with "Could not read repository
+    // exclude: Operation not permitted" because gix (cargo's build-script
+    // fingerprinting) reads the user's global git config and excludes, both under
+    // $HOME. The sandbox must grant read on `~/.gitconfig` and `~/.config/git`.
+    #[test]
+    fn default_read_paths_includes_global_git_config() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join(".gitconfig"), "[core]\n").unwrap();
+        std::fs::create_dir_all(home.path().join(".config/git")).unwrap();
+
+        let paths = default_read_paths(home.path());
+        assert!(paths.contains(&home.path().join(".gitconfig")));
+        assert!(paths.contains(&home.path().join(".config/git")));
     }
 }
