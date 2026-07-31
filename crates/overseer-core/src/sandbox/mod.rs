@@ -78,6 +78,11 @@ pub struct SandboxSpec {
     /// Extra read-only paths: toolchain caches, shell rc files, and any
     /// user-configured additions. See [`default_read_paths`].
     pub read_paths: Vec<PathBuf>,
+    /// Extra environment variables injected into the scrubbed sandbox env, on
+    /// top of the allow-list. Used to hand the agent the address and token of
+    /// Overseer's internal git API so it can push / open PRs on the host
+    /// without the host's GitHub credentials being present in the box.
+    pub extra_env: Vec<(String, String)>,
 }
 
 impl SandboxSpec {
@@ -102,7 +107,14 @@ impl SandboxSpec {
             tmpdir: canonicalize_or_keep(&tmpdir()),
             home: home.to_path_buf(),
             read_paths,
+            extra_env: Vec::new(),
         }
+    }
+
+    /// Set the extra environment variables injected into the scrubbed env.
+    pub fn with_extra_env(mut self, extra_env: Vec<(String, String)>) -> Self {
+        self.extra_env = extra_env;
+        self
     }
 }
 

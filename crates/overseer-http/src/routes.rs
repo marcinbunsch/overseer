@@ -4341,6 +4341,7 @@ async fn dispatch_send_message(
         // The remote HTTP/SSH path does not sandbox agents (yet).
         sandboxed: false,
         git_common_dir: None,
+        extra_env: Vec::new(),
     };
 
     // Events will flow through EventBus -> WebSocket automatically

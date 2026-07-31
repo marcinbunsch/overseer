@@ -26,6 +26,7 @@ use crate::spawn::{AgentProcess, ProcessEvent};
 fn build_claude_sandbox_spec(
     working_dir: &str,
     git_common_dir: Option<&str>,
+    extra_env: Vec<(String, String)>,
 ) -> Result<SandboxSpec, String> {
     let git = git_common_dir
         .ok_or_else(|| "Sandboxed Claude requires a resolved git directory".to_string())?;
@@ -36,7 +37,8 @@ fn build_claude_sandbox_spec(
         std::path::Path::new(git),
         std::path::Path::new(&home),
         Vec::new(),
-    ))
+    )
+    .with_extra_env(extra_env))
 }
 
 /// Entry for a single Claude process.
@@ -77,6 +79,10 @@ pub struct ClaudeStartConfig {
     /// `sandboxed` so the profile can grant write access to the worktree's git
     /// state, which lives in the main repo's `.git`. Resolved by the caller.
     pub git_common_dir: Option<String>,
+    /// Extra environment variables injected into the scrubbed sandbox env (only
+    /// applied when `sandboxed`). Carries the internal git API address + token so
+    /// the agent can push / open PRs on the host. Empty by default.
+    pub extra_env: Vec<(String, String)>,
 }
 
 /// Manages Claude CLI processes.
@@ -126,6 +132,7 @@ impl ClaudeAgentManager {
         let sandboxed = config.sandboxed;
         let sandbox_working_dir = config.working_dir.clone();
         let git_common_dir = config.git_common_dir.clone();
+        let sandbox_extra_env = config.extra_env.clone();
 
         // Build config using core
         let claude_config = ClaudeConfig {
@@ -148,7 +155,11 @@ impl ClaudeAgentManager {
         // When requested, wrap the spawn in a Seatbelt sandbox. Fail loudly if the
         // spec can't be built — never silently run an agent unsandboxed.
         if sandboxed {
-            let spec = build_claude_sandbox_spec(&sandbox_working_dir, git_common_dir.as_deref())?;
+            let spec = build_claude_sandbox_spec(
+                &sandbox_working_dir,
+                git_common_dir.as_deref(),
+                sandbox_extra_env,
+            )?;
             spawn_config = spawn_config.sandbox(spec);
         }
 

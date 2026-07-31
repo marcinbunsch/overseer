@@ -118,6 +118,7 @@ pub(crate) async fn send_message(
         // The driving API does not sandbox agents (yet), same as /api/invoke.
         sandboxed: false,
         git_common_dir: None,
+        extra_env: Vec::new(),
     };
 
     // Events flow through the EventBus and are persisted to the JSONL file.
