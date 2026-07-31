@@ -217,6 +217,11 @@ struct PrOpenResult {
 #[derive(Debug, Serialize)]
 struct PrStatusResult {
     exists: bool,
+    /// Set when the query itself failed (not authed, offline, gh missing,
+    /// unparseable output) so the agent doesn't read a broken call as "no PR".
+    /// `None` for both a real hit and a genuine "no PR for this branch".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
     number: Option<i64>,
     state: Option<String>,
     url: Option<String>,
@@ -318,11 +323,20 @@ async fn handle_pr_status(State(registry): State<TokenRegistry>, headers: Header
     ];
     let output = run_host_command("gh", args, &scope).await;
 
-    // gh exits non-zero when no PR exists for the branch — that's "not found",
-    // not an error worth surfacing.
+    // gh exits non-zero both when no PR exists for the branch (expected) and on
+    // real failures (not authed, offline, gh missing). Only the former is
+    // "not found"; surface the rest as an error so the agent doesn't act on a
+    // broken call as if there were simply no PR.
     if !output.success {
+        let no_pr = output.stderr.contains("no pull requests found")
+            || output.stderr.contains("no open pull requests");
         return Json(PrStatusResult {
             exists: false,
+            error: if no_pr {
+                None
+            } else {
+                Some(output.stderr.trim().to_string())
+            },
             number: None,
             state: None,
             url: None,
@@ -331,15 +345,26 @@ async fn handle_pr_status(State(registry): State<TokenRegistry>, headers: Header
         .into_response();
     }
 
-    let parsed: serde_json::Value = serde_json::from_str(&output.stdout).unwrap_or_default();
-    Json(PrStatusResult {
-        exists: true,
-        number: parsed["number"].as_i64(),
-        state: parsed["state"].as_str().map(|s| s.to_string()),
-        url: parsed["url"].as_str().map(|s| s.to_string()),
-        is_draft: parsed["isDraft"].as_bool(),
-    })
-    .into_response()
+    match serde_json::from_str::<serde_json::Value>(&output.stdout) {
+        Ok(parsed) => Json(PrStatusResult {
+            exists: true,
+            error: None,
+            number: parsed["number"].as_i64(),
+            state: parsed["state"].as_str().map(|s| s.to_string()),
+            url: parsed["url"].as_str().map(|s| s.to_string()),
+            is_draft: parsed["isDraft"].as_bool(),
+        })
+        .into_response(),
+        Err(e) => Json(PrStatusResult {
+            exists: false,
+            error: Some(format!("failed to parse gh output: {e}")),
+            number: None,
+            state: None,
+            url: None,
+            is_draft: None,
+        })
+        .into_response(),
+    }
 }
 
 // ============================================================================
