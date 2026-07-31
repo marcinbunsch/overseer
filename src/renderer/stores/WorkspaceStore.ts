@@ -56,6 +56,11 @@ Push the current branch:
 curl -sS -X POST "$OVERSEER_API_URL/api/service/git/push" -H "Authorization: Bearer $OVERSEER_API_TOKEN"
 \`\`\`
 
+Pull the current branch from the remote (fetch + merge):
+\`\`\`
+curl -sS -X POST "$OVERSEER_API_URL/api/service/git/pull" -H "Authorization: Bearer $OVERSEER_API_TOKEN"
+\`\`\`
+
 Open a pull request (pushes first, then returns the PR \`url\`):
 \`\`\`
 curl -sS -X POST "$OVERSEER_API_URL/api/service/pr/open" -H "Authorization: Bearer $OVERSEER_API_TOKEN" -H "Content-Type: application/json" -d '{"title":"...","body":"..."}'

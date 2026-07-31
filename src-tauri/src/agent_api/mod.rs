@@ -24,6 +24,7 @@
 //!
 //! Operations exposed today (all `POST`, all under `/api/service/`):
 //! - `git/push`  — push the session's current branch to `origin`
+//! - `git/pull`  — pull the session's branch from `origin` into the workspace
 //! - `pr/open`   — push, then `gh pr create`; returns the PR URL
 //! - `pr/status` — read-only: does a PR already exist for this branch?
 
@@ -157,6 +158,7 @@ pub fn start(state: &AgentApiState) -> Result<(), String> {
 fn router(registry: TokenRegistry) -> Router {
     Router::new()
         .route("/api/service/git/push", post(handle_push))
+        .route("/api/service/git/pull", post(handle_pull))
         .route("/api/service/pr/open", post(handle_pr_open))
         .route("/api/service/pr/status", post(handle_pr_status))
         .with_state(registry)
@@ -228,6 +230,16 @@ async fn handle_push(State(registry): State<TokenRegistry>, headers: HeaderMap) 
     };
 
     let output = git_push(&scope).await;
+    Json(output).into_response()
+}
+
+async fn handle_pull(State(registry): State<TokenRegistry>, headers: HeaderMap) -> Response {
+    let scope = match authorize(&registry, &headers) {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+
+    let output = git_pull(&scope).await;
     Json(output).into_response()
 }
 
@@ -342,6 +354,18 @@ async fn git_push(scope: &SessionScope) -> CommandResult {
         "-u".to_string(),
         "origin".to_string(),
         "HEAD".to_string(),
+    ];
+    run_host_command("git", args, scope).await
+}
+
+/// Pull the session's branch from `origin` (fetch + merge) into the workspace.
+/// Merge conflicts surface in stdout/stderr so the agent can resolve them in its
+/// own (writable) workspace.
+async fn git_pull(scope: &SessionScope) -> CommandResult {
+    let args = vec![
+        "pull".to_string(),
+        "origin".to_string(),
+        scope.branch.clone(),
     ];
     run_host_command("git", args, scope).await
 }
