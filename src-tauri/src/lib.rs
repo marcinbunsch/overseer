@@ -1,3 +1,4 @@
+mod agent_api;
 mod agents;
 mod approvals;
 mod chat_session;
@@ -386,6 +387,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(context_state)
         .manage(HttpServerState::default())
+        .manage(agent_api::AgentApiState::default())
         .manage(Arc::clone(&context.approval_manager))
         .manage(Arc::clone(&context.chat_sessions))
         .manage(persistence::PersistenceConfig::default())
@@ -506,6 +508,15 @@ pub fn run() {
             let persistence_config = app.state::<persistence::PersistenceConfig>();
             persistence_config.set_config_dir(config_dir);
 
+            // Start the internal, localhost-only git API for sandboxed agents.
+            // Bound to 127.0.0.1 on a random port; the address is stored on the
+            // managed state so the agent-spawn path can hand it to the agent.
+            let agent_api_state = app.state::<agent_api::AgentApiState>();
+            if let Err(e) = agent_api::start(&agent_api_state) {
+                log::error!("Failed to start agent-api service: {e}");
+            }
+            let agent_api_registry = agent_api_state.registry.clone();
+
             // Set up EventBus -> Tauri event forwarding
             // This allows all events emitted to the EventBus to be forwarded to Tauri's IPC
             let context_state = app.state::<OverseerContextState>();
@@ -516,6 +527,11 @@ pub fn run() {
                 loop {
                     match event_rx.blocking_recv() {
                         Ok(event) => {
+                            // When an agent process closes, revoke its git-API token
+                            // so it can't be reused after the session ends.
+                            if let Some(conv_id) = event.event_type.strip_prefix("agent:close:") {
+                                agent_api_registry.remove_by_conversation(conv_id);
+                            }
                             let _ = app_handle.emit(&event.event_type, event.payload);
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {

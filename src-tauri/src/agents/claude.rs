@@ -31,6 +31,7 @@ pub fn agent_stdin(
 pub async fn send_message(
     context_state: tauri::State<'_, OverseerContextState>,
     persistence_config: tauri::State<'_, PersistenceConfig>,
+    agent_api_state: tauri::State<'_, crate::agent_api::AgentApiState>,
     conversation_id: String,
     project_name: String,
     prompt: String,
@@ -77,6 +78,19 @@ pub async fn send_message(
         None
     };
 
+    // For a sandboxed agent, hand it the address + a scoped token for Overseer's
+    // internal git API, so it can push / open PRs on the host despite the scrubbed
+    // environment. The token maps only to this session's workspace + branch and is
+    // revoked when the process closes (see the agent:close handler in lib.rs).
+    let extra_env = build_agent_api_env(
+        &agent_api_state,
+        sandboxed,
+        &conversation_id,
+        &working_dir,
+        &resolved_agent_shell,
+    )
+    .await;
+
     let config = ClaudeStartConfig {
         conversation_id,
         project_name,
@@ -92,6 +106,7 @@ pub async fn send_message(
         effort_level,
         sandboxed,
         git_common_dir,
+        extra_env,
     };
 
     context_state.0.claude_agents.send_message(
@@ -100,6 +115,51 @@ pub async fn send_message(
         Arc::clone(&context_state.0.approval_manager),
         Arc::clone(&context_state.0.chat_sessions),
     )
+}
+
+/// Build the environment variables that point a sandboxed agent at Overseer's
+/// internal git API, registering a session-scoped token in the process.
+///
+/// Returns an empty vec when the agent isn't sandboxed (it has host credentials
+/// already) or when the service hasn't started — the agent simply won't see the
+/// API in its environment and falls back to normal git/gh.
+async fn build_agent_api_env(
+    agent_api_state: &crate::agent_api::AgentApiState,
+    sandboxed: bool,
+    conversation_id: &str,
+    working_dir: &str,
+    agent_shell: &Option<String>,
+) -> Vec<(String, String)> {
+    if !sandboxed {
+        return Vec::new();
+    }
+
+    let Some(base_url) = agent_api_state.base_url() else {
+        log::warn!("agent-api service not started; sandboxed agent won't get git API access");
+        return Vec::new();
+    };
+
+    // The branch the agent will push / open a PR for. Fall back to HEAD, which
+    // still works for `git push` even if the symbolic name can't be read.
+    let branch = overseer_core::git::get_current_branch(std::path::Path::new(working_dir))
+        .await
+        .unwrap_or_else(|_| "HEAD".to_string());
+
+    let token = uuid::Uuid::new_v4().to_string();
+    agent_api_state.registry.register(
+        token.clone(),
+        crate::agent_api::SessionScope {
+            conversation_id: conversation_id.to_string(),
+            workspace_path: working_dir.to_string(),
+            branch,
+            agent_shell: agent_shell.clone(),
+        },
+    );
+
+    vec![
+        ("OVERSEER_API_URL".to_string(), base_url),
+        ("OVERSEER_API_TOKEN".to_string(), token),
+    ]
 }
 
 /// Stop a running Claude CLI process.
