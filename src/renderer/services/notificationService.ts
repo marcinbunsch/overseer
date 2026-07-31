@@ -66,27 +66,18 @@ export async function sendSystemNotification(
   workspaceId: string,
   chatId: string
 ): Promise<void> {
+  // Post through the Rust `send_completion_notification` command rather than the
+  // notification plugin: on macOS the plugin never reports clicks back to JS, so the
+  // Rust side posts natively and emits a `notification://clicked` event on click
+  // (see initNotificationClickHandler).
   try {
-    const { isPermissionGranted, requestPermission, sendNotification } =
-      await import("@tauri-apps/plugin-notification")
-
-    let granted = await isPermissionGranted()
-    console.log(`[notifications] Permission granted: ${granted}`)
-    if (!granted) {
-      const permission = await requestPermission()
-      granted = permission === "granted"
-      console.log(`[notifications] Permission after request: ${permission}`)
-    }
-    if (!granted) {
-      console.log("[notifications] Permission denied — skipping notification")
-      return
-    }
-
+    const { invoke } = await import("@tauri-apps/api/core")
     console.log(`[notifications] Sending OS notification for: ${label}`)
-    sendNotification({
+    await invoke("send_completion_notification", {
       title: "Overseer",
       body: `Task complete in ${label}`,
-      extra: { workspaceId, chatId },
+      workspaceId,
+      chatId,
     })
   } catch (err) {
     console.warn("[notifications] System notification unavailable:", err)
@@ -96,20 +87,24 @@ export async function sendSystemNotification(
 /**
  * Set up the notification click handler. Call once at app startup.
  * Returns an unsubscribe function.
+ *
+ * The Rust side already shows and focuses the window on click; this listener only
+ * navigates the frontend to the chat that finished.
  */
 export async function initNotificationClickHandler(
   onNavigate: (workspaceId: string, chatId: string) => void
 ): Promise<() => void> {
-  const { onAction } = await import("@tauri-apps/plugin-notification")
-  const { invoke } = await import("@tauri-apps/api/core")
+  const { listen } = await import("@tauri-apps/api/event")
 
-  const listener = await onAction((notification) => {
-    const extra = notification.extra
-    if (extra && typeof extra.workspaceId === "string" && typeof extra.chatId === "string") {
-      void invoke("show_main_window")
-      onNavigate(extra.workspaceId, extra.chatId)
+  const unlisten = await listen<{ workspaceId?: string; chatId?: string }>(
+    "notification://clicked",
+    (event) => {
+      const { workspaceId, chatId } = event.payload
+      if (typeof workspaceId === "string" && typeof chatId === "string") {
+        onNavigate(workspaceId, chatId)
+      }
     }
-  })
+  )
 
-  return () => void listener.unregister()
+  return () => unlisten()
 }
