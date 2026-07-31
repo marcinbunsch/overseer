@@ -1,13 +1,18 @@
-//! Internal, localhost-only git API for sandboxed agents.
+//! Internal, localhost-only API for running privileged host commands on behalf
+//! of sandboxed agents.
 //!
 //! # Why this exists
 //!
 //! A sandboxed agent runs with a scrubbed environment: `SSH_AUTH_SOCK`,
 //! `GH_TOKEN`, and `GITHUB_TOKEN` are gone (see `overseer-core`'s sandbox env
-//! allow-list). The sandbox *allows* network, but with no credentials the agent
-//! can't `git push` or `gh pr create`. This service lets the agent ask Overseer
-//! to run those operations on the host, where the real credentials live, and
-//! returns the result synchronously so the agent knows the outcome of each call.
+//! allow-list), and it can't reach host state outside its workspace. The sandbox
+//! *allows* network, but with no credentials the agent can't do things like
+//! `git push` or `gh pr create`. Rather than widen the sandbox, this service is a
+//! narrow, controlled channel: the agent asks Overseer to run a fixed, whitelisted
+//! operation on the host — where the credentials live — and gets the result back
+//! synchronously, so it knows the outcome of each call. Git push / PR are the
+//! first such operations; the same channel is how any future privileged host
+//! command should be exposed.
 //!
 //! # Shape
 //!
@@ -17,7 +22,7 @@
 //! so an agent can only act on its own repo. The token lives only in that one
 //! agent's scrubbed environment, so no other process on the host can call in.
 //!
-//! Endpoints (all `POST`, all under `/api/service/`):
+//! Operations exposed today (all `POST`, all under `/api/service/`):
 //! - `git/push`  — push the session's current branch to `origin`
 //! - `pr/open`   — push, then `gh pr create`; returns the PR URL
 //! - `pr/status` — read-only: does a PR already exist for this branch?

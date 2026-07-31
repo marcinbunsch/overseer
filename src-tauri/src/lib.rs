@@ -508,9 +508,11 @@ pub fn run() {
             let persistence_config = app.state::<persistence::PersistenceConfig>();
             persistence_config.set_config_dir(config_dir);
 
-            // Start the internal, localhost-only git API for sandboxed agents.
-            // Bound to 127.0.0.1 on a random port; the address is stored on the
-            // managed state so the agent-spawn path can hand it to the agent.
+            // Start the internal, localhost-only service that runs privileged
+            // host commands for sandboxed agents — operations the sandbox blocks
+            // (today: git push / open a PR). Bound to 127.0.0.1 on a random port;
+            // the address is stored on the managed state so the agent-spawn path
+            // can hand it to the agent.
             let agent_api_state = app.state::<agent_api::AgentApiState>();
             if let Err(e) = agent_api::start(&agent_api_state) {
                 log::error!("Failed to start agent-api service: {e}");
