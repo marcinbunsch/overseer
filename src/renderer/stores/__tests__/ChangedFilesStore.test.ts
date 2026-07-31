@@ -703,7 +703,7 @@ describe("ChangedFilesStore", () => {
 
       // createPR should have been triggered, which calls workspaceStore.sendMessage
       expect(mockWorkspaceStore.sendMessage).toHaveBeenCalledWith(
-        expect.stringContaining("create a GitHub pull request"),
+        expect.stringContaining("open a GitHub pull request"),
         expect.objectContaining({ type: "create-pr" })
       )
     })

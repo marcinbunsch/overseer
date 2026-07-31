@@ -332,7 +332,7 @@ export class ChangedFilesStore {
     const wt = projectRegistry.selectedWorkspace
     if (!wt) return
 
-    let prompt = `Please look at the changes on branch "${wt.branch}" and create a GitHub pull request. Summarize the changes and use \`gh pr create\` to create the PR with a descriptive title and body based on the actual code changes.`
+    let prompt = `Please look at the changes on branch "${wt.branch}" and open a GitHub pull request with a descriptive title and body based on the actual code changes. If you are sandboxed (the OVERSEER_API_URL environment variable is set), open it via Overseer's git API; otherwise use \`gh pr create\`.`
 
     const project = projectRegistry.selectedProject
     if (project?.prPrompt) {

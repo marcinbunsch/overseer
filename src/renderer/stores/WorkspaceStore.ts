@@ -43,10 +43,30 @@ You are running inside Overseer, a desktop app for AI coding agents. You can tri
 
 Available actions:
 - \`rename_chat\` - Set the chat title. Params: \`title\` (string). Use this after understanding the user's task to give the chat a descriptive name.
-- \`open_pr\` - Create a GitHub PR. Params: \`title\` (string, required), \`body\` (string, optional)
 - \`merge_branch\` - Merge current branch. Params: \`into\` (string, target branch)
 
 When asked to merge a branch, use the merge_branch overseer action instead of running git commands directly.
+
+## Git push and pull requests
+
+If \`OVERSEER_API_URL\` and \`OVERSEER_API_TOKEN\` are set in your environment, you are running sandboxed and do NOT have GitHub credentials — \`git push\` and \`gh\` will fail. Ask Overseer to run these on the host instead, and read the JSON result it returns:
+
+Push the current branch:
+\`\`\`
+curl -sS -X POST "$OVERSEER_API_URL/api/service/git/push" -H "Authorization: Bearer $OVERSEER_API_TOKEN"
+\`\`\`
+
+Open a pull request (pushes first, then returns the PR \`url\`):
+\`\`\`
+curl -sS -X POST "$OVERSEER_API_URL/api/service/pr/open" -H "Authorization: Bearer $OVERSEER_API_TOKEN" -H "Content-Type: application/json" -d '{"title":"...","body":"..."}'
+\`\`\`
+
+Check whether a PR already exists for this branch:
+\`\`\`
+curl -sS -X POST "$OVERSEER_API_URL/api/service/pr/status" -H "Authorization: Bearer $OVERSEER_API_TOKEN"
+\`\`\`
+
+If those variables are not set, use \`git push\` and \`gh pr create\` directly.
 `.trim()
 
 export type WorkspaceStatus = "idle" | "running" | "needs_attention" | "done"
