@@ -39,6 +39,80 @@ async fn show_main_window(window: tauri::Window) {
     window.show().unwrap();
 }
 
+/// Payload sent to the frontend when the user clicks a completion notification,
+/// telling it which chat to open.
+#[cfg(target_os = "macos")]
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NotificationClicked {
+    workspace_id: String,
+    chat_id: String,
+}
+
+/// Show a "task complete" notification and, on click, focus the window and tell the
+/// frontend which chat to open.
+///
+/// The tauri-plugin-notification desktop path posts via notify-rust and never reports
+/// clicks back to JS, so we post through mac-notification-sys directly. Its `send` blocks
+/// until the user clicks or dismisses the notification, so we run it on a detached thread.
+/// That parks one thread per outstanding notification — acceptable here because completion
+/// notifications are infrequent and short-lived.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn send_completion_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+    workspace_id: String,
+    chat_id: String,
+) {
+    let identifier = app.config().identifier.clone();
+    std::thread::spawn(move || {
+        use mac_notification_sys::{set_application, Notification, NotificationResponse};
+
+        // Route clicks to Overseer instead of the default (Finder). set_application is
+        // globally idempotent (guarded by a Once), so ignore an already-set error.
+        let _ = set_application(&identifier);
+
+        let mut notification = Notification::new();
+        notification.title(&title).message(&body).wait_for_click(true);
+
+        match notification.send() {
+            Ok(NotificationResponse::Click) => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                let _ = app.emit(
+                    "notification://clicked",
+                    NotificationClicked {
+                        workspace_id,
+                        chat_id,
+                    },
+                );
+            }
+            // Dismissed, closed, or delivered without interaction — nothing to do.
+            Ok(_) => {}
+            Err(err) => log::warn!("completion notification failed: {err}"),
+        }
+    });
+}
+
+/// Non-macOS fallback: just show the notification (no click routing) so the frontend
+/// has a single command to call on every platform.
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+async fn send_completion_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+    _workspace_id: String,
+    _chat_id: String,
+) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
 #[tauri::command]
 async fn is_debug_mode() -> bool {
     std::env::var("OVERSEER_DEBUG").is_ok()
@@ -584,6 +658,7 @@ pub fn run() {
             open_external,
             check_command_exists,
             show_main_window,
+            send_completion_notification,
             is_debug_mode,
             is_demo_mode,
             get_home_dir,

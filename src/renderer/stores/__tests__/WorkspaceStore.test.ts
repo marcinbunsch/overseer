@@ -49,6 +49,16 @@ describe("WorkspaceStore", () => {
     vi.mocked(invoke).mockResolvedValue(undefined)
   })
 
+  describe("getNotificationLabel", () => {
+    it("returns project/workspace-folder for the completion notification", () => {
+      const ws: Workspace = { ...mockWorkspace, path: "/home/testuser/workspaces/grouse" }
+      const store = new WorkspaceStore(ws, "overseer")
+      // @ts-expect-error - accessing private method for testing
+      const context = store.createChatContext()
+      expect(context.getNotificationLabel()).toBe("overseer/grouse")
+    })
+  })
+
   describe("runningCount", () => {
     it("returns 0 when no chats exist", () => {
       const store = new WorkspaceStore(mockWorkspace, "myrepo")
