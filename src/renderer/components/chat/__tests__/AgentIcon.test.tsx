@@ -12,6 +12,7 @@ describe("AgentIcon", () => {
     // Reset store state
     toolAvailabilityStore.claude = null
     toolAvailabilityStore.codex = null
+    toolAvailabilityStore.hermes = null
   })
 
   it("renders Claude icon without warning when showWarning is false", () => {
@@ -72,6 +73,19 @@ describe("AgentIcon", () => {
     render(<AgentIcon agentType="codex" size={14} showWarning />)
 
     expect(screen.getByLabelText("OpenAI")).toBeInTheDocument()
+    expect(screen.getByLabelText("Warning")).toBeInTheDocument()
+  })
+
+  it("shows warning for Hermes when unavailable", () => {
+    toolAvailabilityStore.hermes = {
+      available: false,
+      error: "hermes not installed",
+      lastChecked: Date.now(),
+    }
+
+    render(<AgentIcon agentType="hermes" size={14} showWarning />)
+
+    expect(screen.getByLabelText("Hermes")).toBeInTheDocument()
     expect(screen.getByLabelText("Warning")).toBeInTheDocument()
   })
 

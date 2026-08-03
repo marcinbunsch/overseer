@@ -183,10 +183,13 @@ class HermesAgentService implements AgentService {
     }
 
     if (!chat.unlistenClose) {
-      chat.unlistenClose = await backend.listen<{ code: number }>(`hermes:close:${serverId}`, () => {
-        chat.running = false
-        this.doneCallbacks.get(chatId)?.()
-      })
+      chat.unlistenClose = await backend.listen<{ code: number }>(
+        `hermes:close:${serverId}`,
+        () => {
+          chat.running = false
+          this.doneCallbacks.get(chatId)?.()
+        }
+      )
     }
   }
 

@@ -188,6 +188,15 @@ export const ChatTabs = observer(function ChatTabs() {
                   <BetaBadge />
                 </button>
               )}
+              {configStore.isAgentEnabled("hermes") && (
+                <button
+                  onClick={() => handleNewChat("hermes")}
+                  className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs text-ovr-text-primary hover:bg-ovr-bg-panel"
+                >
+                  <AgentIcon agentType="hermes" size={14} showWarning /> New Hermes chat
+                  <BetaBadge />
+                </button>
+              )}
               {configStore.isAgentEnabled("opencode") && (
                 <button
                   onClick={() => handleNewChat("opencode")}

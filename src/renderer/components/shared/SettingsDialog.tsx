@@ -166,6 +166,7 @@ const AGENTS: { type: AgentType; label: string; description: string }[] = [
   { type: "codex", label: "Codex", description: "OpenAI's coding agent" },
   { type: "copilot", label: "Copilot", description: "GitHub's AI pair programmer" },
   { type: "gemini", label: "Gemini", description: "Google's AI model" },
+  { type: "hermes", label: "Hermes", description: "Nous Research's open agent" },
   { type: "opencode", label: "OpenCode", description: "Open-source coding agent" },
   { type: "pi", label: "Pi", description: "Multi-provider coding agent" },
 ]
@@ -445,6 +446,7 @@ const AgentsTab = observer(function AgentsTab() {
   const [checkingCodex, setCheckingCodex] = useState(false)
   const [checkingCopilot, setCheckingCopilot] = useState(false)
   const [checkingGemini, setCheckingGemini] = useState(false)
+  const [checkingHermes, setCheckingHermes] = useState(false)
   const [checkingOpencode, setCheckingOpencode] = useState(false)
   const [checkingPi, setCheckingPi] = useState(false)
 
@@ -481,6 +483,15 @@ const AgentsTab = observer(function AgentsTab() {
       await toolAvailabilityStore.recheckGemini()
     } finally {
       setCheckingGemini(false)
+    }
+  }
+
+  const handleCheckHermes = async () => {
+    setCheckingHermes(true)
+    try {
+      await toolAvailabilityStore.recheckHermes()
+    } finally {
+      setCheckingHermes(false)
     }
   }
 
@@ -620,6 +631,19 @@ const AgentsTab = observer(function AgentsTab() {
               onCheck={handleCheckGemini}
               defaultModel={configStore.defaultGeminiModel}
               onModelChange={(model) => configStore.setDefaultGeminiModel(model)}
+            />
+          )}
+
+          {configStore.isAgentEnabled("hermes") && (
+            <AgentSettings
+              type="hermes"
+              label="Hermes"
+              cliPath={configStore.hermesPath}
+              status={toolAvailabilityStore.hermes}
+              isChecking={checkingHermes}
+              onCheck={handleCheckHermes}
+              defaultModel={configStore.defaultHermesModel}
+              onModelChange={(model) => configStore.setDefaultHermesModel(model)}
             />
           )}
 
