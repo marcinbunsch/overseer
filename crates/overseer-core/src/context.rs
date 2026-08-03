@@ -33,7 +33,8 @@
 use crate::event_bus::EventBus;
 use crate::managers::{
     ChatSessionManager, ClaudeAgentManager, CodexAgentManager, CopilotAgentManager,
-    GeminiAgentManager, OpenCodeAgentManager, PiAgentManager, ProjectApprovalManager, PtyManager,
+    GeminiAgentManager, HermesAgentManager, OpenCodeAgentManager, PiAgentManager,
+    ProjectApprovalManager, PtyManager,
 };
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -49,6 +50,7 @@ pub struct OverseerContextBuilder {
     codex_agents: Option<Arc<CodexAgentManager>>,
     copilot_agents: Option<Arc<CopilotAgentManager>>,
     gemini_agents: Option<Arc<GeminiAgentManager>>,
+    hermes_agents: Option<Arc<HermesAgentManager>>,
     opencode_agents: Option<Arc<OpenCodeAgentManager>>,
     pi_agents: Option<Arc<PiAgentManager>>,
     pty_manager: Option<Arc<PtyManager>>,
@@ -108,6 +110,12 @@ impl OverseerContextBuilder {
         self
     }
 
+    /// Use an existing HermesAgentManager (for testing or custom configurations).
+    pub fn hermes_agents(mut self, manager: Arc<HermesAgentManager>) -> Self {
+        self.hermes_agents = Some(manager);
+        self
+    }
+
     /// Use an existing OpenCodeAgentManager (for testing or custom configurations).
     pub fn opencode_agents(mut self, manager: Arc<OpenCodeAgentManager>) -> Self {
         self.opencode_agents = Some(manager);
@@ -147,6 +155,9 @@ impl OverseerContextBuilder {
         let gemini_agents = self
             .gemini_agents
             .unwrap_or_else(|| Arc::new(GeminiAgentManager::new()));
+        let hermes_agents = self
+            .hermes_agents
+            .unwrap_or_else(|| Arc::new(HermesAgentManager::new()));
         let opencode_agents = self
             .opencode_agents
             .unwrap_or_else(|| Arc::new(OpenCodeAgentManager::new()));
@@ -166,6 +177,7 @@ impl OverseerContextBuilder {
             codex_agents,
             copilot_agents,
             gemini_agents,
+            hermes_agents,
             opencode_agents,
             pi_agents,
             pty_manager,
@@ -199,6 +211,8 @@ pub struct OverseerContext {
     pub copilot_agents: Arc<CopilotAgentManager>,
     /// Gemini agent manager.
     pub gemini_agents: Arc<GeminiAgentManager>,
+    /// Hermes agent manager.
+    pub hermes_agents: Arc<HermesAgentManager>,
     /// OpenCode agent manager.
     pub opencode_agents: Arc<OpenCodeAgentManager>,
     /// Pi agent manager.
