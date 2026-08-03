@@ -160,7 +160,8 @@ interface ChangedFile {
 - AgentService abstraction for different backends
 - Claude Code via stream-json protocol
 - Codex via JSON-RPC protocol
-- Copilot, Gemini, and OpenCode support (beta)
+- Copilot, Gemini, OpenCode, Pi, and Hermes support (beta)
+- Hermes via the ACP protocol (`hermes acp`), sharing the ACP parser with Copilot; sessions resume across app restarts via `session/load`
 - Agent registry for type → service mapping
 - Per-chat model version selection (e.g., sonnet/opus/haiku for Claude, gpt-5.3-codex for Codex)
 - Configurable model lists in `~/.config/overseer/config.json` (`claudeModels`, `codexModels`)

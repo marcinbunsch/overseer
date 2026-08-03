@@ -249,7 +249,7 @@ pub async fn invoke_handler(
         "send_message" => dispatch_send_message(&state, request.args).await,
 
         // =====================================================================
-        // AGENTS (Codex, Copilot, Gemini, OpenCode, Pi) - Not yet implemented
+        // AGENTS (Codex, Copilot, Gemini, Hermes, OpenCode, Pi) - Not yet implemented
         // =====================================================================
         "start_codex_server"
         | "stop_codex_server"
@@ -260,6 +260,10 @@ pub async fn invoke_handler(
         | "start_gemini_server"
         | "stop_gemini_server"
         | "gemini_stdin"
+        | "start_hermes_server"
+        | "stop_hermes_server"
+        | "hermes_stdin"
+        | "hermes_set_replay_suppression"
         | "start_opencode_server"
         | "stop_opencode_server"
         | "get_opencode_port"

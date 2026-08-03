@@ -5,6 +5,7 @@ import { ClaudeAgentService, claudeAgentService } from "./claude"
 import { codexAgentService } from "./codex"
 import { copilotAgentService } from "./copilot"
 import { geminiAgentService } from "./gemini"
+import { hermesAgentService } from "./hermes"
 import { opencodeAgentService } from "./opencode"
 import { piAgentService } from "./pi"
 
@@ -14,6 +15,7 @@ const services: Record<AgentType, AgentService> = {
   codex: codexAgentService,
   copilot: copilotAgentService,
   gemini: geminiAgentService,
+  hermes: hermesAgentService,
   opencode: opencodeAgentService,
   pi: piAgentService,
 }
@@ -42,6 +44,8 @@ export function createAgentService(agentType: AgentType, backend: Backend): Agen
       return copilotAgentService
     case "gemini":
       return geminiAgentService
+    case "hermes":
+      return hermesAgentService
     case "opencode":
       return opencodeAgentService
     case "pi":

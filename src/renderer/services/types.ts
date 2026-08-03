@@ -1,6 +1,6 @@
 import type { Attachment, MessageMeta, QuestionItem, ToolMeta } from "../types"
 
-export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "opencode" | "pi"
+export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "hermes" | "opencode" | "pi"
 
 export type AgentEvent =
   | { kind: "text"; text: string }

@@ -495,6 +495,7 @@ describe("ConfigStore", () => {
         "codex",
         "copilot",
         "gemini",
+        "hermes",
         "opencode",
         "pi",
       ])
@@ -1182,6 +1183,117 @@ describe("ConfigStore", () => {
       })
 
       expect(savedConfig!.systemNotificationEnabled).toBe(true)
+    })
+  })
+
+  describe("hermes models cache", () => {
+    it("loads hermesPath and cached hermesModels from config", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({
+            claudePath: "claude",
+            hermesPath: "$HOME/.local/bin/hermes",
+            hermesModels: [{ alias: "nous:hermes-4-405b", displayName: "Hermes 4 405B" }],
+            defaultHermesModel: "nous:hermes-4-405b",
+          })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.hermesPath).toBe("/home/testuser/.local/bin/hermes")
+      expect(configStore.getModelsForAgent("hermes")).toEqual([
+        { alias: "nous:hermes-4-405b", displayName: "Hermes 4 405B" },
+      ])
+      expect(configStore.getDefaultModelForAgent("hermes")).toBe("nous:hermes-4-405b")
+    })
+
+    it("ignores malformed hermesModels in config", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({
+            claudePath: "claude",
+            hermesModels: [{ alias: "", displayName: "" }, "garbage"],
+          })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.hermesModels).toEqual([])
+    })
+
+    it("setHermesModels persists the list to config", async () => {
+      let savedConfig: Record<string, unknown> | null = null
+      mockInvoke((cmd: string, args?: unknown) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        if (cmd === "save_json_config") {
+          savedConfig = (args as { content: Record<string, unknown> }).content
+          return Promise.resolve(undefined)
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      configStore.setHermesModels([{ alias: "openrouter:qwen3-coder", displayName: "Qwen3 Coder" }])
+
+      await vi.waitFor(() => {
+        expect(savedConfig).not.toBeNull()
+      })
+
+      expect(savedConfig!.hermesModels).toEqual([
+        { alias: "openrouter:qwen3-coder", displayName: "Qwen3 Coder" },
+      ])
+    })
+
+    it("setHermesModels skips the save when the list is unchanged", async () => {
+      const models = [{ alias: "nous:hermes-4-405b", displayName: "Hermes 4 405B" }]
+      let saveCount = 0
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude", hermesModels: models })
+        }
+        if (cmd === "save_json_config") {
+          saveCount++
+          return Promise.resolve(undefined)
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      configStore.setHermesModels([{ alias: "nous:hermes-4-405b", displayName: "Hermes 4 405B" }])
+
+      expect(saveCount).toBe(0)
     })
   })
 })

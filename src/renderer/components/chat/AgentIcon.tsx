@@ -111,6 +111,21 @@ export function PiIcon({ size = 14, className }: { size?: number; className?: st
   )
 }
 
+export function HermesIcon({ size = 14, className }: { size?: number; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-label="Hermes"
+    >
+      <path d="M5 4h2v7h10V4h2v16h-2v-7H7v7H5V4z" />
+    </svg>
+  )
+}
+
 function WarningIcon({ size = 10 }: { size?: number }) {
   return (
     <svg
@@ -143,6 +158,8 @@ export const AgentIcon = observer(function AgentIcon({
         return toolAvailabilityStore.copilot
       case "gemini":
         return toolAvailabilityStore.gemini
+      case "hermes":
+        return toolAvailabilityStore.hermes
       case "opencode":
         return toolAvailabilityStore.opencode
       case "pi":
@@ -163,6 +180,8 @@ export const AgentIcon = observer(function AgentIcon({
         return <GitHubCopilotIcon size={size} className={className} />
       case "gemini":
         return <GeminiIcon size={size} className={className} />
+      case "hermes":
+        return <HermesIcon size={size} className={className} />
       case "opencode":
         return <OpenCodeIcon size={size} className={className} />
       case "pi":

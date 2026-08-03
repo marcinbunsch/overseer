@@ -48,6 +48,10 @@ export const ModelSelector = observer(function ModelSelector({
         return configStore.copilotModels
       case "gemini":
         return configStore.geminiModels
+      case "hermes":
+        // Populated from Hermes ACP session responses, cached in config.json.
+        // Empty until the first session — the picker then shows just "Default".
+        return configStore.hermesModels
       case "opencode":
         return configStore.opencodeModels
       case "pi":

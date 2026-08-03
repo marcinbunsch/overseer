@@ -1,9 +1,9 @@
-//! Copilot-specific JSON types for ACP (Agent Communication Protocol) parsing.
+//! JSON types for ACP (Agent Client Protocol) parsing.
 //!
-//! # Copilot Protocol Overview
+//! # ACP Protocol Overview
 //!
-//! Copilot uses JSON-RPC 2.0 with the ACP extension, similar to Codex but with
-//! different message structures. Key differences:
+//! ACP uses JSON-RPC 2.0, similar to Codex but with different message
+//! structures. Key differences:
 //!
 //! 1. **Session updates** use `session/update` notifications with nested `update` object
 //! 2. **Permission requests** use `session/request_permission` server requests
@@ -24,7 +24,7 @@
 
 use serde::Deserialize;
 
-/// A JSON-RPC message from Copilot (ACP protocol).
+/// A JSON-RPC message from an ACP agent.
 ///
 /// Same structure as Codex but with different notification/request types.
 /// The variant order matters for `#[serde(untagged)]` - see Codex types for explanation.
@@ -205,7 +205,8 @@ pub struct PermissionToolCall {
 /// Permission option in permission requests.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PermissionOption {
-    /// Option ID: "allow_once", "allow_always", "reject_once", "reject_always".
+    /// Option ID. Copilot uses "allow_once"/"allow_always"/"reject_once"/"reject_always";
+    /// Hermes uses "allow_once"/"allow_session"/"allow_always"/"deny"/"deny_always".
     #[serde(rename = "optionId")]
     pub option_id: String,
 
@@ -281,6 +282,20 @@ mod tests {
         let json = r#"{"optionId":"allow_once","name":"Allow Once","kind":"allow_once"}"#;
         let option: PermissionOption = serde_json::from_str(json).unwrap();
         assert_eq!(option.option_id, "allow_once");
+    }
+
+    #[test]
+    fn parse_hermes_permission_options() {
+        // Hermes option ids differ from Copilot's: deny/deny_always instead of
+        // reject_once/reject_always, plus allow_session.
+        let deny = r#"{"optionId":"deny","name":"Deny","kind":"reject_once"}"#;
+        let option: PermissionOption = serde_json::from_str(deny).unwrap();
+        assert_eq!(option.option_id, "deny");
+        assert_eq!(option.kind, "reject_once");
+
+        let session = r#"{"optionId":"allow_session","name":"Allow for session","kind":"allow_always"}"#;
+        let option: PermissionOption = serde_json::from_str(session).unwrap();
+        assert_eq!(option.option_id, "allow_session");
     }
 
     #[test]

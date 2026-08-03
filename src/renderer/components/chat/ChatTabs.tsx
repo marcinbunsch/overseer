@@ -16,6 +16,7 @@ export const ChatTabs = observer(function ChatTabs() {
   const chats = workspaceStore?.activeChats ?? []
   const activeId = workspaceStore?.activeChatId
   const hasArchivedChats = workspaceStore?.hasArchivedChats ?? false
+  const isRemote = projectRegistry.selectedProject?.isRemote ?? false
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState("")
   const [showMenu, setShowMenu] = useState(false)
@@ -162,7 +163,7 @@ export const ChatTabs = observer(function ChatTabs() {
                   <AgentIcon agentType="claude" size={14} showWarning /> New Claude chat
                 </button>
               )}
-              {configStore.isAgentEnabled("codex") && (
+              {!isRemote && configStore.isAgentEnabled("codex") && (
                 <button
                   onClick={() => handleNewChat("codex")}
                   className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs text-ovr-text-primary hover:bg-ovr-bg-panel"
@@ -170,7 +171,7 @@ export const ChatTabs = observer(function ChatTabs() {
                   <AgentIcon agentType="codex" size={14} showWarning /> New Codex chat
                 </button>
               )}
-              {configStore.isAgentEnabled("copilot") && (
+              {!isRemote && configStore.isAgentEnabled("copilot") && (
                 <button
                   onClick={() => handleNewChat("copilot")}
                   className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs text-ovr-text-primary hover:bg-ovr-bg-panel"
@@ -179,7 +180,7 @@ export const ChatTabs = observer(function ChatTabs() {
                   <BetaBadge />
                 </button>
               )}
-              {configStore.isAgentEnabled("gemini") && (
+              {!isRemote && configStore.isAgentEnabled("gemini") && (
                 <button
                   onClick={() => handleNewChat("gemini")}
                   className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs text-ovr-text-primary hover:bg-ovr-bg-panel"
@@ -188,7 +189,16 @@ export const ChatTabs = observer(function ChatTabs() {
                   <BetaBadge />
                 </button>
               )}
-              {configStore.isAgentEnabled("opencode") && (
+              {!isRemote && configStore.isAgentEnabled("hermes") && (
+                <button
+                  onClick={() => handleNewChat("hermes")}
+                  className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs text-ovr-text-primary hover:bg-ovr-bg-panel"
+                >
+                  <AgentIcon agentType="hermes" size={14} showWarning /> New Hermes chat
+                  <BetaBadge />
+                </button>
+              )}
+              {!isRemote && configStore.isAgentEnabled("opencode") && (
                 <button
                   onClick={() => handleNewChat("opencode")}
                   className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs text-ovr-text-primary hover:bg-ovr-bg-panel"
@@ -197,7 +207,7 @@ export const ChatTabs = observer(function ChatTabs() {
                   <BetaBadge />
                 </button>
               )}
-              {configStore.isAgentEnabled("pi") && (
+              {!isRemote && configStore.isAgentEnabled("pi") && (
                 <button
                   onClick={() => handleNewChat("pi")}
                   className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs text-ovr-text-primary hover:bg-ovr-bg-panel"

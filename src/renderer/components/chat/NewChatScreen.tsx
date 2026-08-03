@@ -10,6 +10,7 @@ import {
   OpenAIIcon,
   GitHubCopilotIcon,
   GeminiIcon,
+  HermesIcon,
   OpenCodeIcon,
   PiIcon,
 } from "./AgentIcon"
@@ -81,6 +82,7 @@ export const NewChatScreen = observer(function NewChatScreen({
   const codexStatus = toolAvailabilityStore.codex
   const copilotStatus = toolAvailabilityStore.copilot
   const geminiStatus = toolAvailabilityStore.gemini
+  const hermesStatus = toolAvailabilityStore.hermes
   const opencodeStatus = toolAvailabilityStore.opencode
   const piStatus = toolAvailabilityStore.pi
   const hasArchivedChats = workspaceStore?.hasArchivedChats ?? false
@@ -148,6 +150,18 @@ export const NewChatScreen = observer(function NewChatScreen({
             onClick={() => handleSelectAgent("gemini")}
             unavailable={geminiStatus !== null && !geminiStatus.available}
             unavailableMessage={geminiStatus?.error}
+            beta
+          />
+        )}
+        {!isRemote && configStore.isAgentEnabled("hermes") && (
+          <AgentButton
+            agentType="hermes"
+            title="Hermes"
+            description="Nous Research's open agent"
+            icon={<HermesIcon size={48} />}
+            onClick={() => handleSelectAgent("hermes")}
+            unavailable={hermesStatus !== null && !hermesStatus.available}
+            unavailableMessage={hermesStatus?.error}
             beta
           />
         )}

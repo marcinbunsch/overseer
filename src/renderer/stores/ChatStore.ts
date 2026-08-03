@@ -857,6 +857,7 @@ export class ChatStore {
       case "gemini":
         return "yolo"
       case "copilot":
+      case "hermes":
       case "opencode":
       case "pi":
         // These agents don't use permission modes, but we return a value for consistency
