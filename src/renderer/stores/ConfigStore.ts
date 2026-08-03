@@ -22,6 +22,7 @@ interface Config {
   codexPath: string
   copilotPath: string
   geminiPath: string
+  hermesPath: string
   opencodePath: string
   piPath: string
   agentShell?: string
@@ -37,8 +38,10 @@ interface Config {
   defaultCodexModel?: string | null
   defaultCopilotModel?: string | null
   defaultGeminiModel?: string | null
+  defaultHermesModel?: string | null
   defaultOpencodeModel?: string | null
   defaultPiModel?: string | null
+  hermesModels?: AgentModel[]
   claudePermissionMode?: ClaudePermissionMode
   codexApprovalPolicy?: CodexApprovalPolicy
   geminiApprovalMode?: GeminiApprovalMode
@@ -54,13 +57,14 @@ interface Config {
   remoteServers?: RemoteServerConfig[]
 }
 
-const ALL_AGENTS: AgentType[] = ["claude", "codex", "copilot", "gemini", "opencode", "pi"]
+const ALL_AGENTS: AgentType[] = ["claude", "codex", "copilot", "gemini", "hermes", "opencode", "pi"]
 
 const DEFAULT_CONFIG: Config = {
   claudePath: "$HOME/.local/bin/claude",
   codexPath: "codex",
   copilotPath: "copilot",
   geminiPath: "gemini",
+  hermesPath: "hermes",
   opencodePath: "opencode",
   piPath: "pi",
   leftPaneWidth: 250,
@@ -92,6 +96,7 @@ const FALLBACK_CLAUDE_PATH = "claude"
 const FALLBACK_CODEX_PATH = "codex"
 const FALLBACK_COPILOT_PATH = "copilot"
 const FALLBACK_GEMINI_PATH = "gemini"
+const FALLBACK_HERMES_PATH = "hermes"
 const FALLBACK_OPENCODE_PATH = "opencode"
 const FALLBACK_PI_PATH = "pi"
 
@@ -181,11 +186,18 @@ const DEFAULT_OPENCODE_MODELS: AgentModel[] = [
 // see refreshPiModels() — and start empty until that resolves.
 const DEFAULT_PI_MODELS: AgentModel[] = []
 
+// Hermes has no CLI model listing at all: the list arrives in ACP
+// session/new and session/load responses. Unlike Pi there is nothing to
+// refresh outside a session, so the list is cached in config.json (see
+// setHermesModels) and starts empty on a fresh install.
+const HermesModelsSchema = z.array(AgentModelSchema)
+
 class ConfigStore {
   @observable claudePath: string = FALLBACK_CLAUDE_PATH
   @observable codexPath: string = FALLBACK_CODEX_PATH
   @observable copilotPath: string = FALLBACK_COPILOT_PATH
   @observable geminiPath: string = FALLBACK_GEMINI_PATH
+  @observable hermesPath: string = FALLBACK_HERMES_PATH
   @observable opencodePath: string = FALLBACK_OPENCODE_PATH
   @observable piPath: string = FALLBACK_PI_PATH
   @observable leftPaneWidth: number = DEFAULT_CONFIG.leftPaneWidth
@@ -198,6 +210,7 @@ class ConfigStore {
   @observable codexModels: AgentModel[] = DEFAULT_CODEX_MODELS
   @observable copilotModels: AgentModel[] = DEFAULT_COPILOT_MODELS
   @observable geminiModels: AgentModel[] = DEFAULT_GEMINI_MODELS
+  @observable hermesModels: AgentModel[] = []
   @observable opencodeModels: AgentModel[] = DEFAULT_OPENCODE_MODELS
   @observable piModels: AgentModel[] = DEFAULT_PI_MODELS
   @observable enabledAgents: AgentType[] = ALL_AGENTS
@@ -209,6 +222,7 @@ class ConfigStore {
   @observable defaultCodexModel: string | null = null
   @observable defaultCopilotModel: string | null = null
   @observable defaultGeminiModel: string | null = null
+  @observable defaultHermesModel: string | null = null
   @observable defaultOpencodeModel: string | null = null
   @observable defaultPiModel: string | null = null
   @observable animationsEnabled: boolean = false
@@ -235,6 +249,7 @@ class ConfigStore {
   private rawCodexPath: string = DEFAULT_CONFIG.codexPath
   private rawCopilotPath: string = DEFAULT_CONFIG.copilotPath
   private rawGeminiPath: string = DEFAULT_CONFIG.geminiPath
+  private rawHermesPath: string = DEFAULT_CONFIG.hermesPath
   private rawOpencodePath: string = DEFAULT_CONFIG.opencodePath
   private rawPiPath: string = DEFAULT_CONFIG.piPath
 
@@ -287,12 +302,14 @@ class ConfigStore {
       this.rawCodexPath = parsed.codexPath ?? DEFAULT_CONFIG.codexPath
       this.rawCopilotPath = parsed.copilotPath ?? DEFAULT_CONFIG.copilotPath
       this.rawGeminiPath = parsed.geminiPath ?? DEFAULT_CONFIG.geminiPath
+      this.rawHermesPath = parsed.hermesPath ?? DEFAULT_CONFIG.hermesPath
       this.rawOpencodePath = parsed.opencodePath ?? DEFAULT_CONFIG.opencodePath
       this.rawPiPath = parsed.piPath ?? DEFAULT_CONFIG.piPath
       const resolved = this.expandEnvVars(this.rawClaudePath)
       const resolvedCodex = this.expandEnvVars(this.rawCodexPath)
       const resolvedCopilot = this.expandEnvVars(this.rawCopilotPath)
       const resolvedGemini = this.expandEnvVars(this.rawGeminiPath)
+      const resolvedHermes = this.expandEnvVars(this.rawHermesPath)
       const resolvedOpencode = this.expandEnvVars(this.rawOpencodePath)
       const resolvedPi = this.expandEnvVars(this.rawPiPath)
 
@@ -301,6 +318,7 @@ class ConfigStore {
         this.codexPath = resolvedCodex
         this.copilotPath = resolvedCopilot
         this.geminiPath = resolvedGemini
+        this.hermesPath = resolvedHermes
         this.opencodePath = resolvedOpencode
         this.piPath = resolvedPi
         this.leftPaneWidth = parsed.leftPaneWidth ?? DEFAULT_CONFIG.leftPaneWidth
@@ -321,8 +339,13 @@ class ConfigStore {
         this.defaultCodexModel = parsed.defaultCodexModel ?? null
         this.defaultCopilotModel = parsed.defaultCopilotModel ?? null
         this.defaultGeminiModel = parsed.defaultGeminiModel ?? null
+        this.defaultHermesModel = parsed.defaultHermesModel ?? null
         this.defaultOpencodeModel = parsed.defaultOpencodeModel ?? null
         this.defaultPiModel = parsed.defaultPiModel ?? null
+        const cachedHermesModels = HermesModelsSchema.safeParse(parsed.hermesModels)
+        if (cachedHermesModels.success) {
+          this.hermesModels = cachedHermesModels.data
+        }
         this.animationsEnabled = parsed.animationsEnabled ?? false
         this.showClaudeUsageIndicator = parsed.showClaudeUsageIndicator ?? false
         this.autonomousModeEnabled = parsed.autonomousModeEnabled ?? false
@@ -375,6 +398,7 @@ class ConfigStore {
         codexPath: this.rawCodexPath,
         copilotPath: this.rawCopilotPath,
         geminiPath: this.rawGeminiPath,
+        hermesPath: this.rawHermesPath,
         opencodePath: this.rawOpencodePath,
         piPath: this.rawPiPath,
         leftPaneWidth: this.leftPaneWidth,
@@ -389,8 +413,10 @@ class ConfigStore {
         defaultCodexModel: this.defaultCodexModel,
         defaultCopilotModel: this.defaultCopilotModel,
         defaultGeminiModel: this.defaultGeminiModel,
+        defaultHermesModel: this.defaultHermesModel,
         defaultOpencodeModel: this.defaultOpencodeModel,
         defaultPiModel: this.defaultPiModel,
+        hermesModels: this.hermesModels,
         claudePermissionMode: this.claudePermissionMode,
         codexApprovalPolicy: this.codexApprovalPolicy,
         geminiApprovalMode: this.geminiApprovalMode,
@@ -499,6 +525,25 @@ class ConfigStore {
     this.save()
   }
 
+  @action setDefaultHermesModel(model: string | null) {
+    this.defaultHermesModel = model
+    this.save()
+  }
+
+  /**
+   * Cache the Hermes model list reported by an ACP session response.
+   * Persisted to config.json so the picker is populated before the first
+   * session of a later app run. Called after every session/new and
+   * session/load, so skip the disk write when nothing changed.
+   */
+  @action setHermesModels(models: AgentModel[]) {
+    if (JSON.stringify(models) === JSON.stringify(this.hermesModels)) {
+      return
+    }
+    this.hermesModels = models
+    this.save()
+  }
+
   @action setDefaultOpencodeModel(model: string | null) {
     this.defaultOpencodeModel = model
     this.save()
@@ -519,6 +564,8 @@ class ConfigStore {
         return this.copilotModels
       case "gemini":
         return this.geminiModels
+      case "hermes":
+        return this.hermesModels
       case "opencode":
         return this.opencodeModels
       case "pi":
@@ -538,6 +585,8 @@ class ConfigStore {
         return this.defaultCopilotModel
       case "gemini":
         return this.defaultGeminiModel
+      case "hermes":
+        return this.defaultHermesModel
       case "opencode":
         return this.defaultOpencodeModel
       case "pi":

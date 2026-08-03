@@ -14,6 +14,7 @@ type ToolName =
   | "codex"
   | "copilot"
   | "gemini"
+  | "hermes"
   | "opencode"
   | "pi"
   | "gh"
@@ -32,6 +33,9 @@ class ToolAvailabilityStore {
 
   @observable
   gemini: ToolStatus | null = null
+
+  @observable
+  hermes: ToolStatus | null = null
 
   @observable
   opencode: ToolStatus | null = null
@@ -86,6 +90,14 @@ class ToolAvailabilityStore {
       return this.gemini
     }
     return this.recheckGemini()
+  }
+
+  @action
+  async ensureHermes(): Promise<ToolStatus> {
+    if (this.hermes !== null) {
+      return this.hermes
+    }
+    return this.recheckHermes()
   }
 
   @action
@@ -174,6 +186,16 @@ class ToolAvailabilityStore {
   }
 
   @action
+  async recheckHermes(): Promise<ToolStatus> {
+    await configStore.whenLoaded()
+    const status = await this.checkCommand(configStore.hermesPath)
+    runInAction(() => {
+      this.hermes = status
+    })
+    return status
+  }
+
+  @action
   async recheckOpencode(): Promise<ToolStatus> {
     await configStore.whenLoaded()
     const status = await this.checkCommand(configStore.opencodePath)
@@ -243,6 +265,7 @@ class ToolAvailabilityStore {
     this.codex = null
     this.copilot = null
     this.gemini = null
+    this.hermes = null
     this.opencode = null
     this.pi = null
     this.gh = null

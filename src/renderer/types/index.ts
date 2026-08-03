@@ -121,7 +121,7 @@ export interface AgentQuestion {
 
 // --- Agent Types ---
 
-export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "opencode" | "pi"
+export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "hermes" | "opencode" | "pi"
 
 /** Config for using a different agent/model during the review phase of autonomous mode */
 export interface AutonomousReviewConfig {
