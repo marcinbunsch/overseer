@@ -10,7 +10,8 @@ export function BashToolItem({ tool }: { tool: ToolCall }) {
 
   return (
     <div
-      className="flex min-w-0 max-w-full items-start gap-2 overflow-hidden py-0.5 text-xs"
+      className="flex min-w-0 max-w-full cursor-pointer items-start gap-2 overflow-hidden py-0.5 text-xs"
+      data-testid="bash-tool-item"
       onClick={() => setIsExpanded((prev) => !prev)}
     >
       <span className="shrink-0 font-mono text-ovr-text-dim">&gt;</span>
@@ -25,8 +26,10 @@ export function BashToolItem({ tool }: { tool: ToolCall }) {
       )}
       {command && (
         <span
-          className={cn("min-w-0 shrink-3 truncate font-mono text-ovr-text-muted", {
+          data-testid="bash-command"
+          className={cn("min-w-0 shrink-3 font-mono text-ovr-text-muted", {
             truncate: !isExpanded,
+            "whitespace-pre-wrap break-all": isExpanded,
           })}
         >
           {command}
