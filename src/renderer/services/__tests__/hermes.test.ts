@@ -327,6 +327,36 @@ describe("HermesAgentService", () => {
       expect(promptReq?.params?.sessionId).toBe("sess-persisted")
     })
 
+    it("discards the persisted session id when the agent does not support loadSession", async () => {
+      // codex-review.md finding 1: with loadSession absent/false, the stale id
+      // used to survive, skip session/new, and session/prompt then targeted a
+      // session unknown to the fresh process.
+      const { service, eventCb } = await setupConversation((method) => {
+        switch (method) {
+          case "initialize":
+            return { result: { agentCapabilities: {} } }
+          case "session/new":
+            return { result: { sessionId: "sess-replacement" } }
+          case "session/prompt":
+            return { result: { stopReason: "end_turn" } }
+          default:
+            return { result: {} }
+        }
+      })
+
+      service.setSessionId("conv-1", "sess-persisted")
+
+      await service.sendMessage("conv-1", "hello", "/tmp/project")
+
+      const order = invokeSummaries()
+      expect(order).not.toContain("stdin:session/load")
+      expect(order).toContain("stdin:session/new")
+      expect(eventCb).toHaveBeenCalledWith({ kind: "sessionId", sessionId: "sess-replacement" })
+
+      const promptReq = stdinRequests().find((r) => r.method === "session/prompt")
+      expect(promptReq?.params?.sessionId).toBe("sess-replacement")
+    })
+
     it("falls back to session/new when session/load fails, clearing suppression", async () => {
       const { service, eventCb } = await setupConversation((method) => {
         switch (method) {

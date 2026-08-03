@@ -269,6 +269,11 @@ class HermesAgentService implements AgentService {
             suppress: false,
           })
         }
+      } else if (chat.sessionId) {
+        // A persisted id with no loadSession capability is unusable: this
+        // fresh process has never seen that session, so prompting against it
+        // would fail. Drop it and fall through to session/new.
+        chat.sessionId = null
       }
     }
 
