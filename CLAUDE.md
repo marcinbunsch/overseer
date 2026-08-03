@@ -86,6 +86,8 @@ To add or update models:
 
 Note: **Pi models are not in `models.json`** — they're discovered at runtime via `pi --list-models` through `ConfigStore.refreshPiModels()`.
 
+Note: **Hermes models are not in `models.json` either** — they arrive in Hermes ACP `session/new`/`session/load` responses and are cached in `config.json` via `ConfigStore.setHermesModels()`.
+
 Keep the hardcoded constants in `ConfigStore.ts` roughly in sync with `models.json` as a reasonable fallback.
 
 Reference sources for current model IDs:
