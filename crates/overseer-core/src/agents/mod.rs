@@ -6,6 +6,9 @@
 pub mod event;
 pub mod turn;
 
+// Shared protocol parsers
+pub mod acp;
+
 // Agent-specific parsers (to be implemented)
 pub mod claude;
 pub mod codex;

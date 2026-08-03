@@ -1,13 +1,14 @@
-//! Copilot stream parser.
+//! ACP stream parser.
 //!
-//! Parses line-by-line JSON-RPC output from Copilot (ACP protocol) and emits AgentEvents.
+//! Parses line-by-line JSON-RPC output from an ACP agent and emits AgentEvents.
+//! Used by Copilot and Hermes — both speak the same wire format.
 //!
-//! # Copilot vs Codex
+//! # ACP vs Codex
 //!
-//! Both use JSON-RPC 2.0, but Copilot has different message structures:
+//! Both use JSON-RPC 2.0, but ACP has different message structures:
 //!
-//! | Feature | Codex | Copilot (ACP) |
-//! |---------|-------|---------------|
+//! | Feature | Codex | ACP |
+//! |---------|-------|-----|
 //! | Updates | `item/started`, `item/completed` | `session/update` with nested types |
 //! | Approvals | `item/commandExecution/requestApproval` | `session/request_permission` |
 //! | Text streaming | `item/agentMessage/delta` | `session/update` with `agent_message_chunk` |
@@ -16,6 +17,7 @@
 //!
 //! Copilot supports spawning subagents (Tasks). When a tool call has `agent_type` in its input,
 //! it's a Task and we track it as `activeTask` for child tool grouping via `parent_tool_use_id`.
+//! Agents that never send `agent_type` (Hermes) simply skip this path.
 
 use crate::agents::event::{AgentEvent, ToolMeta};
 use crate::approval::parse_command_prefixes;
@@ -36,7 +38,7 @@ pub struct ServerRequestPending {
     pub method: String,
 }
 
-/// Parser state for a Copilot conversation.
+/// Parser state for an ACP conversation.
 ///
 /// # Key State
 ///
@@ -44,7 +46,7 @@ pub struct ServerRequestPending {
 /// - `active_task`: Currently executing Task tool (for child grouping)
 /// - `active_tool_calls`: Track tool names by ID (for output filtering)
 #[derive(Debug, Default)]
-pub struct CopilotParser {
+pub struct AcpParser {
     /// Session ID for this conversation.
     session_id: Option<String>,
 
@@ -53,7 +55,7 @@ pub struct CopilotParser {
 
     /// Currently active Task (for parent_tool_use_id on child tools).
     ///
-    /// When Copilot spawns a subagent, child tool calls should be grouped
+    /// When the agent spawns a subagent, child tool calls should be grouped
     /// under the parent Task using this ID.
     active_task: Option<String>,
 
@@ -63,7 +65,7 @@ pub struct CopilotParser {
     active_tool_calls: std::collections::HashMap<String, (String, String)>,
 }
 
-impl CopilotParser {
+impl AcpParser {
     /// Create a new parser instance.
     pub fn new() -> Self {
         Self::default()
@@ -460,7 +462,7 @@ impl CopilotParser {
     }
 }
 
-/// Convert Copilot tool kind to standard tool name.
+/// Convert ACP tool kind to standard tool name.
 fn kind_to_tool_name(kind: &str, title: &str) -> String {
     match kind {
         "execute" => "Bash".to_string(),
@@ -483,20 +485,20 @@ mod tests {
 
     #[test]
     fn new_parser_has_no_session_id() {
-        let parser = CopilotParser::new();
+        let parser = AcpParser::new();
         assert!(parser.session_id().is_none());
     }
 
     #[test]
     fn set_session_id() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
         parser.set_session_id(Some("sess-123".to_string()));
         assert_eq!(parser.session_id(), Some("sess-123"));
     }
 
     #[test]
     fn parse_empty_line() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
         let (events, pending) = parser.feed("\n");
         assert!(events.is_empty());
         assert!(pending.is_empty());
@@ -504,7 +506,7 @@ mod tests {
 
     #[test]
     fn parse_agent_message_chunk() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
         let line = r#"{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello world"}}}}"#;
         let (events, _) = parser.feed(&format!("{line}\n"));
 
@@ -516,7 +518,7 @@ mod tests {
 
     #[test]
     fn parse_tool_call_bash() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
         let line = r#"{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"tc-1","title":"Run command","kind":"execute","status":"pending","rawInput":{"command":"git status"}}}}"#;
         let (events, _) = parser.feed(&format!("{line}\n"));
 
@@ -529,7 +531,7 @@ mod tests {
 
     #[test]
     fn parse_tool_call_task() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
         let line = r#"{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"task-1","title":"Task","kind":"task","status":"pending","rawInput":{"agent_type":"explore","prompt":"Find files"}}}}"#;
         let (events, _) = parser.feed(&format!("{line}\n"));
 
@@ -543,7 +545,7 @@ mod tests {
 
     #[test]
     fn task_tracks_active_task() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
 
         // Start a Task
         let task_line = r#"{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"task-1","title":"Task","kind":"task","status":"pending","rawInput":{"agent_type":"explore"}}}}"#;
@@ -562,7 +564,7 @@ mod tests {
 
     #[test]
     fn parse_tool_call_update_completed() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
 
         // Start tool
         let start = r#"{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"tc-1","kind":"execute","status":"pending"}}}"#;
@@ -580,7 +582,7 @@ mod tests {
 
     #[test]
     fn parse_permission_request() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
         let line = r#"{"method":"session/request_permission","id":5,"params":{"toolCall":{"toolCallId":"tc-1","title":"Run command","kind":"execute","rawInput":{"command":"rm -rf test"}},"options":[{"optionId":"allow_once","name":"Allow","kind":"allow_once"}]}}"#;
         let (events, pending) = parser.feed(&format!("{line}\n"));
 
@@ -595,8 +597,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_permission_request_hermes_options() {
+        // Hermes sends option ids "deny"/"allow_session" — the parser only
+        // surfaces the request, so unfamiliar option ids must not break it.
+        let mut parser = AcpParser::new();
+        let line = r#"{"method":"session/request_permission","id":7,"params":{"toolCall":{"toolCallId":"tc-9","title":"Run command","kind":"execute","rawInput":{"command":"cargo build"}},"options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"},{"optionId":"allow_session","name":"Allow for session","kind":"allow_always"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}}"#;
+        let (events, pending) = parser.feed(&format!("{line}\n"));
+
+        assert_eq!(pending.len(), 1);
+        assert!(events.iter().any(|e| matches!(
+            e,
+            AgentEvent::ToolApproval { name, prefixes, .. }
+            if name == "Bash" && prefixes.as_ref().is_some_and(|p| p.contains(&"cargo build".to_string()))
+        )));
+    }
+
+    #[test]
     fn parse_plan_update() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
         let line = r#"{"method":"session/update","params":{"update":{"sessionUpdate":"plan","steps":[{"description":"Step 1","status":"pending"},{"description":"Step 2","status":"completed"}]}}}"#;
         let (events, _) = parser.feed(&format!("{line}\n"));
 
@@ -608,7 +626,7 @@ mod tests {
 
     #[test]
     fn parse_diff_content() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
 
         // Start tool
         let start = r#"{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"tc-1","kind":"edit","status":"pending"}}}"#;
@@ -627,7 +645,7 @@ mod tests {
 
     #[test]
     fn skip_read_tool_output() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
 
         // Start read tool
         let start = r#"{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"tc-1","kind":"read","status":"pending"}}}"#;
@@ -654,7 +672,7 @@ mod tests {
 
     #[test]
     fn buffering_handles_partial_lines() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
 
         // Send partial data
         let (events1, _) = parser.feed(r#"{"method":"session/"#);
@@ -672,7 +690,7 @@ mod tests {
 
     #[test]
     fn response_messages_ignored() {
-        let mut parser = CopilotParser::new();
+        let mut parser = AcpParser::new();
         let line = r#"{"id":1,"result":{"sessionId":"sess-123"}}"#;
         let (events, pending) = parser.feed(&format!("{line}\n"));
 
