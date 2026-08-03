@@ -34,6 +34,56 @@ use crate::approval::parse_command_prefixes;
 
 use super::types::{CodexItem, JsonRpcMessage, JsonRpcNotification, JsonRpcServerRequest};
 
+/// Shell basenames whose `-c` wrapper we unwrap for display.
+const WRAPPER_SHELLS: [&str; 5] = ["bash", "zsh", "sh", "dash", "ksh"];
+
+/// Strip the login-shell wrapper Codex puts around every command.
+///
+/// Codex runs shell commands as `/bin/zsh -lc '<command>'` so they inherit the
+/// user's PATH. That prefix is noise in the UI, so we unwrap it for display.
+///
+/// Returns the inner command, or the input unchanged if it isn't a shell wrapper.
+///
+/// ```ignore
+/// strip_shell_wrapper("/bin/zsh -lc 'git status'") == "git status"
+/// strip_shell_wrapper("git status") == "git status"
+/// ```
+pub fn strip_shell_wrapper(command: &str) -> String {
+    let trimmed = command.trim();
+
+    // shlex::split handles the quoting, so `-lc 'echo "a b"'` comes back as
+    // three tokens with the inner command intact.
+    let Some(tokens) = shlex::split(trimmed) else {
+        return trimmed.to_string();
+    };
+
+    // Need at least: shell, flags, command
+    if tokens.len() < 3 {
+        return trimmed.to_string();
+    }
+
+    let shell_name = std::path::Path::new(&tokens[0])
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if !WRAPPER_SHELLS.contains(&shell_name) {
+        return trimmed.to_string();
+    }
+
+    // Everything between the shell and the last token must be flags built from
+    // -l (login), -i (interactive) and -c (command), and one of them must be -c.
+    let flags = &tokens[1..tokens.len() - 1];
+    let all_flags = flags
+        .iter()
+        .all(|f| f.starts_with('-') && f.len() > 1 && f[1..].chars().all(|c| "lic".contains(c)));
+    let has_command_flag = flags.iter().any(|f| f.contains('c'));
+    if !all_flags || !has_command_flag {
+        return trimmed.to_string();
+    }
+
+    tokens[tokens.len() - 1].clone()
+}
+
 /// Result type for server requests that need a response.
 ///
 /// When Codex sends a request (not notification), it expects us to respond.
@@ -269,11 +319,9 @@ impl CodexParser {
 
                 // Fall back to the shell-wrapped command if commandActions is empty
                 let command = if actual_command.is_empty() {
-                    params
-                        .get("command")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string()
+                    strip_shell_wrapper(
+                        params.get("command").and_then(|v| v.as_str()).unwrap_or(""),
+                    )
                 } else {
                     actual_command
                 };
@@ -395,8 +443,9 @@ impl CodexParser {
                         // Update state — we're now in a command
                         self.in_command_execution = true;
 
-                        // Format command like Claude's Bash tool
-                        let command = item.command.as_deref().unwrap_or("");
+                        // Format command like Claude's Bash tool, without Codex's
+                        // `/bin/zsh -lc '...'` wrapper.
+                        let command = strip_shell_wrapper(item.command.as_deref().unwrap_or(""));
                         let input = serde_json::json!({ "command": command });
                         let input_str = serde_json::to_string_pretty(&input)
                             .unwrap_or_else(|_| "{}".to_string());
@@ -646,6 +695,68 @@ mod tests {
             AgentEvent::Message { content, tool_meta: Some(meta), .. }
             if content.contains("[Bash]") && meta.tool_name == "Bash"
         )));
+    }
+
+    #[test]
+    fn parse_command_execution_started_strips_shell_wrapper() {
+        let mut parser = CodexParser::new();
+        let line = r#"{"method":"item/started","params":{"item":{"type":"commandExecution","command":"/bin/zsh -lc 'git status'"}}}"#;
+        let (events, _) = parser.feed(&format!("{line}\n"));
+
+        let content = events
+            .iter()
+            .find_map(|e| match e {
+                AgentEvent::Message { content, .. } => Some(content.clone()),
+                _ => None,
+            })
+            .expect("expected a Bash message");
+
+        assert!(content.contains("git status"), "got: {content}");
+        assert!(!content.contains("zsh"), "got: {content}");
+    }
+
+    #[test]
+    fn strip_shell_wrapper_unwraps_login_shell() {
+        assert_eq!(
+            strip_shell_wrapper("/bin/zsh -lc 'git status'"),
+            "git status"
+        );
+        assert_eq!(strip_shell_wrapper("/bin/bash -l -c 'ls -la'"), "ls -la");
+        assert_eq!(strip_shell_wrapper("bash -c \"echo hi\""), "echo hi");
+    }
+
+    #[test]
+    fn strip_shell_wrapper_keeps_inner_quotes() {
+        assert_eq!(
+            strip_shell_wrapper(r#"/bin/zsh -lc 'grep -n "a b" file.txt'"#),
+            r#"grep -n "a b" file.txt"#
+        );
+    }
+
+    #[test]
+    fn strip_shell_wrapper_leaves_plain_commands_alone() {
+        assert_eq!(strip_shell_wrapper("git status"), "git status");
+        assert_eq!(strip_shell_wrapper(""), "");
+        // Not a -c invocation: running a script file, keep as-is.
+        assert_eq!(
+            strip_shell_wrapper("/bin/zsh -l script.sh"),
+            "/bin/zsh -l script.sh"
+        );
+        // Not a shell.
+        assert_eq!(
+            strip_shell_wrapper("python -c 'print(1)'"),
+            "python -c 'print(1)'"
+        );
+        // Trailing args after the command string — don't guess.
+        assert_eq!(
+            strip_shell_wrapper("/bin/sh -c 'echo $0' name"),
+            "/bin/sh -c 'echo $0' name"
+        );
+        // Unbalanced quotes: shlex fails, return input untouched.
+        assert_eq!(
+            strip_shell_wrapper("/bin/zsh -lc 'echo"),
+            "/bin/zsh -lc 'echo"
+        );
     }
 
     #[test]
