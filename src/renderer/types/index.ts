@@ -19,6 +19,10 @@ export interface Project {
   mainBranch?: string
   /** Whether new chats in this project start sandboxed (default: false) */
   defaultSandboxed?: boolean
+  /** Overrides which Claude login this project uses by setting CLAUDE_CONFIG_DIR
+   *  for the spawned `claude` process. Empty/undefined uses the default ~/.claude.
+   *  Supports a leading ~ or $HOME (expanded in the Rust backend). Claude only. */
+  claudeConfigDir?: string
 }
 
 export interface Workspace {

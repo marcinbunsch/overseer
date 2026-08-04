@@ -32,6 +32,7 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
   const [mainBranch, setMainBranch] = useState(project.mainBranch || "")
   // Unlike useGithub/allowMergeToMain, this defaults to OFF when unset.
   const [defaultSandboxed, setDefaultSandboxed] = useState(project.defaultSandboxed === true)
+  const [claudeConfigDir, setClaudeConfigDir] = useState(project.claudeConfigDir || "")
   const [pendingArchive, setPendingArchive] = useState(false)
 
   // Load fresh approvals from Rust when dialog opens
@@ -62,6 +63,7 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
         allowMergeToMain,
         mainBranch,
         defaultSandboxed,
+        claudeConfigDir,
       })
       toastStore.show("Settings saved")
       onOpenChange(false)
@@ -103,6 +105,24 @@ export const ProjectSettingsDialog = observer(function ProjectSettingsDialog({
                   />
                   <p className="mt-1 text-[11px] text-ovr-text-dim">
                     Added to the system prompt at the start of every new chat session.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-ovr-text-muted">
+                    Claude config directory
+                  </label>
+                  <Input
+                    value={claudeConfigDir}
+                    onChange={(e) => setClaudeConfigDir(e.target.value)}
+                    placeholder="~/.claude-work"
+                    className="text-sm placeholder:text-ovr-text-muted"
+                    data-testid="claude-config-dir-input"
+                  />
+                  <p className="mt-1 text-[11px] text-ovr-text-dim">
+                    Overrides which Claude login this project uses (sets CLAUDE_CONFIG_DIR). Leave
+                    blank to use the default ~/.claude. First use in a new directory needs a
+                    one-time /login.
                   </p>
                 </div>
 
