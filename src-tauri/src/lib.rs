@@ -3,6 +3,8 @@ mod agents;
 mod approvals;
 mod chat_session;
 mod git;
+#[cfg(target_os = "macos")]
+mod notifications_macos;
 mod persistence;
 mod pty;
 mod skills;
@@ -40,13 +42,33 @@ async fn show_main_window(window: tauri::Window) {
     window.show().unwrap();
 }
 
-/// Show a "task complete" notification through tauri-plugin-notification on every
-/// platform. This is display-only — clicking the notification does not route back to a
-/// specific chat. We previously posted through mac-notification-sys to capture clicks,
-/// but its blocking `send` busy-spins an NSRunLoop on a background thread (one spinning
-/// core per outstanding notification), so it's not worth the CPU cost.
+/// Show a "task complete" notification.
+///
+/// On release macOS builds we post natively through `UNUserNotificationCenter`
+/// (see `notifications_macos`), carrying `workspace_id`/`chat_id` so a click focuses the
+/// window and opens that chat via the `notification://clicked` event. That path is
+/// event-driven — no thread is parked and nothing spins (unlike the old
+/// `mac-notification-sys` path that busy-spun a core per outstanding notification).
+///
+/// On non-macOS, and on macOS dev builds (a raw binary with no bundle identity, where
+/// `UNUserNotificationCenter` may refuse to deliver), fall back to the display-only
+/// `tauri-plugin-notification` path.
 #[tauri::command]
-async fn send_completion_notification(app: tauri::AppHandle, title: String, body: String) {
+async fn send_completion_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+    workspace_id: String,
+    chat_id: String,
+) {
+    #[cfg(target_os = "macos")]
+    if !cfg!(debug_assertions) {
+        notifications_macos::post_completion_notification(&title, &body, &workspace_id, &chat_id);
+        return;
+    }
+
+    // Referenced so the ids aren't flagged unused on the display-only paths.
+    let _ = (&workspace_id, &chat_id);
     use tauri_plugin_notification::NotificationExt;
     let _ = app.notification().builder().title(title).body(body).show();
 }
@@ -686,6 +708,11 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 if cfg!(debug_assertions) {
                     set_macos_dev_icon();
+                } else {
+                    // Register the notification delegate + request permission once the app
+                    // is ready. Release only: UNUserNotificationCenter needs a proper
+                    // signed bundle, which dev's raw binary isn't.
+                    notifications_macos::init_notification_delegate(_app_handle);
                 }
             }
         });

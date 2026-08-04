@@ -61,18 +61,50 @@ export async function requestNotificationPermission(): Promise<boolean> {
   }
 }
 
-export async function sendSystemNotification(label: string): Promise<void> {
-  // Post through the Rust `send_completion_notification` command, which shows the
-  // notification via tauri-plugin-notification. Display-only — clicks are not routed
-  // back to a specific chat.
+export async function sendSystemNotification(
+  label: string,
+  workspaceId: string,
+  chatId: string
+): Promise<void> {
+  // Post through the Rust `send_completion_notification` command rather than the
+  // notification plugin: on macOS the plugin never reports clicks back to JS, so the
+  // Rust side posts natively (UNUserNotificationCenter) carrying workspaceId/chatId and
+  // emits a `notification://clicked` event on click (see initNotificationClickHandler).
   try {
     const { invoke } = await import("@tauri-apps/api/core")
     console.log(`[notifications] Sending OS notification for: ${label}`)
     await invoke("send_completion_notification", {
       title: "Overseer",
       body: `Task complete in ${label}`,
+      workspaceId,
+      chatId,
     })
   } catch (err) {
     console.warn("[notifications] System notification unavailable:", err)
   }
+}
+
+/**
+ * Set up the notification click handler. Call once at app startup.
+ * Returns an unsubscribe function.
+ *
+ * The Rust side already shows and focuses the window on click; this listener only
+ * navigates the frontend to the chat that finished.
+ */
+export async function initNotificationClickHandler(
+  onNavigate: (workspaceId: string, chatId: string) => void
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event")
+
+  const unlisten = await listen<{ workspaceId?: string; chatId?: string }>(
+    "notification://clicked",
+    (event) => {
+      const { workspaceId, chatId } = event.payload
+      if (typeof workspaceId === "string" && typeof chatId === "string") {
+        onNavigate(workspaceId, chatId)
+      }
+    }
+  )
+
+  return () => unlisten()
 }

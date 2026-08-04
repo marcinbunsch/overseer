@@ -1287,13 +1287,14 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
           )
           if (!isViewing) {
             const notificationLabel = this.context.getNotificationLabel()
+            const workspaceId = this.context.getWorkspaceId()
             if (configStore.soundNotificationEnabled) {
               console.log("[notifications] Playing completion sound")
               playCompletionSound()
             }
             if (configStore.systemNotificationEnabled) {
               console.log("[notifications] Sending system notification")
-              void sendSystemNotification(notificationLabel)
+              void sendSystemNotification(notificationLabel, workspaceId, this.chat.id)
             }
           }
 
