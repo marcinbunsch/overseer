@@ -119,8 +119,8 @@ pub(crate) async fn send_message(
         sandboxed: false,
         git_common_dir: None,
         extra_env: Vec::new(),
-        // The driving API doesn't carry a per-project Claude config dir (yet).
-        claude_config_dir: None,
+        // Honor the project's CLAUDE_CONFIG_DIR override for driving-API chats too.
+        claude_config_dir: crate::routes::project_claude_config_dir(&state, &location.project_name),
     };
 
     // Events flow through the EventBus and are persisted to the JSONL file.

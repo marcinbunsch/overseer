@@ -307,6 +307,7 @@ mod tests {
             allow_merge_to_main: None,
             main_branch: None,
             default_sandboxed: None,
+            claude_config_dir: None,
         }
     }
 
