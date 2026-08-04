@@ -176,6 +176,7 @@ mod tests {
             allow_merge_to_main: None,
             main_branch: None,
             default_sandboxed: None,
+            claude_config_dir: None,
         }
     }
 
@@ -209,6 +210,33 @@ mod tests {
 
         assert_eq!(loaded.projects.len(), 1);
         assert_eq!(loaded.projects[0].name, "test-project");
+    }
+
+    // Regression: claude_config_dir must survive a Rust-side save+load. It has no
+    // serde flatten catch-all, so a missing struct field would silently strip the
+    // per-project setting whenever the backend rewrites projects.json.
+    #[test]
+    fn claude_config_dir_survives_save_and_load() {
+        let dir = tempdir().unwrap();
+        let mut project = make_project("proj-1", "work");
+        project.claude_config_dir = Some("~/.claude-work".to_string());
+        let registry = ProjectRegistry {
+            projects: vec![project],
+        };
+
+        save_project_registry(dir.path(), &registry).unwrap();
+        // Prove it's on disk under the camelCase key, then that it loads back.
+        let raw = std::fs::read_to_string(dir.path().join("projects.json")).unwrap();
+        assert!(
+            raw.contains("\"claudeConfigDir\": \"~/.claude-work\""),
+            "{raw}"
+        );
+
+        let loaded = load_project_registry(dir.path()).unwrap();
+        assert_eq!(
+            loaded.projects[0].claude_config_dir.as_deref(),
+            Some("~/.claude-work")
+        );
     }
 
     #[test]

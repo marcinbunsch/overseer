@@ -207,7 +207,8 @@ export class ClaudeAgentService implements AgentService {
     initPrompt?: string,
     projectName?: string,
     effortLevel?: string | null,
-    sandboxed?: boolean
+    sandboxed?: boolean,
+    claudeConfigDir?: string
   ): Promise<void> {
     await this.attachListeners(chatId)
     const conv = this.getOrCreateConversation(chatId)
@@ -233,6 +234,7 @@ export class ClaudeAgentService implements AgentService {
         permissionMode: permissionMode ?? null,
         effortLevel: effortLevel ?? null,
         sandboxed: sandboxed ?? false,
+        claudeConfigDir: claudeConfigDir ?? null,
       })
       conv.running = true
     } catch (err) {

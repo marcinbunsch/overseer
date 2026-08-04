@@ -311,6 +311,11 @@ pub struct Project {
     /// Whether new chats in this project start sandboxed. `None` means off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_sandboxed: Option<bool>,
+
+    /// Per-project CLAUDE_CONFIG_DIR override (Claude login). Raw user value; kept
+    /// here so a Rust-side save of projects.json does not strip it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_config_dir: Option<String>,
 }
 
 impl Project {
@@ -511,6 +516,7 @@ mod tests {
                 allow_merge_to_main: None,
                 main_branch: None,
                 default_sandboxed: None,
+                claude_config_dir: None,
             }],
         };
 

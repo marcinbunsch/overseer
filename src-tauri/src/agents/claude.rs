@@ -45,6 +45,7 @@ pub async fn send_message(
     agent_shell: Option<String>,
     effort_level: Option<String>,
     sandboxed: Option<bool>,
+    claude_config_dir: Option<String>,
 ) -> Result<(), String> {
     // Get config directory for reading defaults
     let config_dir = persistence_config.get_config_dir().ok();
@@ -91,6 +92,9 @@ pub async fn send_message(
     )
     .await;
 
+    // A per-project Claude config directory (CLAUDE_CONFIG_DIR) points Claude at a
+    // different login, which is how a project uses a separate account. Passed raw;
+    // the manager expands ~/$HOME and sets the env var on both spawn paths.
     let config = ClaudeStartConfig {
         conversation_id,
         project_name,
@@ -107,6 +111,7 @@ pub async fn send_message(
         sandboxed,
         git_common_dir,
         extra_env,
+        claude_config_dir,
     };
 
     context_state.0.claude_agents.send_message(

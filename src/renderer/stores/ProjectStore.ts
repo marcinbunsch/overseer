@@ -53,6 +53,10 @@ export class ProjectStore {
   @observable
   defaultSandboxed?: boolean
 
+  /** Per-project CLAUDE_CONFIG_DIR override (Claude login). See Project type. */
+  @observable
+  claudeConfigDir?: string
+
   // --- Approval storage (shared across all workspaces in this project) ---
 
   @observable
@@ -82,6 +86,7 @@ export class ProjectStore {
     this.remoteServerUrl = project.remoteServerUrl
     this.mainBranch = project.mainBranch
     this.defaultSandboxed = project.defaultSandboxed
+    this.claudeConfigDir = project.claudeConfigDir
     makeObservable(this)
   }
 
@@ -235,6 +240,7 @@ export class ProjectStore {
     allowMergeToMain?: boolean
     mainBranch?: string
     defaultSandboxed?: boolean
+    claudeConfigDir?: string
   }): void {
     if (updates.initPrompt !== undefined) this.initPrompt = updates.initPrompt || undefined
     if (updates.prPrompt !== undefined) this.prPrompt = updates.prPrompt || undefined
@@ -245,6 +251,8 @@ export class ProjectStore {
     if (updates.allowMergeToMain !== undefined) this.allowMergeToMain = updates.allowMergeToMain
     if (updates.mainBranch !== undefined) this.mainBranch = updates.mainBranch || undefined
     if (updates.defaultSandboxed !== undefined) this.defaultSandboxed = updates.defaultSandboxed
+    if (updates.claudeConfigDir !== undefined)
+      this.claudeConfigDir = updates.claudeConfigDir || undefined
   }
 
   // --- Approval persistence ---
@@ -345,6 +353,7 @@ export class ProjectStore {
       allowMergeToMain: this.allowMergeToMain,
       mainBranch: this.mainBranch,
       defaultSandboxed: this.defaultSandboxed,
+      claudeConfigDir: this.claudeConfigDir,
     }
   }
 }

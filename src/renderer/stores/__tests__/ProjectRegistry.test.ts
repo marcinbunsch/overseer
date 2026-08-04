@@ -419,6 +419,42 @@ describe("ProjectRegistry", () => {
       expect(repoStore.initPrompt).toBe("Hello")
       expect(repoStore.workspaceFilter).toBe("conductor")
     })
+
+    it("persists claudeConfigDir to the project and its ProjectStore", async () => {
+      vi.resetModules()
+      const { projectRegistry } = await import("../ProjectRegistry")
+      const { runInAction } = await import("mobx")
+
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("load_project_registry", undefined)
+      })
+
+      runInAction(() => {
+        projectRegistry.setProjects([
+          { id: "repo-1", name: "test", path: "/test", isGitRepo: true, workspaces: [] },
+        ])
+      })
+
+      const repoStore = projectRegistry.projects[0]
+      expect(repoStore.claudeConfigDir).toBeUndefined()
+
+      projectRegistry.updateProject("repo-1", { claudeConfigDir: "~/.claude-work" })
+
+      expect(repoStore.claudeConfigDir).toBe("~/.claude-work")
+      // saveToFile persists the registry (save_project_registry invoke).
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith(
+          "save_project_registry",
+          expect.objectContaining({
+            registry: expect.objectContaining({
+              projects: expect.arrayContaining([
+                expect.objectContaining({ id: "repo-1", claudeConfigDir: "~/.claude-work" }),
+              ]),
+            }),
+          })
+        )
+      })
+    })
   })
 
   describe("switchToMainWorkspace", () => {

@@ -47,6 +47,7 @@ describe("ClaudeAgentService", () => {
       permissionMode: null,
       effortLevel: null,
       sandboxed: false,
+      claudeConfigDir: null,
     })
     expect(service.isRunning("conv-1")).toBe(true)
   })
@@ -68,7 +69,33 @@ describe("ClaudeAgentService", () => {
       permissionMode: null,
       effortLevel: null,
       sandboxed: false,
+      claudeConfigDir: null,
     })
+  })
+
+  it("sendMessage forwards claudeConfigDir to send_message", async () => {
+    const service = await freshService()
+
+    // positional: logDir, modelVersion, permissionMode, initPrompt, projectName,
+    // effortLevel, sandboxed, claudeConfigDir
+    await service.sendMessage(
+      "conv-1",
+      "hello",
+      "/tmp/workdir",
+      undefined,
+      null,
+      null,
+      undefined,
+      "",
+      null,
+      false,
+      "~/.claude-work"
+    )
+
+    expect(invoke).toHaveBeenCalledWith(
+      "send_message",
+      expect.objectContaining({ claudeConfigDir: "~/.claude-work" })
+    )
   })
 
   it("sendMessage passes logDir and modelVersion when provided", async () => {
@@ -88,6 +115,7 @@ describe("ClaudeAgentService", () => {
       permissionMode: null,
       effortLevel: null,
       sandboxed: false,
+      claudeConfigDir: null,
     })
   })
 
@@ -116,6 +144,7 @@ describe("ClaudeAgentService", () => {
       permissionMode: null,
       effortLevel: null,
       sandboxed: false,
+      claudeConfigDir: null,
     })
   })
 
@@ -148,6 +177,7 @@ describe("ClaudeAgentService", () => {
       permissionMode: null,
       effortLevel: null,
       sandboxed: false,
+      claudeConfigDir: null,
     })
   })
 
@@ -180,6 +210,7 @@ describe("ClaudeAgentService", () => {
       permissionMode: null,
       effortLevel: null,
       sandboxed: false,
+      claudeConfigDir: null,
     })
   })
 

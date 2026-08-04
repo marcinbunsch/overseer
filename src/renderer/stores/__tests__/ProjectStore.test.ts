@@ -225,6 +225,30 @@ describe("ProjectStore", () => {
     })
   })
 
+  describe("claudeConfigDir", () => {
+    it("stays unset when the project never set it", () => {
+      const store = new ProjectStore(createProject())
+      expect(store.claudeConfigDir).toBeUndefined()
+    })
+
+    it("initializes from the project and roundtrips through toProject", () => {
+      const store = new ProjectStore(createProject({ claudeConfigDir: "~/.claude-work" }))
+      expect(store.claudeConfigDir).toBe("~/.claude-work")
+      expect(store.toProject().claudeConfigDir).toBe("~/.claude-work")
+    })
+
+    it("update sets it, and clearing to empty string resets to undefined", () => {
+      const store = new ProjectStore(createProject())
+
+      store.update({ claudeConfigDir: "~/.claude-work" })
+      expect(store.claudeConfigDir).toBe("~/.claude-work")
+      expect(store.toProject().claudeConfigDir).toBe("~/.claude-work")
+
+      store.update({ claudeConfigDir: "" })
+      expect(store.claudeConfigDir).toBeUndefined()
+    })
+  })
+
   describe("workspaceFilter", () => {
     it("initializes with workspaceFilter from repo", () => {
       const repo = createProject({

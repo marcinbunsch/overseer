@@ -247,6 +247,7 @@ class ProjectRegistry {
       allowMergeToMain?: boolean
       mainBranch?: string
       defaultSandboxed?: boolean
+      claudeConfigDir?: string
     }
   ): void {
     const project = this._projects.find((r) => r.id === id)
@@ -260,6 +261,8 @@ class ProjectRegistry {
     if (updates.allowMergeToMain !== undefined) project.allowMergeToMain = updates.allowMergeToMain
     if (updates.mainBranch !== undefined) project.mainBranch = updates.mainBranch || undefined
     if (updates.defaultSandboxed !== undefined) project.defaultSandboxed = updates.defaultSandboxed
+    if (updates.claudeConfigDir !== undefined)
+      project.claudeConfigDir = updates.claudeConfigDir || undefined
     // Also update the cached ProjectStore if it exists
     const store = this._projectStoreCache.get(id)
     if (store) {

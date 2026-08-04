@@ -35,6 +35,8 @@ export interface ChatStoreContext {
   getChatDir: () => Promise<string | null>
   getInitPrompt: () => string | undefined
   getProjectName: () => string
+  /** Per-project CLAUDE_CONFIG_DIR override, looked up live. Claude only. */
+  getClaudeConfigDir: () => string | undefined
   getWorkspaceName: () => string
   getWorkspaceId: () => string
   getNotificationLabel: () => string
@@ -330,6 +332,9 @@ export class ChatStore {
         opts?.modelVersion !== undefined ? opts.modelVersion : this.chat.modelVersion
       const effortLevel = this.chat.agentType === "claude" ? this.chat.effortLevel : null
       const projectName = this.context?.getProjectName() ?? ""
+      // Only Claude reads CLAUDE_CONFIG_DIR; other agents ignore the extra arg.
+      const claudeConfigDir =
+        this.chat.agentType === "claude" ? this.context?.getClaudeConfigDir() : undefined
 
       // Prepend attachment paths to the message so the agent can read the files
       let messageContent = content
@@ -348,7 +353,8 @@ export class ChatStore {
         initPrompt,
         projectName,
         effortLevel,
-        this.chat.sandboxed
+        this.chat.sandboxed,
+        claudeConfigDir
       )
     } catch (err) {
       console.error("Error sending message:", err)

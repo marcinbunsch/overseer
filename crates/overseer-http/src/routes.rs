@@ -34,6 +34,24 @@ fn expand_env_vars(s: &str) -> String {
     result
 }
 
+/// Look up a project's per-project `CLAUDE_CONFIG_DIR` override from
+/// projects.json, by project name. Returns the raw value (the Claude manager
+/// expands it). `None` when there's no config dir, no such project, or the
+/// project has no override. Used so HTTP-backed chats (browser mode + remote
+/// server) honor the setting, same as the local Tauri path.
+pub(crate) fn project_claude_config_dir(
+    state: &HttpSharedState,
+    project_name: &str,
+) -> Option<String> {
+    let config_dir = state.get_config_dir()?;
+    let registry = overseer_core::persistence::load_project_registry(&config_dir).ok()?;
+    registry
+        .projects
+        .into_iter()
+        .find(|p| p.name == project_name)
+        .and_then(|p| p.claude_config_dir)
+}
+
 /// Load agent configuration from config.json.
 pub(crate) fn load_agent_config(state: &HttpSharedState) -> (Option<String>, Option<String>) {
     let config_dir = state.get_config_dir();
@@ -4329,6 +4347,9 @@ async fn dispatch_send_message(
         .map(|s| s.to_string())
         .or(config_agent_shell);
 
+    // Resolve before the struct: the struct moves `project_name`.
+    let claude_config_dir = project_claude_config_dir(state, &project_name);
+
     let config = overseer_core::managers::ClaudeStartConfig {
         conversation_id,
         project_name,
@@ -4346,6 +4367,9 @@ async fn dispatch_send_message(
         sandboxed: false,
         git_common_dir: None,
         extra_env: Vec::new(),
+        // Honor the project's CLAUDE_CONFIG_DIR override on the HTTP path too, so
+        // browser-mode and remote-server chats use the right Claude login.
+        claude_config_dir,
     };
 
     // Events will flow through EventBus -> WebSocket automatically

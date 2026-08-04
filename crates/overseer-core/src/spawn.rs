@@ -73,6 +73,11 @@ pub struct SpawnConfig {
     /// When set, run the agent inside a macOS Seatbelt sandbox with a scrubbed
     /// environment. `None` (the default) spawns exactly as before.
     pub sandbox: Option<crate::sandbox::SandboxSpec>,
+    /// Extra environment variables to set on the spawned process. Applied on the
+    /// normal (non-sandboxed) spawn path. Sandboxed spawns inject their env via
+    /// [`crate::sandbox::SandboxSpec::extra_env`] instead (the host env is
+    /// scrubbed first), so this is ignored when `sandbox` is set. Empty by default.
+    pub extra_env: Vec<(String, String)>,
 }
 
 impl SpawnConfig {
@@ -86,6 +91,7 @@ impl SpawnConfig {
             initial_stdin: None,
             uses_stdin: true,
             sandbox: None,
+            extra_env: Vec::new(),
         }
     }
 
@@ -116,6 +122,12 @@ impl SpawnConfig {
     /// Run the agent inside a macOS Seatbelt sandbox described by `spec`.
     pub fn sandbox(mut self, spec: crate::sandbox::SandboxSpec) -> Self {
         self.sandbox = Some(spec);
+        self
+    }
+
+    /// Set extra environment variables for the non-sandboxed spawn path.
+    pub fn with_extra_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.extra_env = env;
         self
     }
 }
@@ -285,12 +297,21 @@ impl AgentProcess {
         let mut sandbox_profile: Option<crate::sandbox::SandboxProfileFile> = None;
 
         let mut cmd = match &config.sandbox {
-            None => build_login_shell_command(
-                &config.binary_path,
-                &config.args,
-                config.working_dir.as_deref(),
-                config.shell_prefix.as_deref(),
-            )?,
+            None => {
+                let mut cmd = build_login_shell_command(
+                    &config.binary_path,
+                    &config.args,
+                    config.working_dir.as_deref(),
+                    config.shell_prefix.as_deref(),
+                )?;
+                // The sandboxed path scrubs the host env and re-injects via the
+                // SandboxSpec allow-list; the normal path keeps the host env and
+                // just layers these on top.
+                for (key, value) in &config.extra_env {
+                    cmd.env(key, value);
+                }
+                cmd
+            }
             Some(spec) => {
                 let (cmd, guard) = build_sandboxed_agent_command(&config, spec)?;
                 sandbox_profile = Some(guard);
@@ -657,6 +678,36 @@ mod tests {
         assert!(
             output.contains("OVERSEER_API_URL=http://127.0.0.1:6789"),
             "injected API url should reach the sandboxed env:\n{output}"
+        );
+    }
+
+    /// The normal (non-sandboxed) spawn path applies `SpawnConfig.extra_env`.
+    /// This is how a per-project `CLAUDE_CONFIG_DIR` reaches the `claude` process
+    /// for the common case where the chat isn't sandboxed. Runs `env` and asserts
+    /// the injected var is present.
+    #[test]
+    #[cfg(unix)]
+    fn non_sandboxed_spawn_applies_extra_env() {
+        let config = SpawnConfig::new("/usr/bin/env", vec![])
+            .no_stdin()
+            .with_extra_env(vec![(
+                "CLAUDE_CONFIG_DIR".to_string(),
+                "/tmp/claude-work".to_string(),
+            )]);
+
+        let process = AgentProcess::spawn(config).unwrap();
+
+        let mut output = String::new();
+        while let Some(event) = process.recv() {
+            if let ProcessEvent::Stdout(line) = event {
+                output.push_str(&line);
+                output.push('\n');
+            }
+        }
+
+        assert!(
+            output.contains("CLAUDE_CONFIG_DIR=/tmp/claude-work"),
+            "extra_env should reach the non-sandboxed process env:\n{output}"
         );
     }
 
