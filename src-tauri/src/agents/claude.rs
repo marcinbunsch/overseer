@@ -150,9 +150,11 @@ async fn build_agent_api_env(
         .await
         .unwrap_or_else(|_| "HEAD".to_string());
 
-    let token = uuid::Uuid::new_v4().to_string();
-    agent_api_state.registry.register(
-        token.clone(),
+    // Reuse the conversation's existing token if it has one — the running process
+    // keeps the token it was spawned with, so minting a new one here would revoke
+    // the one it still holds. `ensure_token` only mints when none exists yet.
+    let token = agent_api_state.registry.ensure_token(
+        uuid::Uuid::new_v4().to_string(),
         crate::agent_api::SessionScope {
             conversation_id: conversation_id.to_string(),
             workspace_path: working_dir.to_string(),
