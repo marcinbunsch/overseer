@@ -5,9 +5,11 @@
 //! declares a `name` and `description`. They are discovered from two locations:
 //!
 //! - Project: `<workspace>/.claude/skills/<skill>/SKILL.md`
-//! - User:    `<home>/.claude/skills/<skill>/SKILL.md`
+//! - User:    `<config_dir>/skills/<skill>/SKILL.md`
 //!
-//! A project skill shadows a user skill with the same name.
+//! `config_dir` is the Claude config dir (`CLAUDE_CONFIG_DIR`, default
+//! `~/.claude`), so a project pointing at a custom account sees that account's
+//! skills. A project skill shadows a user skill with the same name.
 
 use serde::Serialize;
 use std::fs;
@@ -27,9 +29,10 @@ pub struct Skill {
 
 /// Discover all skills available to a Claude agent running in `workspace_path`.
 ///
-/// Returns skills sorted by name. Project skills take precedence over user
-/// skills of the same name.
-pub fn list_skills(workspace_path: &str, home_dir: Option<&str>) -> Vec<Skill> {
+/// `config_dir` is the resolved Claude config dir (`CLAUDE_CONFIG_DIR`, default
+/// `~/.claude`); user skills live at `<config_dir>/skills`. Returns skills sorted
+/// by name. Project skills take precedence over user skills of the same name.
+pub fn list_skills(workspace_path: &str, config_dir: Option<&str>) -> Vec<Skill> {
     let mut skills: Vec<Skill> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -37,8 +40,8 @@ pub fn list_skills(workspace_path: &str, home_dir: Option<&str>) -> Vec<Skill> {
     let project_dir = Path::new(workspace_path).join(".claude").join("skills");
     collect_skills(&project_dir, "project", &mut skills, &mut seen);
 
-    if let Some(home) = home_dir {
-        let user_dir = Path::new(home).join(".claude").join("skills");
+    if let Some(config) = config_dir {
+        let user_dir = Path::new(config).join("skills");
         collect_skills(&user_dir, "user", &mut skills, &mut seen);
     }
 
@@ -182,10 +185,10 @@ mod tests {
             "---\nname: deep-research\ndescription: Research deeply.\n---",
         );
 
-        let skills = list_skills(
-            project.path().to_str().unwrap(),
-            home.path().to_str(),
-        );
+        // write_skill puts user skills under `<home>/.claude/skills`, so the config
+        // dir the resolver would hand us is `<home>/.claude`.
+        let user_config = home.path().join(".claude");
+        let skills = list_skills(project.path().to_str().unwrap(), user_config.to_str());
         assert_eq!(skills.len(), 2);
         // Sorted alphabetically by name.
         assert_eq!(skills[0].name, "deep-research");
@@ -209,10 +212,31 @@ mod tests {
             "---\nname: review\ndescription: user version\n---",
         );
 
-        let skills = list_skills(project.path().to_str().unwrap(), home.path().to_str());
+        let user_config = home.path().join(".claude");
+        let skills = list_skills(project.path().to_str().unwrap(), user_config.to_str());
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].source, "project");
         assert_eq!(skills[0].description, "project version");
+    }
+
+    #[test]
+    fn reads_user_skills_from_custom_config_dir() {
+        // A custom CLAUDE_CONFIG_DIR holds skills directly under `skills/`, not
+        // `.claude/skills/`. This is the multi-account case the fix targets.
+        let config = tempdir();
+        let skill_dir = config.path().join("skills").join("custom-thing");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: custom-thing\ndescription: from the custom account\n---",
+        )
+        .unwrap();
+
+        let skills = list_skills("/nonexistent/workspace", config.path().to_str());
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "custom-thing");
+        assert_eq!(skills[0].source, "user");
+        assert_eq!(skills[0].description, "from the custom account");
     }
 
     #[test]

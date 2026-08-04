@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
+
+/// Keychain service for the default `~/.claude` login. Claude Code stores that
+/// account's OAuth blob under this exact name (no suffix).
+const DEFAULT_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 
 #[derive(Error, Debug)]
 pub enum UsageError {
@@ -61,26 +66,41 @@ fn parse_usage_response(response_text: &str) -> Result<ClaudeUsageResponse, Usag
     serde_json::from_value(value).map_err(|e| UsageError::JsonParseError(e.to_string()))
 }
 
-/// Fetch Claude usage data from API via shell command
-/// Token never enters Overseer memory - stays in shell pipeline
+/// Fetch Claude usage data from the API via a shell command.
+///
+/// `config_dir` is the chat's per-project `CLAUDE_CONFIG_DIR` override (the raw
+/// user value, may start with `~`/`$HOME`; `None` = default `~/.claude`). It
+/// selects which keychain entry the OAuth token is read from, so the dials
+/// report the account that chat actually runs under. The token never enters
+/// Overseer memory — only the (non-secret) keychain service name is computed
+/// here; the token stays inside the shell pipeline.
 #[cfg(target_os = "macos")]
-pub async fn fetch_claude_usage() -> Result<ClaudeUsageResponse, UsageError> {
+pub async fn fetch_claude_usage(
+    config_dir: Option<String>,
+) -> Result<ClaudeUsageResponse, UsageError> {
     use std::process::Command;
     use tokio::task;
 
+    let home = std::env::var("HOME").unwrap_or_default();
+    let service = keychain_service_name(config_dir.as_deref(), &home);
+
     // Run blocking shell command in dedicated thread pool
-    task::spawn_blocking(|| {
+    task::spawn_blocking(move || {
         // The keychain blob can contain multiple `accessToken` fields (e.g. an
         // `mcpOAuth` section with per-server tokens). Scope extraction to the
         // `claudeAiOauth` section first so we grab the OAuth token the usage API
         // expects, not the first token that happens to appear in the JSON.
-        let command = r#"curl -s https://api.anthropic.com/api/oauth/usage \
-               -H "Authorization: Bearer $(security find-generic-password -s 'Claude Code-credentials' -w | sed 's/.*"claudeAiOauth"//' | grep -o '"accessToken":"[^"]\+"' | head -n 1 | sed 's/"accessToken":"//;s/"$//')" \
-               -H "anthropic-beta: oauth-2025-04-20""#;
+        //
+        // `service` is `Claude Code-credentials` plus, for a custom config dir, a
+        // hex suffix — no quotes or shell metacharacters, so interpolating it into
+        // the single-quoted `-s` argument is safe.
+        let command = format!(
+            r#"curl -s https://api.anthropic.com/api/oauth/usage -H "Authorization: Bearer $(security find-generic-password -s '{service}' -w | sed 's/.*"claudeAiOauth"//' | grep -o '"accessToken":"[^"]\+"' | head -n 1 | sed 's/"accessToken":"//;s/"$//')" -H "anthropic-beta: oauth-2025-04-20""#
+        );
 
         let output = Command::new("sh")
             .arg("-c")
-            .arg(command)
+            .arg(&command)
             .output()
             .map_err(|e| UsageError::CommandError(e.to_string()))?;
 
@@ -99,8 +119,35 @@ pub async fn fetch_claude_usage() -> Result<ClaudeUsageResponse, UsageError> {
 
 /// Non-macOS stub that returns platform error
 #[cfg(not(target_os = "macos"))]
-pub async fn fetch_claude_usage() -> Result<ClaudeUsageResponse, UsageError> {
+pub async fn fetch_claude_usage(
+    _config_dir: Option<String>,
+) -> Result<ClaudeUsageResponse, UsageError> {
     Err(UsageError::UnsupportedPlatform)
+}
+
+/// Resolve the macOS keychain service name that holds a config dir's OAuth token.
+///
+/// Claude Code keys the entry by config dir: the default `~/.claude` login lives
+/// under the bare [`DEFAULT_KEYCHAIN_SERVICE`], and every other config dir under
+/// `Claude Code-credentials-<first 8 hex of sha256(absolute dir path)>`. Verified
+/// against a real keychain: `~/.claude-personal` → `...-93e6d69c`.
+fn keychain_service_name(config_dir: Option<&str>, home: &str) -> String {
+    let home = home.trim_end_matches('/');
+    let default_dir = format!("{home}/.claude");
+
+    let dir = match crate::paths::expand_config_dir(config_dir, home) {
+        None => return DEFAULT_KEYCHAIN_SERVICE.to_string(),
+        Some(dir) => dir,
+    };
+    let dir = dir.trim_end_matches('/');
+    if dir == default_dir {
+        return DEFAULT_KEYCHAIN_SERVICE.to_string();
+    }
+
+    let digest = Sha256::digest(dir.as_bytes());
+    // First 4 bytes = the 8 hex chars Claude Code uses as the suffix.
+    let suffix: String = digest.iter().take(4).map(|b| format!("{b:02x}")).collect();
+    format!("{DEFAULT_KEYCHAIN_SERVICE}-{suffix}")
 }
 
 #[cfg(test)]
@@ -162,5 +209,52 @@ mod tests {
     fn invalid_json_is_a_parse_error() {
         let err = parse_usage_response("not json").expect_err("should fail");
         assert!(matches!(err, UsageError::JsonParseError(_)));
+    }
+
+    #[test]
+    fn default_config_dir_uses_unsuffixed_service() {
+        // None and the default `~/.claude` both map to the bare entry, so the
+        // existing default-account behavior is unchanged.
+        assert_eq!(
+            keychain_service_name(None, "/Users/alice"),
+            "Claude Code-credentials"
+        );
+        assert_eq!(
+            keychain_service_name(Some("~/.claude"), "/Users/alice"),
+            "Claude Code-credentials"
+        );
+        assert_eq!(
+            keychain_service_name(Some("$HOME/.claude"), "/Users/alice"),
+            "Claude Code-credentials"
+        );
+        // A trailing slash still resolves to the default.
+        assert_eq!(
+            keychain_service_name(Some("~/.claude/"), "/Users/alice"),
+            "Claude Code-credentials"
+        );
+        // Blank string behaves like None.
+        assert_eq!(
+            keychain_service_name(Some("   "), "/Users/alice"),
+            "Claude Code-credentials"
+        );
+    }
+
+    #[test]
+    fn custom_config_dir_uses_hashed_service() {
+        // Regression vector captured from a real macOS keychain: the config dir
+        // `/Users/marcinbunsch/.claude-personal` has entry
+        // `Claude Code-credentials-93e6d69c` (first 8 hex of sha256 of the path).
+        assert_eq!(
+            keychain_service_name(Some("~/.claude-personal"), "/Users/marcinbunsch"),
+            "Claude Code-credentials-93e6d69c"
+        );
+        // Same result whether the tilde is pre-expanded to an absolute path.
+        assert_eq!(
+            keychain_service_name(
+                Some("/Users/marcinbunsch/.claude-personal"),
+                "/Users/marcinbunsch"
+            ),
+            "Claude Code-credentials-93e6d69c"
+        );
     }
 }

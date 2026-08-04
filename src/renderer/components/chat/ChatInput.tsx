@@ -129,6 +129,11 @@ export const ChatInput = observer(function ChatInput({
   onStopAutonomous,
 }: ChatInputProps) {
   const workspaceStore = projectRegistry.selectedWorkspaceStore
+  // The project's Claude account override, so the usage dials report the account
+  // this chat runs under (undefined = the default `~/.claude` account).
+  const claudeConfigDir = workspaceStore
+    ? projectRegistry.getProjectStore(workspaceStore.projectId)?.claudeConfigDir
+    : undefined
   const input = workspaceStore?.currentDraft ?? ""
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -432,6 +437,7 @@ export const ChatInput = observer(function ChatInput({
           <SlashSearch
             query={slashSearch.query}
             workspacePath={workspacePath}
+            claudeConfigDir={claudeConfigDir}
             onSelect={handleSelectSkill}
             selectedIndex={selectedIndex}
             onSelectedIndexChange={setSelectedIndex}
@@ -539,7 +545,7 @@ export const ChatInput = observer(function ChatInput({
                   <span className="hidden sm:inline">Sandbox</span>
                 </button>
               )}
-            {agentType === "claude" && <ClaudeUsageIndicator />}
+            {agentType === "claude" && <ClaudeUsageIndicator claudeConfigDir={claudeConfigDir} />}
             {agentType === "codex" && <CodexUsageIndicator />}
             <WebSocketConnectionIndicator />
           </div>

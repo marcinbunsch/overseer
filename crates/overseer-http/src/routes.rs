@@ -346,7 +346,7 @@ pub async fn invoke_handler(
         ),
 
         // fetch_claude_usage is an async network call that works fine via HTTP
-        "fetch_claude_usage" => dispatch_fetch_claude_usage().await,
+        "fetch_claude_usage" => dispatch_fetch_claude_usage(request.args).await,
 
         // =====================================================================
         // ATTACHMENTS
@@ -3870,8 +3870,16 @@ async fn dispatch_extract_overseer_blocks(
     )
 }
 
-async fn dispatch_fetch_claude_usage() -> (StatusCode, Json<InvokeResponse>) {
-    match overseer_core::usage::fetch_claude_usage().await {
+async fn dispatch_fetch_claude_usage(
+    args: serde_json::Value,
+) -> (StatusCode, Json<InvokeResponse>) {
+    // The per-project CLAUDE_CONFIG_DIR override selects which keychain entry the
+    // usage token is read from. Absent = default `~/.claude` account.
+    let config_dir = args
+        .get("claudeConfigDir")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    match overseer_core::usage::fetch_claude_usage(config_dir).await {
         Ok(usage) => (
             StatusCode::OK,
             Json(InvokeResponse {

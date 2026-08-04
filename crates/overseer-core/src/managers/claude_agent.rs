@@ -43,31 +43,6 @@ fn build_claude_sandbox_spec(
     .with_claude_config_dir(claude_config_dir.map(std::path::PathBuf::from)))
 }
 
-/// Expand a per-project Claude config directory to an absolute path.
-///
-/// The value becomes the `CLAUDE_CONFIG_DIR` env var, which the CLI does not
-/// shell-expand, so a leading `~`/`$HOME` is replaced with `home` here. Blank or
-/// whitespace-only input yields `None` (use the default `~/.claude`). Other paths
-/// pass through trimmed.
-fn expand_config_dir(raw: Option<&str>, home: &str) -> Option<String> {
-    let trimmed = raw?.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let home = home.trim_end_matches('/');
-    let expanded = if trimmed == "~" || trimmed == "$HOME" {
-        home.to_string()
-    } else if let Some(rest) = trimmed.strip_prefix("~/") {
-        format!("{home}/{rest}")
-    } else if let Some(rest) = trimmed.strip_prefix("$HOME/") {
-        format!("{home}/{rest}")
-    } else {
-        trimmed.to_string()
-    };
-    Some(expanded)
-}
-
 /// Entry for a single Claude process.
 struct ClaudeProcessEntry {
     process: Arc<Mutex<Option<AgentProcess>>>,
@@ -169,9 +144,9 @@ impl ClaudeAgentManager {
         // Resolve a per-project CLAUDE_CONFIG_DIR (raw ~/$HOME allowed) against the
         // spawn host's HOME — the machine that runs `claude`, so `~` resolves to
         // the right home for local, browser, and remote-server spawns alike.
-        let resolved_config_dir = std::env::var("HOME")
-            .ok()
-            .and_then(|home| expand_config_dir(config.claude_config_dir.as_deref(), &home));
+        let resolved_config_dir = std::env::var("HOME").ok().and_then(|home| {
+            crate::paths::expand_config_dir(config.claude_config_dir.as_deref(), &home)
+        });
 
         // Every caller just sets claude_config_dir; the env var that points Claude
         // at it is added here so it reaches both spawn paths and no caller can
@@ -576,52 +551,6 @@ fn check_auto_approval(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const HOME: &str = "/Users/dev";
-
-    #[test]
-    fn expand_config_dir_expands_tilde_and_home_var() {
-        assert_eq!(
-            expand_config_dir(Some("~/.claude-work"), HOME),
-            Some("/Users/dev/.claude-work".to_string())
-        );
-        assert_eq!(
-            expand_config_dir(Some("$HOME/.claude-work"), HOME),
-            Some("/Users/dev/.claude-work".to_string())
-        );
-    }
-
-    #[test]
-    fn expand_config_dir_bare_tilde_and_home_become_home() {
-        assert_eq!(expand_config_dir(Some("~"), HOME), Some(HOME.to_string()));
-        assert_eq!(
-            expand_config_dir(Some("$HOME"), HOME),
-            Some(HOME.to_string())
-        );
-    }
-
-    #[test]
-    fn expand_config_dir_passes_absolute_through_trimmed() {
-        assert_eq!(
-            expand_config_dir(Some("  /opt/claude-work  "), HOME),
-            Some("/opt/claude-work".to_string())
-        );
-    }
-
-    #[test]
-    fn expand_config_dir_blank_and_none_yield_none() {
-        assert_eq!(expand_config_dir(Some(""), HOME), None);
-        assert_eq!(expand_config_dir(Some("   "), HOME), None);
-        assert_eq!(expand_config_dir(None, HOME), None);
-    }
-
-    #[test]
-    fn expand_config_dir_normalizes_trailing_slash_on_home() {
-        assert_eq!(
-            expand_config_dir(Some("~/.claude"), "/Users/dev/"),
-            Some("/Users/dev/.claude".to_string())
-        );
-    }
 
     // ------------------------------------------------------------------------
     // Approval Response Building Tests
