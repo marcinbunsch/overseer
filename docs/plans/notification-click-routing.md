@@ -1,6 +1,11 @@
 # Notification click routing (native, no CPU burn)
 
-Status: **planned, not started.** This picks up after commit `c2e6dc7`.
+Status: **implemented, Phase 0 runtime verification pending.** Code is written and
+compiles (`cargo check` clean, `pnpm test` + `pnpm checks:ui` green). The one thing left
+is the Phase 0 spike below — confirming a packaged, signed `.app` actually *delivers* the
+notification and fires the click callback. That needs a real build + manual click, which
+can't be done from the sandboxed agent environment (no signed bundle, no GUI). If delivery
+fails on the signing setup, fall back to Option A. Picks up after commit `c2e6dc7`.
 
 ## Context — why we're doing this
 

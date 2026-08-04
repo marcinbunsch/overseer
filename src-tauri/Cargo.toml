@@ -50,3 +50,17 @@ libc = "0.2"
 objc2 = "0.6.3"
 objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSImage", "NSRunningApplication"] }
 objc2-foundation = { version = "0.3.2", features = ["NSData"] }
+# UNUserNotificationCenter for click-routable completion notifications. Disable default
+# features to avoid pulling objc2-core-location (only used by the attributed-message
+# context type we don't touch); enable just the types the notifications module uses.
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "UNUserNotificationCenter",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationResponse",
+    "UNNotification",
+    "UNNotificationTrigger",
+    "block2",
+] }
+block2 = "0.6"

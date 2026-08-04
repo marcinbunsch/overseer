@@ -20,6 +20,9 @@ import { consoleStore } from "./stores/ConsoleStore"
 import { backend } from "./backend"
 import { httpBackend } from "./backend/http"
 import { handleWindowCloseRequest, createDefaultDeps } from "./utils/windowClose"
+import { initNotificationClickHandler } from "./services/notificationService"
+import { projectRegistry } from "./stores/ProjectRegistry"
+import { runInAction } from "mobx"
 
 function DragHandle({
   onDrag,
@@ -121,6 +124,24 @@ export default observer(function App() {
       })
     }
 
+    // Set up notification click handler (only in Tauri mode)
+    let unsubscribeNotifications: (() => void) | null = null
+    if (backend.type === "tauri") {
+      initNotificationClickHandler((workspaceId, chatId) => {
+        runInAction(() => {
+          projectRegistry.selectWorkspace(workspaceId)
+          const ws = projectRegistry.selectedWorkspaceStore
+          ws?.switchChat(chatId)
+        })
+      })
+        .then((unsub) => {
+          unsubscribeNotifications = unsub
+        })
+        .catch((err) => {
+          console.error("[App] Failed to init notification click handler:", err)
+        })
+    }
+
     // Auto-start HTTP server if configured (only in Tauri mode)
     if (backend.type === "tauri") {
       configStore.whenLoaded().then(() => {
@@ -177,6 +198,7 @@ export default observer(function App() {
     return () => {
       cleanupFns.forEach((p) => p.then((fn) => fn()))
       if (unsubscribeAuth) unsubscribeAuth()
+      if (unsubscribeNotifications) unsubscribeNotifications()
     }
   }, [])
 

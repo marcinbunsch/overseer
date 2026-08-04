@@ -74,10 +74,12 @@ vi.mock("../ConfigStore", () => ({
 
 // Mock notification service
 const mockPlayCompletionSound = vi.fn()
-const mockSendSystemNotification = vi.fn((_label: string) => Promise.resolve())
+const mockSendSystemNotification = vi.fn((_label: string, _wsId: string, _chatId: string) =>
+  Promise.resolve()
+)
 vi.mock("../../services/notificationService", () => ({
   playCompletionSound: () => mockPlayCompletionSound(),
-  sendSystemNotification: (label: string) => mockSendSystemNotification(label),
+  sendSystemNotification: (a: string, b: string, c: string) => mockSendSystemNotification(a, b, c),
 }))
 
 // Mock eventBus
@@ -2632,12 +2634,17 @@ Live text.`,
       const store = createChatStore(undefined, {
         isWorkspaceSelected: () => false,
         getNotificationLabel: () => "feature/my-branch",
+        getWorkspaceId: () => "ws-42",
       })
 
       await store.sendMessage("hello", "/home/user/wt")
       getEventCallback(store)({ kind: "turnComplete" })
 
-      expect(mockSendSystemNotification).toHaveBeenCalledWith("feature/my-branch")
+      expect(mockSendSystemNotification).toHaveBeenCalledWith(
+        "feature/my-branch",
+        "ws-42",
+        "test-chat-id"
+      )
       ;(configStore as unknown as Record<string, unknown>).systemNotificationEnabled = false
     })
 
