@@ -122,12 +122,13 @@ impl SandboxSpec {
         self
     }
 
-    /// Set the per-project `CLAUDE_CONFIG_DIR` override. Canonicalized (like the
-    /// other paths) so Seatbelt matches the real path the CLI resolves the env
-    /// var to; kept literal if it doesn't exist yet (Claude creates it on first
-    /// run). `None` clears the override.
+    /// Set the per-project `CLAUDE_CONFIG_DIR` override, resolved to the real path
+    /// Seatbelt matches against. When the dir doesn't exist yet (Claude creates it
+    /// on first run) its nearest existing ancestor is resolved and the missing
+    /// tail re-attached, so a fresh dir under a symlinked parent still gets the
+    /// real path. `None` clears the override.
     pub fn with_claude_config_dir(mut self, dir: Option<PathBuf>) -> Self {
-        self.claude_config_dir = dir.map(|d| canonicalize_or_keep(&d));
+        self.claude_config_dir = dir.map(|d| canonicalize_allowing_missing(&d));
         self
     }
 }
@@ -145,6 +146,37 @@ fn tmpdir() -> PathBuf {
 /// if canonicalization fails (e.g. the path doesn't exist yet).
 fn canonicalize_or_keep(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Like [`canonicalize_or_keep`] but resolves symlinks even when the leaf doesn't
+/// exist yet: it canonicalizes the nearest existing ancestor and re-attaches the
+/// missing components. Needed for a not-yet-created config dir under a symlinked
+/// parent — Seatbelt matches the resolved real path, so the grant must use it
+/// even before Claude creates the dir on first run.
+fn canonicalize_allowing_missing(path: &Path) -> PathBuf {
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real;
+    }
+
+    // Walk up, collecting the missing leaf names, until an ancestor resolves.
+    let mut missing_tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut current = path;
+    loop {
+        let Some(parent) = current.parent() else {
+            // Reached the root without finding an existing ancestor.
+            return path.to_path_buf();
+        };
+        if let Some(name) = current.file_name() {
+            missing_tail.push(name.to_os_string());
+        }
+        if let Ok(mut resolved) = std::fs::canonicalize(parent) {
+            for name in missing_tail.iter().rev() {
+                resolved.push(name);
+            }
+            return resolved;
+        }
+        current = parent;
+    }
 }
 
 /// Toolchain caches and shell rc files granted read-only access, filtered to
@@ -205,6 +237,33 @@ pub fn default_read_paths(home: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A not-yet-created config dir under a symlinked parent must still resolve to
+    // the real path, so the Seatbelt grant matches what the CLI opens. macOS
+    // /tmp -> /private/tmp gives a real symlinked ancestor to test against.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn canonicalize_allowing_missing_resolves_symlinked_parent_of_missing_leaf() {
+        // /tmp is a symlink to /private/tmp on macOS — a real symlinked parent.
+        let real_tmp = std::fs::canonicalize("/tmp").unwrap();
+        let missing = std::path::Path::new("/tmp").join("overseer-cfg-does-not-exist-xyz");
+        let resolved = canonicalize_allowing_missing(&missing);
+        // The missing leaf is kept, but its symlinked parent resolved.
+        assert_eq!(resolved, real_tmp.join("overseer-cfg-does-not-exist-xyz"));
+        assert!(
+            resolved.starts_with("/private/tmp"),
+            "expected {resolved:?} under /private/tmp"
+        );
+    }
+
+    #[test]
+    fn canonicalize_allowing_missing_keeps_fully_missing_path() {
+        let missing = std::path::Path::new("/no/such/root/anywhere/cfg");
+        assert_eq!(
+            canonicalize_allowing_missing(missing),
+            missing.to_path_buf()
+        );
+    }
 
     #[test]
     fn agent_kind_from_agent_type_maps_known_agents() {
