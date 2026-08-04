@@ -61,12 +61,26 @@ pub struct TokenRegistry {
 }
 
 impl TokenRegistry {
-    /// Register a token for a session, replacing any existing token for the same
-    /// conversation so a restarted agent doesn't leave a stale entry behind.
-    pub fn register(&self, token: String, scope: SessionScope) {
+    /// Return the token for `scope.conversation_id`, minting `new_token` only when
+    /// the conversation has none yet. When a token already exists it is returned
+    /// unchanged and its scope is refreshed in place (the branch may have moved).
+    ///
+    /// Reuse matters because a sandboxed agent's process is spawned once and holds
+    /// its original `OVERSEER_API_TOKEN` for its whole life — follow-up messages go
+    /// in over stdin, so the env is never re-applied. An earlier version minted a
+    /// fresh token on every message and dropped the previous one, which revoked the
+    /// token the live process still held; its next `git push` then got a 401.
+    pub fn ensure_token(&self, new_token: String, scope: SessionScope) -> String {
         let mut map = self.inner.lock().unwrap();
-        map.retain(|_, s| s.conversation_id != scope.conversation_id);
-        map.insert(token, scope);
+        if let Some((token, existing)) = map
+            .iter_mut()
+            .find(|(_, s)| s.conversation_id == scope.conversation_id)
+        {
+            *existing = scope;
+            return token.clone();
+        }
+        map.insert(new_token.clone(), scope);
+        new_token
     }
 
     /// Revoke every token belonging to a conversation. Called when the agent
@@ -168,7 +182,26 @@ fn router(registry: TokenRegistry) -> Router {
 // AUTH
 // ============================================================================
 
-/// Resolve the Bearer token to a session scope, or reject with 401.
+/// JSON body for a failed request. Mirrors the `success: false` shape of the
+/// command results so a client can parse every response the same way instead of
+/// throwing on a bare plain-text error.
+#[derive(Debug, Serialize)]
+struct ErrorResult {
+    success: bool,
+    error: String,
+}
+
+impl ErrorResult {
+    fn new(error: &str) -> Self {
+        Self {
+            success: false,
+            error: error.to_string(),
+        }
+    }
+}
+
+/// Resolve the Bearer token to a session scope, or reject with a 401 carrying a
+/// JSON error envelope.
 fn authorize(registry: &TokenRegistry, headers: &HeaderMap) -> Result<SessionScope, Response> {
     let token = headers
         .get("authorization")
@@ -178,7 +211,11 @@ fn authorize(registry: &TokenRegistry, headers: &HeaderMap) -> Result<SessionSco
 
     match token.and_then(|t| registry.lookup(t)) {
         Some(scope) => Ok(scope),
-        None => Err((StatusCode::UNAUTHORIZED, "invalid or missing token").into_response()),
+        None => Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResult::new("invalid or missing token")),
+        )
+            .into_response()),
     }
 }
 
@@ -445,9 +482,9 @@ mod tests {
     }
 
     #[test]
-    fn register_then_lookup_returns_scope() {
+    fn ensure_token_then_lookup_returns_scope() {
         let registry = TokenRegistry::default();
-        registry.register("token-abc".to_string(), scope("conv-1", "feature-x"));
+        registry.ensure_token("token-abc".to_string(), scope("conv-1", "feature-x"));
 
         let found = registry.lookup("token-abc").expect("token should resolve");
         assert_eq!(found.conversation_id, "conv-1");
@@ -457,27 +494,53 @@ mod tests {
     #[test]
     fn lookup_unknown_token_is_none() {
         let registry = TokenRegistry::default();
-        registry.register("token-abc".to_string(), scope("conv-1", "feature-x"));
+        registry.ensure_token("token-abc".to_string(), scope("conv-1", "feature-x"));
         assert!(registry.lookup("some-other-token").is_none());
     }
 
     #[test]
-    fn re_registering_a_conversation_drops_the_old_token() {
-        // A restarted agent gets a fresh token; the stale one must stop working so
-        // an old token can't act on the workspace after the session moved on.
+    fn ensure_token_reuses_live_token_and_refreshes_scope() {
+        // A follow-up message must keep the token the running process already holds
+        // — regenerating it would 401 the process's next call. The offered token is
+        // ignored; the branch on the existing scope is refreshed in place.
         let registry = TokenRegistry::default();
-        registry.register("old-token".to_string(), scope("conv-1", "feature-x"));
-        registry.register("new-token".to_string(), scope("conv-1", "feature-x"));
+        let first = registry.ensure_token("first-token".to_string(), scope("conv-1", "feature-x"));
+        assert_eq!(first, "first-token");
 
-        assert!(registry.lookup("old-token").is_none());
-        assert!(registry.lookup("new-token").is_some());
+        let second =
+            registry.ensure_token("second-token".to_string(), scope("conv-1", "feature-y"));
+        assert_eq!(second, "first-token", "the live token must be reused");
+
+        assert!(
+            registry.lookup("second-token").is_none(),
+            "the offered token is discarded when one already exists"
+        );
+        let found = registry
+            .lookup("first-token")
+            .expect("original token still valid");
+        assert_eq!(
+            found.branch, "feature-y",
+            "scope refreshed to the new branch"
+        );
+    }
+
+    #[test]
+    fn ensure_token_mints_when_conversation_absent() {
+        let registry = TokenRegistry::default();
+        let a = registry.ensure_token("token-1".to_string(), scope("conv-1", "feature-x"));
+        let b = registry.ensure_token("token-2".to_string(), scope("conv-2", "feature-y"));
+
+        assert_eq!(a, "token-1");
+        assert_eq!(b, "token-2");
+        assert!(registry.lookup("token-1").is_some());
+        assert!(registry.lookup("token-2").is_some());
     }
 
     #[test]
     fn remove_by_conversation_revokes_only_that_conversation() {
         let registry = TokenRegistry::default();
-        registry.register("token-1".to_string(), scope("conv-1", "feature-x"));
-        registry.register("token-2".to_string(), scope("conv-2", "feature-y"));
+        registry.ensure_token("token-1".to_string(), scope("conv-1", "feature-x"));
+        registry.ensure_token("token-2".to_string(), scope("conv-2", "feature-y"));
 
         registry.remove_by_conversation("conv-1");
 
