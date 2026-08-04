@@ -17,7 +17,7 @@ class ResizeObserverMock {
 // Mock the stores
 vi.mock("../../../stores/ClaudeUsageStore", () => ({
   claudeUsageStore: {
-    usageData: null,
+    getUsageData: vi.fn(() => null),
     fetchUsage: vi.fn(),
   },
 }))
@@ -28,10 +28,16 @@ vi.mock("../../../stores/ConfigStore", () => ({
   },
 }))
 
+// Helper: make the mocked store return this usage for any config dir.
+function stubUsage(usageData: unknown) {
+  vi.mocked(claudeUsageStore.getUsageData).mockReturnValue(usageData as never)
+}
+
 describe("ClaudeUsageIndicator", () => {
   beforeEach(() => {
     vi.mocked(configStore).showClaudeUsageIndicator = false
-    vi.mocked(claudeUsageStore).usageData = null
+    vi.mocked(claudeUsageStore.getUsageData).mockReturnValue(null)
+    vi.mocked(claudeUsageStore.fetchUsage).mockClear()
     vi.stubGlobal("ResizeObserver", ResizeObserverMock)
   })
 
@@ -40,18 +46,20 @@ describe("ClaudeUsageIndicator", () => {
     vi.unstubAllGlobals()
   })
 
+  const fiveHourOnly = (utilization: number) => ({
+    fiveHour: { utilization, resetsAt: "2026-02-17T12:00:00Z" },
+    sevenDay: null,
+    sevenDayOauthApps: null,
+    sevenDayOpus: null,
+    sevenDaySonnet: null,
+    sevenDayCowork: null,
+    iguanaNecktie: null,
+    extraUsage: null,
+  })
+
   it("renders nothing when setting is disabled", () => {
     vi.mocked(configStore).showClaudeUsageIndicator = false
-    vi.mocked(claudeUsageStore).usageData = {
-      fiveHour: { utilization: 50.0, resetsAt: "2026-02-17T12:00:00Z" },
-      sevenDay: null,
-      sevenDayOauthApps: null,
-      sevenDayOpus: null,
-      sevenDaySonnet: null,
-      sevenDayCowork: null,
-      iguanaNecktie: null,
-      extraUsage: null,
-    }
+    stubUsage(fiveHourOnly(50.0))
 
     const { container } = render(<ClaudeUsageIndicator />)
     expect(container.firstChild).toBeNull()
@@ -59,7 +67,7 @@ describe("ClaudeUsageIndicator", () => {
 
   it("renders nothing when usageData is null even if setting is enabled", () => {
     vi.mocked(configStore).showClaudeUsageIndicator = true
-    vi.mocked(claudeUsageStore).usageData = null
+    stubUsage(null)
 
     const { container } = render(<ClaudeUsageIndicator />)
     expect(container.firstChild).toBeNull()
@@ -67,7 +75,7 @@ describe("ClaudeUsageIndicator", () => {
 
   it("renders circles when setting is enabled and usage data is available", () => {
     vi.mocked(configStore).showClaudeUsageIndicator = true
-    vi.mocked(claudeUsageStore).usageData = {
+    stubUsage({
       fiveHour: { utilization: 50.0, resetsAt: "2026-02-17T12:00:00Z" },
       sevenDay: { utilization: 30.0, resetsAt: "2026-02-18T12:00:00Z" },
       sevenDayOauthApps: null,
@@ -76,7 +84,7 @@ describe("ClaudeUsageIndicator", () => {
       sevenDayCowork: null,
       iguanaNecktie: null,
       extraUsage: null,
-    }
+    })
 
     render(<ClaudeUsageIndicator />)
 
@@ -85,18 +93,19 @@ describe("ClaudeUsageIndicator", () => {
     expect(screen.getByTestId("usage-indicator-7-day-limit")).toBeInTheDocument()
   })
 
+  it("reads and fetches usage for the passed config dir", () => {
+    vi.mocked(configStore).showClaudeUsageIndicator = true
+    stubUsage(fiveHourOnly(50.0))
+
+    render(<ClaudeUsageIndicator claudeConfigDir="~/.claude-work" />)
+
+    expect(claudeUsageStore.getUsageData).toHaveBeenCalledWith("~/.claude-work")
+    expect(claudeUsageStore.fetchUsage).toHaveBeenCalledWith("~/.claude-work")
+  })
+
   it("renders only five_hour circle when seven_day is null", () => {
     vi.mocked(configStore).showClaudeUsageIndicator = true
-    vi.mocked(claudeUsageStore).usageData = {
-      fiveHour: { utilization: 50.0, resetsAt: "2026-02-17T12:00:00Z" },
-      sevenDay: null,
-      sevenDayOauthApps: null,
-      sevenDayOpus: null,
-      sevenDaySonnet: null,
-      sevenDayCowork: null,
-      iguanaNecktie: null,
-      extraUsage: null,
-    }
+    stubUsage(fiveHourOnly(50.0))
 
     render(<ClaudeUsageIndicator />)
 
@@ -106,16 +115,7 @@ describe("ClaudeUsageIndicator", () => {
 
   it("applies green color for utilization < 70%", () => {
     vi.mocked(configStore).showClaudeUsageIndicator = true
-    vi.mocked(claudeUsageStore).usageData = {
-      fiveHour: { utilization: 50.0, resetsAt: "2026-02-17T12:00:00Z" },
-      sevenDay: null,
-      sevenDayOauthApps: null,
-      sevenDayOpus: null,
-      sevenDaySonnet: null,
-      sevenDayCowork: null,
-      iguanaNecktie: null,
-      extraUsage: null,
-    }
+    stubUsage(fiveHourOnly(50.0))
 
     render(<ClaudeUsageIndicator />)
 
@@ -126,16 +126,7 @@ describe("ClaudeUsageIndicator", () => {
 
   it("applies yellow color for utilization >= 70% and < 90%", () => {
     vi.mocked(configStore).showClaudeUsageIndicator = true
-    vi.mocked(claudeUsageStore).usageData = {
-      fiveHour: { utilization: 75.0, resetsAt: "2026-02-17T12:00:00Z" },
-      sevenDay: null,
-      sevenDayOauthApps: null,
-      sevenDayOpus: null,
-      sevenDaySonnet: null,
-      sevenDayCowork: null,
-      iguanaNecktie: null,
-      extraUsage: null,
-    }
+    stubUsage(fiveHourOnly(75.0))
 
     render(<ClaudeUsageIndicator />)
 
@@ -146,16 +137,7 @@ describe("ClaudeUsageIndicator", () => {
 
   it("applies red color for utilization >= 90%", () => {
     vi.mocked(configStore).showClaudeUsageIndicator = true
-    vi.mocked(claudeUsageStore).usageData = {
-      fiveHour: { utilization: 95.0, resetsAt: "2026-02-17T12:00:00Z" },
-      sevenDay: null,
-      sevenDayOauthApps: null,
-      sevenDayOpus: null,
-      sevenDaySonnet: null,
-      sevenDayCowork: null,
-      iguanaNecktie: null,
-      extraUsage: null,
-    }
+    stubUsage(fiveHourOnly(95.0))
 
     render(<ClaudeUsageIndicator />)
 

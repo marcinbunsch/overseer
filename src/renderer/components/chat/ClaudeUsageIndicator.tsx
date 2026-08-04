@@ -4,15 +4,23 @@ import { claudeUsageStore } from "../../stores/ClaudeUsageStore"
 import { configStore } from "../../stores/ConfigStore"
 import { UsageCircleIndicator } from "./UsageCircleIndicator"
 
-export const ClaudeUsageIndicator = observer(function ClaudeUsageIndicator() {
-  const { usageData } = claudeUsageStore
+interface ClaudeUsageIndicatorProps {
+  // The chat's per-project CLAUDE_CONFIG_DIR override, selecting which account's
+  // usage to show. Undefined = the default `~/.claude` account.
+  claudeConfigDir?: string
+}
+
+export const ClaudeUsageIndicator = observer(function ClaudeUsageIndicator({
+  claudeConfigDir,
+}: ClaudeUsageIndicatorProps) {
   const { showClaudeUsageIndicator } = configStore
+  const usageData = claudeUsageStore.getUsageData(claudeConfigDir)
 
   useEffect(() => {
     if (showClaudeUsageIndicator) {
-      void claudeUsageStore.fetchUsage()
+      void claudeUsageStore.fetchUsage(claudeConfigDir)
     }
-  }, [showClaudeUsageIndicator])
+  }, [showClaudeUsageIndicator, claudeConfigDir])
 
   if (!showClaudeUsageIndicator || !usageData) return null
 

@@ -15,7 +15,7 @@ interface EventMap {
   "overseer:new_workspace": void
   "overseer:open_diff_review": void
   "overseer:focus_chat_input": void
-  "agent:turnComplete": { agentType: string; chatId: string }
+  "agent:turnComplete": { agentType: string; chatId: string; claudeConfigDir?: string }
   "agent:messageSent": { agentType: string; chatId: string }
   "agent:messageReceived": { agentType: string; chatId: string; messageId: string }
 }

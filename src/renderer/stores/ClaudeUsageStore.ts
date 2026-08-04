@@ -51,20 +51,32 @@ interface BackendClaudeUsageResponse {
 
 const FETCH_INTERVAL_MS = 15 * 60 * 1000 // 15 minutes
 
+// A chat can run under a custom Claude account via its project's CLAUDE_CONFIG_DIR.
+// Usage differs per account, so it is tracked per config dir. This sentinel keys
+// the default `~/.claude` account (config dir undefined).
+const DEFAULT_ACCOUNT_KEY = "__default__"
+
+// Per-account usage state. The store holds one of these per config dir.
+interface AccountUsage {
+  usageData: ClaudeUsageData | null
+  lastFetchTime: number | null
+  isLoading: boolean
+}
+
 class ClaudeUsageStore {
+  // Keyed by config dir (DEFAULT_ACCOUNT_KEY for the default account). Kept per
+  // account so two chats on different logins don't clobber each other's dials or
+  // share the 15-minute rate-limit window.
   @observable
-  usageData: ClaudeUsageData | null = null
+  private accounts = new Map<string, AccountUsage>()
 
-  @observable
-  lastFetchTime: number | null = null
-
-  @observable
-  isLoading: boolean = false
-
+  // Platform support is account-independent (the usage API is macOS-only), so it
+  // stays a single flag rather than per-account state.
   @observable
   isSupported: boolean = true
 
-  private scheduledCheckTimeout: ReturnType<typeof setTimeout> | null = null
+  // Pending rate-limit-window rechecks, keyed the same as `accounts`.
+  private scheduledChecks = new Map<string, ReturnType<typeof setTimeout>>()
   private unsubscribeFromEvents: (() => void) | null = null
 
   constructor() {
@@ -73,7 +85,7 @@ class ClaudeUsageStore {
     // Subscribe to turn completion events and store unsubscribe function
     this.unsubscribeFromEvents = eventBus.on("agent:turnComplete", (payload) => {
       if (payload.agentType === "claude") {
-        this.checkAndFetchUsage()
+        this.checkAndFetchUsage(payload.claudeConfigDir)
       }
     })
   }
@@ -88,104 +100,70 @@ class ClaudeUsageStore {
       this.unsubscribeFromEvents = null
     }
 
-    // Clear any pending timeout
-    if (this.scheduledCheckTimeout) {
-      clearTimeout(this.scheduledCheckTimeout)
-      this.scheduledCheckTimeout = null
+    // Clear any pending timeouts
+    for (const timeout of this.scheduledChecks.values()) {
+      clearTimeout(timeout)
     }
+    this.scheduledChecks.clear()
+  }
+
+  /** Usage for a given account (config dir), or null if not fetched yet. */
+  getUsageData(configDir?: string): ClaudeUsageData | null {
+    return this.accounts.get(accountKey(configDir))?.usageData ?? null
   }
 
   @action
-  private checkAndFetchUsage() {
+  private checkAndFetchUsage(configDir?: string) {
     const now = Date.now()
+    const lastFetchTime = this.accounts.get(accountKey(configDir))?.lastFetchTime ?? null
 
-    // If we fetched recently, schedule for next window
-    if (this.lastFetchTime && now - this.lastFetchTime < FETCH_INTERVAL_MS) {
-      const timeUntilNextWindow = FETCH_INTERVAL_MS - (now - this.lastFetchTime)
-      this.scheduleDelayedCheck(timeUntilNextWindow)
+    // If we fetched this account recently, schedule for next window
+    if (lastFetchTime && now - lastFetchTime < FETCH_INTERVAL_MS) {
+      const timeUntilNextWindow = FETCH_INTERVAL_MS - (now - lastFetchTime)
+      this.scheduleDelayedCheck(configDir, timeUntilNextWindow)
       return
     }
 
     // Otherwise fetch now
-    void this.fetchUsage()
+    void this.fetchUsage(configDir)
   }
 
   @action
-  private scheduleDelayedCheck(delayMs: number) {
-    // Clear any existing scheduled check
-    if (this.scheduledCheckTimeout) {
-      clearTimeout(this.scheduledCheckTimeout)
-    }
+  private scheduleDelayedCheck(configDir: string | undefined, delayMs: number) {
+    const key = accountKey(configDir)
 
-    // Schedule next check
-    this.scheduledCheckTimeout = setTimeout(() => {
-      this.scheduledCheckTimeout = null
-      void this.fetchUsage()
-    }, delayMs)
+    // Clear any existing scheduled check for this account
+    const existing = this.scheduledChecks.get(key)
+    if (existing) clearTimeout(existing)
+
+    // Schedule next check for this account
+    this.scheduledChecks.set(
+      key,
+      setTimeout(() => {
+        this.scheduledChecks.delete(key)
+        void this.fetchUsage(configDir)
+      }, delayMs)
+    )
   }
 
   @action
-  async fetchUsage() {
-    if (this.isLoading || !this.isSupported) return
+  async fetchUsage(configDir?: string) {
+    if (!this.isSupported) return
+    const key = accountKey(configDir)
+    if (this.accounts.get(key)?.isLoading) return
 
-    this.isLoading = true
+    this.patchAccount(key, { isLoading: true })
     try {
-      const response = await backend.invoke<BackendClaudeUsageResponse>("fetch_claude_usage")
+      const response = await backend.invoke<BackendClaudeUsageResponse>("fetch_claude_usage", {
+        claudeConfigDir: configDir ?? null,
+      })
 
       runInAction(() => {
-        this.usageData = {
-          fiveHour: response.five_hour
-            ? {
-                utilization: response.five_hour.utilization,
-                resetsAt: response.five_hour.resets_at,
-              }
-            : null,
-          sevenDay: response.seven_day
-            ? {
-                utilization: response.seven_day.utilization,
-                resetsAt: response.seven_day.resets_at,
-              }
-            : null,
-          sevenDayOauthApps: response.seven_day_oauth_apps
-            ? {
-                utilization: response.seven_day_oauth_apps.utilization,
-                resetsAt: response.seven_day_oauth_apps.resets_at,
-              }
-            : null,
-          sevenDayOpus: response.seven_day_opus
-            ? {
-                utilization: response.seven_day_opus.utilization,
-                resetsAt: response.seven_day_opus.resets_at,
-              }
-            : null,
-          sevenDaySonnet: response.seven_day_sonnet
-            ? {
-                utilization: response.seven_day_sonnet.utilization,
-                resetsAt: response.seven_day_sonnet.resets_at,
-              }
-            : null,
-          sevenDayCowork: response.seven_day_cowork
-            ? {
-                utilization: response.seven_day_cowork.utilization,
-                resetsAt: response.seven_day_cowork.resets_at,
-              }
-            : null,
-          iguanaNecktie: response.iguana_necktie
-            ? {
-                utilization: response.iguana_necktie.utilization,
-                resetsAt: response.iguana_necktie.resets_at,
-              }
-            : null,
-          extraUsage: response.extra_usage
-            ? {
-                isEnabled: response.extra_usage.is_enabled,
-                monthlyLimit: response.extra_usage.monthly_limit,
-                usedCredits: response.extra_usage.used_credits,
-                utilization: response.extra_usage.utilization,
-              }
-            : null,
-        }
-        this.lastFetchTime = Date.now()
+        this.patchAccount(key, {
+          usageData: mapUsageResponse(response),
+          lastFetchTime: Date.now(),
+          isLoading: false,
+        })
       })
     } catch (error) {
       // If we get an unsupported platform error, disable future attempts
@@ -200,11 +178,49 @@ class ClaudeUsageStore {
       } else {
         console.error("Failed to fetch Claude usage:", error)
       }
-    } finally {
       runInAction(() => {
-        this.isLoading = false
+        this.patchAccount(key, { isLoading: false })
       })
     }
+  }
+
+  // Replace the account entry with a merged copy so the observable map reacts.
+  @action
+  private patchAccount(key: string, patch: Partial<AccountUsage>) {
+    const current = this.accounts.get(key) ?? {
+      usageData: null,
+      lastFetchTime: null,
+      isLoading: false,
+    }
+    this.accounts.set(key, { ...current, ...patch })
+  }
+}
+
+function accountKey(configDir?: string): string {
+  const trimmed = configDir?.trim()
+  return trimmed ? trimmed : DEFAULT_ACCOUNT_KEY
+}
+
+function mapUsageResponse(response: BackendClaudeUsageResponse): ClaudeUsageData {
+  const period = (p: BackendUsagePeriod | null): UsagePeriod | null =>
+    p ? { utilization: p.utilization, resetsAt: p.resets_at } : null
+
+  return {
+    fiveHour: period(response.five_hour),
+    sevenDay: period(response.seven_day),
+    sevenDayOauthApps: period(response.seven_day_oauth_apps),
+    sevenDayOpus: period(response.seven_day_opus),
+    sevenDaySonnet: period(response.seven_day_sonnet),
+    sevenDayCowork: period(response.seven_day_cowork),
+    iguanaNecktie: period(response.iguana_necktie),
+    extraUsage: response.extra_usage
+      ? {
+          isEnabled: response.extra_usage.is_enabled,
+          monthlyLimit: response.extra_usage.monthly_limit,
+          usedCredits: response.extra_usage.used_credits,
+          utilization: response.extra_usage.utilization,
+        }
+      : null,
   }
 }
 

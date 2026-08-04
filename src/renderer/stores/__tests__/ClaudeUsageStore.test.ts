@@ -1,21 +1,35 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { runInAction } from "mobx"
 import { backend } from "../../backend"
 import { eventBus } from "../../utils/eventBus"
 
-// Import the class for testing, not the singleton
+// Mirrors the real ClaudeUsageStore's logic without the MobX decorators/singleton,
+// so each test gets a fresh instance and controls the (mocked) eventBus
+// subscription. NOTE: this is a hand-kept copy of ../ClaudeUsageStore.ts — keep the
+// two in sync until the real singleton can be imported directly in tests.
+const DEFAULT_ACCOUNT_KEY = "__default__"
+const FETCH_INTERVAL_MS = 15 * 60 * 1000
+
+interface AccountUsage {
+  usageData: any
+  lastFetchTime: number | null
+  isLoading: boolean
+}
+
+function accountKey(configDir?: string): string {
+  const trimmed = configDir?.trim()
+  return trimmed ? trimmed : DEFAULT_ACCOUNT_KEY
+}
+
 class ClaudeUsageStore {
-  usageData: any = null
-  lastFetchTime: number | null = null
-  isLoading: boolean = false
+  private accounts = new Map<string, AccountUsage>()
   isSupported: boolean = true
-  private scheduledCheckTimeout: ReturnType<typeof setTimeout> | null = null
+  private scheduledChecks = new Map<string, ReturnType<typeof setTimeout>>()
   private unsubscribeFromEvents: (() => void) | null = null
 
   constructor() {
     this.unsubscribeFromEvents = eventBus.on("agent:turnComplete", (payload) => {
       if (payload.agentType === "claude") {
-        this.checkAndFetchUsage()
+        this.checkAndFetchUsage(payload.claudeConfigDir)
       }
     })
   }
@@ -25,96 +39,110 @@ class ClaudeUsageStore {
       this.unsubscribeFromEvents()
       this.unsubscribeFromEvents = null
     }
-
-    if (this.scheduledCheckTimeout) {
-      clearTimeout(this.scheduledCheckTimeout)
-      this.scheduledCheckTimeout = null
+    for (const timeout of this.scheduledChecks.values()) {
+      clearTimeout(timeout)
     }
+    this.scheduledChecks.clear()
   }
 
-  private checkAndFetchUsage() {
-    const now = Date.now()
+  getUsageData(configDir?: string): any {
+    return this.accounts.get(accountKey(configDir))?.usageData ?? null
+  }
 
-    if (this.lastFetchTime && now - this.lastFetchTime < 15 * 60 * 1000) {
-      const timeUntilNextWindow = 15 * 60 * 1000 - (now - this.lastFetchTime)
-      this.scheduleDelayedCheck(timeUntilNextWindow)
+  private checkAndFetchUsage(configDir?: string) {
+    const now = Date.now()
+    const lastFetchTime = this.accounts.get(accountKey(configDir))?.lastFetchTime ?? null
+
+    if (lastFetchTime && now - lastFetchTime < FETCH_INTERVAL_MS) {
+      const timeUntilNextWindow = FETCH_INTERVAL_MS - (now - lastFetchTime)
+      this.scheduleDelayedCheck(configDir, timeUntilNextWindow)
       return
     }
 
-    void this.fetchUsage()
+    void this.fetchUsage(configDir)
   }
 
-  private scheduleDelayedCheck(delayMs: number) {
-    if (this.scheduledCheckTimeout) {
-      clearTimeout(this.scheduledCheckTimeout)
-    }
+  private scheduleDelayedCheck(configDir: string | undefined, delayMs: number) {
+    const key = accountKey(configDir)
+    const existing = this.scheduledChecks.get(key)
+    if (existing) clearTimeout(existing)
 
-    this.scheduledCheckTimeout = setTimeout(() => {
-      this.scheduledCheckTimeout = null
-      void this.fetchUsage()
-    }, delayMs)
+    this.scheduledChecks.set(
+      key,
+      setTimeout(() => {
+        this.scheduledChecks.delete(key)
+        void this.fetchUsage(configDir)
+      }, delayMs)
+    )
   }
 
-  async fetchUsage() {
-    if (this.isLoading || !this.isSupported) return
+  async fetchUsage(configDir?: string) {
+    if (!this.isSupported) return
+    const key = accountKey(configDir)
+    if (this.accounts.get(key)?.isLoading) return
 
-    this.isLoading = true
+    this.patchAccount(key, { isLoading: true })
     try {
-      const response: any = await backend.invoke("fetch_claude_usage")
+      const response: any = await backend.invoke("fetch_claude_usage", {
+        claudeConfigDir: configDir ?? null,
+      })
 
-      this.usageData = {
-        fiveHour: response.five_hour
-          ? {
-              utilization: response.five_hour.utilization,
-              resetsAt: response.five_hour.resets_at,
-            }
-          : null,
-        sevenDay: response.seven_day
-          ? {
-              utilization: response.seven_day.utilization,
-              resetsAt: response.seven_day.resets_at,
-            }
-          : null,
-        sevenDayOauthApps: response.seven_day_oauth_apps
-          ? {
-              utilization: response.seven_day_oauth_apps.utilization,
-              resetsAt: response.seven_day_oauth_apps.resets_at,
-            }
-          : null,
-        sevenDayOpus: response.seven_day_opus
-          ? {
-              utilization: response.seven_day_opus.utilization,
-              resetsAt: response.seven_day_opus.resets_at,
-            }
-          : null,
-        sevenDaySonnet: response.seven_day_sonnet
-          ? {
-              utilization: response.seven_day_sonnet.utilization,
-              resetsAt: response.seven_day_sonnet.resets_at,
-            }
-          : null,
-        sevenDayCowork: response.seven_day_cowork
-          ? {
-              utilization: response.seven_day_cowork.utilization,
-              resetsAt: response.seven_day_cowork.resets_at,
-            }
-          : null,
-        iguanaNecktie: response.iguana_necktie
-          ? {
-              utilization: response.iguana_necktie.utilization,
-              resetsAt: response.iguana_necktie.resets_at,
-            }
-          : null,
-        extraUsage: response.extra_usage
-          ? {
-              isEnabled: response.extra_usage.is_enabled,
-              monthlyLimit: response.extra_usage.monthly_limit,
-              usedCredits: response.extra_usage.used_credits,
-              utilization: response.extra_usage.utilization,
-            }
-          : null,
-      }
-      this.lastFetchTime = Date.now()
+      this.patchAccount(key, {
+        usageData: {
+          fiveHour: response.five_hour
+            ? {
+                utilization: response.five_hour.utilization,
+                resetsAt: response.five_hour.resets_at,
+              }
+            : null,
+          sevenDay: response.seven_day
+            ? {
+                utilization: response.seven_day.utilization,
+                resetsAt: response.seven_day.resets_at,
+              }
+            : null,
+          sevenDayOauthApps: response.seven_day_oauth_apps
+            ? {
+                utilization: response.seven_day_oauth_apps.utilization,
+                resetsAt: response.seven_day_oauth_apps.resets_at,
+              }
+            : null,
+          sevenDayOpus: response.seven_day_opus
+            ? {
+                utilization: response.seven_day_opus.utilization,
+                resetsAt: response.seven_day_opus.resets_at,
+              }
+            : null,
+          sevenDaySonnet: response.seven_day_sonnet
+            ? {
+                utilization: response.seven_day_sonnet.utilization,
+                resetsAt: response.seven_day_sonnet.resets_at,
+              }
+            : null,
+          sevenDayCowork: response.seven_day_cowork
+            ? {
+                utilization: response.seven_day_cowork.utilization,
+                resetsAt: response.seven_day_cowork.resets_at,
+              }
+            : null,
+          iguanaNecktie: response.iguana_necktie
+            ? {
+                utilization: response.iguana_necktie.utilization,
+                resetsAt: response.iguana_necktie.resets_at,
+              }
+            : null,
+          extraUsage: response.extra_usage
+            ? {
+                isEnabled: response.extra_usage.is_enabled,
+                monthlyLimit: response.extra_usage.monthly_limit,
+                usedCredits: response.extra_usage.used_credits,
+                utilization: response.extra_usage.utilization,
+              }
+            : null,
+        },
+        lastFetchTime: Date.now(),
+        isLoading: false,
+      })
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
       if (
@@ -125,9 +153,17 @@ class ClaudeUsageStore {
       } else {
         console.error("Failed to fetch Claude usage:", error)
       }
-    } finally {
-      this.isLoading = false
+      this.patchAccount(key, { isLoading: false })
     }
+  }
+
+  private patchAccount(key: string, patch: Partial<AccountUsage>) {
+    const current = this.accounts.get(key) ?? {
+      usageData: null,
+      lastFetchTime: null,
+      isLoading: false,
+    }
+    this.accounts.set(key, { ...current, ...patch })
   }
 }
 
@@ -146,9 +182,11 @@ vi.mock("../../utils/eventBus", () => ({
   },
 }))
 
+type TurnCompletePayload = { agentType: string; chatId: string; claudeConfigDir?: string }
+
 describe("ClaudeUsageStore", () => {
   let store: ClaudeUsageStore
-  let eventCallback: ((payload: { agentType: string; chatId: string }) => void) | null = null
+  let eventCallback: ((payload: TurnCompletePayload) => void) | null = null
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -157,7 +195,7 @@ describe("ClaudeUsageStore", () => {
     // Capture the event callback when store subscribes
     vi.mocked(eventBus.on).mockImplementation((event, callback) => {
       if (event === "agent:turnComplete") {
-        eventCallback = callback as (payload: { agentType: string; chatId: string }) => void
+        eventCallback = callback as (payload: TurnCompletePayload) => void
       }
       return vi.fn()
     })
@@ -196,15 +234,11 @@ describe("ClaudeUsageStore", () => {
     })
 
     it("starts with null usage data", () => {
-      expect(store.usageData).toBeNull()
+      expect(store.getUsageData()).toBeNull()
     })
 
     it("starts with isSupported = true", () => {
       expect(store.isSupported).toBe(true)
-    })
-
-    it("starts with isLoading = false", () => {
-      expect(store.isLoading).toBe(false)
     })
   })
 
@@ -214,11 +248,12 @@ describe("ClaudeUsageStore", () => {
 
       await store.fetchUsage()
 
-      expect(backend.invoke).toHaveBeenCalledWith("fetch_claude_usage")
-      expect(store.usageData).not.toBeNull()
-      expect(store.usageData?.fiveHour?.utilization).toBe(50.0)
-      expect(store.usageData?.sevenDay?.utilization).toBe(30.0)
-      expect(store.usageData?.extraUsage?.utilization).toBe(50.0)
+      expect(backend.invoke).toHaveBeenCalledWith("fetch_claude_usage", { claudeConfigDir: null })
+      const usage = store.getUsageData()
+      expect(usage).not.toBeNull()
+      expect(usage?.fiveHour?.utilization).toBe(50.0)
+      expect(usage?.sevenDay?.utilization).toBe(30.0)
+      expect(usage?.extraUsage?.utilization).toBe(50.0)
     })
 
     it("transforms snake_case to camelCase", async () => {
@@ -226,25 +261,43 @@ describe("ClaudeUsageStore", () => {
 
       await store.fetchUsage()
 
-      expect(store.usageData?.fiveHour?.resetsAt).toBe("2026-02-17T12:00:00Z")
-      expect(store.usageData?.extraUsage?.isEnabled).toBe(true)
-      expect(store.usageData?.extraUsage?.monthlyLimit).toBe(5000)
-      expect(store.usageData?.extraUsage?.usedCredits).toBe(2500.0)
+      const usage = store.getUsageData()
+      expect(usage?.fiveHour?.resetsAt).toBe("2026-02-17T12:00:00Z")
+      expect(usage?.extraUsage?.isEnabled).toBe(true)
+      expect(usage?.extraUsage?.monthlyLimit).toBe(5000)
+      expect(usage?.extraUsage?.usedCredits).toBe(2500.0)
     })
 
-    it("updates lastFetchTime", async () => {
+    it("passes the config dir to the backend for a custom account", async () => {
       vi.mocked(backend.invoke).mockResolvedValue(mockUsageResponse)
-      const beforeFetch = Date.now()
+
+      await store.fetchUsage("~/.claude-work")
+
+      expect(backend.invoke).toHaveBeenCalledWith("fetch_claude_usage", {
+        claudeConfigDir: "~/.claude-work",
+      })
+    })
+
+    it("keeps usage separate per account", async () => {
+      const defaultResponse = {
+        ...mockUsageResponse,
+        five_hour: { utilization: 20, resets_at: "" },
+      }
+      const workResponse = { ...mockUsageResponse, five_hour: { utilization: 80, resets_at: "" } }
+      vi.mocked(backend.invoke).mockImplementation((_cmd: string, args?: any) =>
+        Promise.resolve(args?.claudeConfigDir === "~/.claude-work" ? workResponse : defaultResponse)
+      )
 
       await store.fetchUsage()
+      await store.fetchUsage("~/.claude-work")
 
-      expect(store.lastFetchTime).toBeGreaterThanOrEqual(beforeFetch)
+      // The custom account's fetch must not overwrite the default account's dials.
+      expect(store.getUsageData()?.fiveHour?.utilization).toBe(20)
+      expect(store.getUsageData("~/.claude-work")?.fiveHour?.utilization).toBe(80)
     })
 
     it("does not fetch if isSupported is false", async () => {
-      runInAction(() => {
-        store.isSupported = false
-      })
+      store.isSupported = false
 
       await store.fetchUsage()
 
@@ -276,18 +329,31 @@ describe("ClaudeUsageStore", () => {
       expect(eventCallback).not.toBeNull()
 
       eventCallback!({ agentType: "claude", chatId: "test-chat" })
-
-      // Wait for async operations
       await vi.runAllTimersAsync()
 
-      expect(backend.invoke).toHaveBeenCalledWith("fetch_claude_usage")
+      expect(backend.invoke).toHaveBeenCalledWith("fetch_claude_usage", { claudeConfigDir: null })
+    })
+
+    it("refreshes the account named in the turnComplete payload", async () => {
+      vi.mocked(backend.invoke).mockResolvedValue(mockUsageResponse)
+      expect(eventCallback).not.toBeNull()
+
+      eventCallback!({
+        agentType: "claude",
+        chatId: "test-chat",
+        claudeConfigDir: "~/.claude-work",
+      })
+      await vi.runAllTimersAsync()
+
+      expect(backend.invoke).toHaveBeenCalledWith("fetch_claude_usage", {
+        claudeConfigDir: "~/.claude-work",
+      })
     })
 
     it("does not fetch when turnComplete event fires for non-claude agent", async () => {
       expect(eventCallback).not.toBeNull()
 
       eventCallback!({ agentType: "codex", chatId: "test-chat" })
-
       await vi.runAllTimersAsync()
 
       expect(backend.invoke).not.toHaveBeenCalled()
@@ -297,42 +363,52 @@ describe("ClaudeUsageStore", () => {
       vi.mocked(backend.invoke).mockResolvedValue(mockUsageResponse)
       expect(eventCallback).not.toBeNull()
 
-      // First fetch
       eventCallback!({ agentType: "claude", chatId: "test-chat" })
       await vi.runAllTimersAsync()
       expect(backend.invoke).toHaveBeenCalledTimes(1)
 
-      vi.clearAllMocks() // Clear so we can count properly
+      vi.clearAllMocks()
 
-      // Second fetch within 15 min
-      vi.advanceTimersByTime(5 * 60 * 1000) // 5 minutes
+      vi.advanceTimersByTime(5 * 60 * 1000)
       eventCallback!({ agentType: "claude", chatId: "test-chat" })
-
-      // Should not have fetched immediately
       expect(backend.invoke).not.toHaveBeenCalled()
 
-      // Advance to when scheduled fetch should run (10 min remaining)
       await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
-
-      // Now it should have fetched
       expect(backend.invoke).toHaveBeenCalledTimes(1)
+    })
+
+    it("rate-limits each account independently", async () => {
+      vi.mocked(backend.invoke).mockResolvedValue(mockUsageResponse)
+      expect(eventCallback).not.toBeNull()
+
+      // Fetch the default account, then immediately a turn on a different account.
+      eventCallback!({ agentType: "claude", chatId: "a" })
+      await vi.runAllTimersAsync()
+      vi.clearAllMocks()
+
+      // Within the default account's window, but the custom account has never been
+      // fetched, so it must fetch immediately rather than being rate-limited.
+      eventCallback!({ agentType: "claude", chatId: "b", claudeConfigDir: "~/.claude-work" })
+      await vi.runAllTimersAsync()
+
+      expect(backend.invoke).toHaveBeenCalledTimes(1)
+      expect(backend.invoke).toHaveBeenCalledWith("fetch_claude_usage", {
+        claudeConfigDir: "~/.claude-work",
+      })
     })
 
     it("fetches immediately if outside 15min window", async () => {
       vi.mocked(backend.invoke).mockResolvedValue(mockUsageResponse)
       expect(eventCallback).not.toBeNull()
 
-      // First fetch
       eventCallback!({ agentType: "claude", chatId: "test-chat" })
       await vi.runAllTimersAsync()
       expect(backend.invoke).toHaveBeenCalledTimes(1)
 
-      // Second fetch after 15 min
       vi.advanceTimersByTime(16 * 60 * 1000)
       eventCallback!({ agentType: "claude", chatId: "test-chat" })
       await vi.runAllTimersAsync()
 
-      // Should have fetched immediately
       expect(backend.invoke).toHaveBeenCalledTimes(2)
     })
 
@@ -340,22 +416,18 @@ describe("ClaudeUsageStore", () => {
       vi.mocked(backend.invoke).mockResolvedValue(mockUsageResponse)
       expect(eventCallback).not.toBeNull()
 
-      // First fetch
       eventCallback!({ agentType: "claude", chatId: "test-chat" })
       await vi.runAllTimersAsync()
 
-      // Two more events within window
       vi.advanceTimersByTime(5 * 60 * 1000)
       eventCallback!({ agentType: "claude", chatId: "test-chat" })
 
       vi.advanceTimersByTime(3 * 60 * 1000)
       eventCallback!({ agentType: "claude", chatId: "test-chat" })
 
-      // Advance to when second scheduled check would fire
       vi.advanceTimersByTime(7 * 60 * 1000)
       await vi.runAllTimersAsync()
 
-      // Should only have original + one scheduled fetch (not two)
       expect(backend.invoke).toHaveBeenCalledTimes(2)
     })
   })
@@ -375,18 +447,14 @@ describe("ClaudeUsageStore", () => {
       vi.mocked(backend.invoke).mockResolvedValue(mockUsageResponse)
       expect(eventCallback).not.toBeNull()
 
-      // First fetch
       eventCallback!({ agentType: "claude", chatId: "test-chat" })
       await vi.runAllTimersAsync()
 
-      // Trigger a scheduled check
       vi.advanceTimersByTime(5 * 60 * 1000)
       eventCallback!({ agentType: "claude", chatId: "test-chat" })
 
-      // Dispose should clear the timeout
       store.dispose()
 
-      // Advance time - scheduled fetch should not run
       vi.clearAllMocks()
       await vi.advanceTimersByTimeAsync(20 * 60 * 1000)
 
@@ -398,8 +466,6 @@ describe("ClaudeUsageStore", () => {
 
       store.dispose()
 
-      // Try to trigger event - should not work because we unsubscribed
-      // Note: This test verifies the pattern, actual behavior depends on eventBus mock
       expect(store["unsubscribeFromEvents"]).toBeNull()
     })
   })

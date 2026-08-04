@@ -1303,10 +1303,14 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
           // Refresh changed files - the agent may have created/modified/deleted files
           this.context.refreshChangedFiles()
 
-          // Emit turn complete event for other stores to listen to
+          // Emit turn complete event for other stores to listen to. Include the
+          // per-project CLAUDE_CONFIG_DIR so the usage dials refresh the account
+          // this chat actually runs under (only Claude reads it).
           eventBus.emit("agent:turnComplete", {
             agentType: this.chat.agentType ?? "claude",
             chatId: this.chat.id,
+            claudeConfigDir:
+              this.chat.agentType === "claude" ? this.context?.getClaudeConfigDir() : undefined,
           })
 
           // Handle autonomous mode - check completion and trigger next iteration

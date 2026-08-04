@@ -3201,6 +3201,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2",
  "shlex",
  "tempfile",
  "thiserror 1.0.69",

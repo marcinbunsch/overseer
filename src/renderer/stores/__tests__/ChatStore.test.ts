@@ -414,6 +414,31 @@ describe("ChatStore", () => {
     expect(eventBus.emit).toHaveBeenCalledWith("agent:turnComplete", {
       agentType: "claude",
       chatId: "test-chat-123",
+      claudeConfigDir: undefined,
+    })
+  })
+
+  it("includes the project's claudeConfigDir in agent:turnComplete for claude", () => {
+    const store = createChatStore(undefined, { getClaudeConfigDir: () => "~/.claude-work" })
+
+    runInAction(() => {
+      store.isSending = true
+      store.chat.status = "running"
+      store.chat.agentType = "claude"
+      store.chat.id = "test-chat-123"
+    })
+
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+
+    eventCallback({ kind: "turnComplete" })
+
+    expect(eventBus.emit).toHaveBeenCalledWith("agent:turnComplete", {
+      agentType: "claude",
+      chatId: "test-chat-123",
+      claudeConfigDir: "~/.claude-work",
     })
   })
 

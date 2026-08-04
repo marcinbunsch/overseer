@@ -287,8 +287,10 @@ async fn save_attachment_from_path(
 }
 
 #[tauri::command]
-async fn fetch_claude_usage() -> Result<overseer_core::usage::ClaudeUsageResponse, String> {
-    overseer_core::usage::fetch_claude_usage()
+async fn fetch_claude_usage(
+    claude_config_dir: Option<String>,
+) -> Result<overseer_core::usage::ClaudeUsageResponse, String> {
+    overseer_core::usage::fetch_claude_usage(claude_config_dir)
         .await
         .map_err(|e| e.to_string())
 }
