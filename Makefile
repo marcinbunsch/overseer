@@ -40,7 +40,7 @@ pstree:
 install: build-local
 	@echo "Installing Overseer.app to /Applications..."
 	rm -rf /Applications/Overseer.app
-	cp -R src-tauri/target/release/bundle/macos/Overseer.app /Applications/
+	cp -R target/release/bundle/macos/Overseer.app /Applications/
 	xattr -dr com.apple.quarantine /Applications/Overseer.app || true
 	@echo "Done. Overseer is now available in /Applications."
 
