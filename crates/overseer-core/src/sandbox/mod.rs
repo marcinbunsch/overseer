@@ -83,6 +83,10 @@ pub struct SandboxSpec {
     /// Overseer's internal git API so it can push / open PRs on the host
     /// without the host's GitHub credentials being present in the box.
     pub extra_env: Vec<(String, String)>,
+    /// A per-project `CLAUDE_CONFIG_DIR` override (Claude only). When set, the
+    /// profile grants read+write to this directory so Claude can read its login
+    /// and write its state there. `None` uses the default `~/.claude` grants.
+    pub claude_config_dir: Option<PathBuf>,
 }
 
 impl SandboxSpec {
@@ -108,12 +112,22 @@ impl SandboxSpec {
             home: home.to_path_buf(),
             read_paths,
             extra_env: Vec::new(),
+            claude_config_dir: None,
         }
     }
 
     /// Set the extra environment variables injected into the scrubbed env.
     pub fn with_extra_env(mut self, extra_env: Vec<(String, String)>) -> Self {
         self.extra_env = extra_env;
+        self
+    }
+
+    /// Set the per-project `CLAUDE_CONFIG_DIR` override. Canonicalized (like the
+    /// other paths) so Seatbelt matches the real path the CLI resolves the env
+    /// var to; kept literal if it doesn't exist yet (Claude creates it on first
+    /// run). `None` clears the override.
+    pub fn with_claude_config_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.claude_config_dir = dir.map(|d| canonicalize_or_keep(&d));
         self
     }
 }

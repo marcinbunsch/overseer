@@ -125,7 +125,7 @@ impl<'a> SandboxProfile<'a> {
     /// no file hole here.
     fn push_agent_auth(&self, lines: &mut Vec<String>) {
         let home = &self.spec.home;
-        let (rw_dirs, ro_dirs): (Vec<std::path::PathBuf>, Vec<std::path::PathBuf>) =
+        let (mut rw_dirs, ro_dirs): (Vec<std::path::PathBuf>, Vec<std::path::PathBuf>) =
             match self.spec.agent {
                 AgentKind::Claude => (
                     vec![home.join(".claude"), home.join(".config/claude")],
@@ -146,6 +146,13 @@ impl<'a> SandboxProfile<'a> {
                 AgentKind::Pi => (vec![home.join(".config/pi"), home.join(".pi")], vec![]),
                 AgentKind::Gemini => (vec![], vec![]),
             };
+        // A per-project CLAUDE_CONFIG_DIR relocates Claude's whole config dir,
+        // including the `.claude.json` it writes inside it, so one read+write
+        // subpath grant covers everything. The default ~/.claude grants above
+        // stay (harmless when unused).
+        if let Some(config_dir) = &self.spec.claude_config_dir {
+            rw_dirs.push(config_dir.clone());
+        }
         if rw_dirs.is_empty() && ro_dirs.is_empty() {
             return;
         }
@@ -259,6 +266,7 @@ mod tests {
                 PathBuf::from("/Users/dev/.zshrc"),
             ],
             extra_env: vec![],
+            claude_config_dir: None,
         }
     }
 
@@ -321,6 +329,29 @@ mod tests {
         assert!(
             out.contains("(allow file-read* file-write* (regex #\"^/Users/dev/\\.claude\\.json\"))")
         );
+    }
+
+    // A per-project CLAUDE_CONFIG_DIR override must be granted read+write so the
+    // sandboxed CLI can read its login and write its state (including the
+    // `.claude.json` it writes inside that dir). Without the grant, Claude would
+    // report "Not logged in" or die with EPERM under the custom dir.
+    #[test]
+    fn claude_custom_config_dir_is_read_write() {
+        let mut s = spec(AgentKind::Claude);
+        s.claude_config_dir = Some(PathBuf::from("/Users/dev/.claude-work"));
+        let out = SandboxProfile::from_spec(&s).render();
+        assert!(out
+            .contains("(allow file-read* file-write* (subpath \"/Users/dev/.claude-work\"))"));
+        // The default ~/.claude grant still stands (harmless when unused).
+        assert!(out.contains("(allow file-read* file-write* (subpath \"/Users/dev/.claude\"))"));
+    }
+
+    // Without an override, the profile is unchanged — no stray grant leaks in.
+    #[test]
+    fn claude_without_config_dir_override_grants_no_extra_dir() {
+        let s = spec(AgentKind::Claude);
+        let out = SandboxProfile::from_spec(&s).render();
+        assert!(!out.contains(".claude-work"));
     }
 
     // Regression: sandboxed Claude reported "Not logged in · Please run /login".
@@ -398,6 +429,7 @@ mod tests {
             home: PathBuf::from("/Users/nobody"),
             read_paths: vec![],
             extra_env: vec![],
+            claude_config_dir: None,
         };
         let profile = SandboxProfile::from_spec(&s).render();
         let guard = SandboxProfileFile::write(&profile).unwrap();
