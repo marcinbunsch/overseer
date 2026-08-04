@@ -23,9 +23,17 @@ export class SkillsService {
     this.backend = backend
   }
 
-  /** List skills for a workspace, sorted by name (project shadows user). */
-  async listSkills(workspacePath: string): Promise<Skill[]> {
-    return this.backend.invoke<Skill[]>("list_skills", { workspacePath })
+  /**
+   * List skills for a workspace, sorted by name (project shadows user).
+   *
+   * `claudeConfigDir` is the project's per-account CLAUDE_CONFIG_DIR override, so
+   * user skills come from that account's dir. Undefined = the default `~/.claude`.
+   */
+  async listSkills(workspacePath: string, claudeConfigDir?: string): Promise<Skill[]> {
+    return this.backend.invoke<Skill[]>("list_skills", {
+      workspacePath,
+      claudeConfigDir: claudeConfigDir ?? null,
+    })
   }
 }
 

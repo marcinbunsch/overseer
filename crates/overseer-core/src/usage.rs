@@ -135,7 +135,7 @@ fn keychain_service_name(config_dir: Option<&str>, home: &str) -> String {
     let home = home.trim_end_matches('/');
     let default_dir = format!("{home}/.claude");
 
-    let dir = match expand_config_dir(config_dir, home) {
+    let dir = match crate::paths::expand_config_dir(config_dir, home) {
         None => return DEFAULT_KEYCHAIN_SERVICE.to_string(),
         Some(dir) => dir,
     };
@@ -148,28 +148,6 @@ fn keychain_service_name(config_dir: Option<&str>, home: &str) -> String {
     // First 4 bytes = the 8 hex chars Claude Code uses as the suffix.
     let suffix: String = digest.iter().take(4).map(|b| format!("{b:02x}")).collect();
     format!("{DEFAULT_KEYCHAIN_SERVICE}-{suffix}")
-}
-
-/// Expand a raw `CLAUDE_CONFIG_DIR` value against `home`. Mirrors the expansion in
-/// the Claude agent manager (`managers::claude_agent::expand_config_dir`) so the
-/// keychain lookup hashes the same absolute path the CLI was spawned with.
-fn expand_config_dir(raw: Option<&str>, home: &str) -> Option<String> {
-    let trimmed = raw?.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let home = home.trim_end_matches('/');
-    let expanded = if trimmed == "~" || trimmed == "$HOME" {
-        home.to_string()
-    } else if let Some(rest) = trimmed.strip_prefix("~/") {
-        format!("{home}/{rest}")
-    } else if let Some(rest) = trimmed.strip_prefix("$HOME/") {
-        format!("{home}/{rest}")
-    } else {
-        trimmed.to_string()
-    };
-    Some(expanded)
 }
 
 #[cfg(test)]

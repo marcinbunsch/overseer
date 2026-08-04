@@ -6,6 +6,9 @@ import { fuzzyMatch } from "../../utils/fuzzyMatch"
 interface SlashSearchProps {
   query: string
   workspacePath: string
+  // The project's CLAUDE_CONFIG_DIR override, so user skills come from the account
+  // this chat runs under. Undefined = the default `~/.claude`.
+  claudeConfigDir?: string
   onSelect: (name: string) => void
   selectedIndex: number
   onSelectedIndexChange: (index: number) => void
@@ -14,6 +17,7 @@ interface SlashSearchProps {
 export function SlashSearch({
   query,
   workspacePath,
+  claudeConfigDir,
   onSelect,
   selectedIndex,
   onSelectedIndexChange,
@@ -28,7 +32,7 @@ export function SlashSearch({
     let cancelled = false
 
     skillsService
-      .listSkills(workspacePath)
+      .listSkills(workspacePath, claudeConfigDir)
       .then((result) => {
         if (!cancelled) setSkills(result)
       })
@@ -40,7 +44,7 @@ export function SlashSearch({
     return () => {
       cancelled = true
     }
-  }, [workspacePath])
+  }, [workspacePath, claudeConfigDir])
 
   // Filter and sort skills based on query (fuzzy match on name)
   const filteredSkills = useCallback(() => {

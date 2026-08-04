@@ -437,6 +437,7 @@ export const ChatInput = observer(function ChatInput({
           <SlashSearch
             query={slashSearch.query}
             workspacePath={workspacePath}
+            claudeConfigDir={claudeConfigDir}
             onSelect={handleSelectSkill}
             selectedIndex={selectedIndex}
             onSelectedIndexChange={setSelectedIndex}
