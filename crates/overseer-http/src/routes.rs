@@ -4346,6 +4346,8 @@ async fn dispatch_send_message(
         sandboxed: false,
         git_common_dir: None,
         extra_env: Vec::new(),
+        // The remote HTTP/SSH relay doesn't carry a per-project config dir (yet).
+        claude_config_dir: None,
     };
 
     // Events will flow through EventBus -> WebSocket automatically

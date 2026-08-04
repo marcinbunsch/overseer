@@ -27,6 +27,7 @@ fn build_claude_sandbox_spec(
     working_dir: &str,
     git_common_dir: Option<&str>,
     extra_env: Vec<(String, String)>,
+    claude_config_dir: Option<&str>,
 ) -> Result<SandboxSpec, String> {
     let git = git_common_dir
         .ok_or_else(|| "Sandboxed Claude requires a resolved git directory".to_string())?;
@@ -38,7 +39,8 @@ fn build_claude_sandbox_spec(
         std::path::Path::new(&home),
         Vec::new(),
     )
-    .with_extra_env(extra_env))
+    .with_extra_env(extra_env)
+    .with_claude_config_dir(claude_config_dir.map(std::path::PathBuf::from)))
 }
 
 /// Entry for a single Claude process.
@@ -83,6 +85,11 @@ pub struct ClaudeStartConfig {
     /// applied when `sandboxed`). Carries the internal git API address + token so
     /// the agent can push / open PRs on the host. Empty by default.
     pub extra_env: Vec<(String, String)>,
+    /// A per-project `CLAUDE_CONFIG_DIR` override, already expanded to an absolute
+    /// path. When `sandboxed`, the Seatbelt profile grants read+write to it. The
+    /// env var itself is set via `extra_env` (both spawn paths). `None` uses the
+    /// default `~/.claude`.
+    pub claude_config_dir: Option<String>,
 }
 
 /// Manages Claude CLI processes.
@@ -133,6 +140,7 @@ impl ClaudeAgentManager {
         let sandbox_working_dir = config.working_dir.clone();
         let git_common_dir = config.git_common_dir.clone();
         let sandbox_extra_env = config.extra_env.clone();
+        let sandbox_config_dir = config.claude_config_dir.clone();
 
         // Build config using core
         let claude_config = ClaudeConfig {
@@ -152,6 +160,11 @@ impl ClaudeAgentManager {
             log_line(&log_handle, "STDIN", initial);
         }
 
+        // Non-sandboxed spawns apply extra env here (e.g. a per-project
+        // CLAUDE_CONFIG_DIR). Sandboxed spawns scrub the host env and re-inject
+        // via the SandboxSpec below, so this field is ignored on that path.
+        spawn_config.extra_env = config.extra_env;
+
         // When requested, wrap the spawn in a Seatbelt sandbox. Fail loudly if the
         // spec can't be built — never silently run an agent unsandboxed.
         if sandboxed {
@@ -159,6 +172,7 @@ impl ClaudeAgentManager {
                 &sandbox_working_dir,
                 git_common_dir.as_deref(),
                 sandbox_extra_env,
+                sandbox_config_dir.as_deref(),
             )?;
             spawn_config = spawn_config.sandbox(spec);
         }
