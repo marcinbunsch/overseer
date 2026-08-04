@@ -83,7 +83,7 @@ pub async fn send_message(
     // internal git API, so it can push / open PRs on the host despite the scrubbed
     // environment. The token maps only to this session's workspace + branch and is
     // revoked when the process closes (see the agent:close handler in lib.rs).
-    let mut extra_env = build_agent_api_env(
+    let extra_env = build_agent_api_env(
         &agent_api_state,
         sandboxed,
         &conversation_id,
@@ -93,15 +93,8 @@ pub async fn send_message(
     .await;
 
     // A per-project Claude config directory (CLAUDE_CONFIG_DIR) points Claude at a
-    // different login, which is how a project uses a separate account. Expand
-    // `~`/`$HOME` here since the value is set as an env var, not shell-expanded.
-    let resolved_config_dir = std::env::var("HOME")
-        .ok()
-        .and_then(|home| expand_home_path(claude_config_dir.as_deref(), &home));
-    if let Some(ref dir) = resolved_config_dir {
-        extra_env.push(("CLAUDE_CONFIG_DIR".to_string(), dir.clone()));
-    }
-
+    // different login, which is how a project uses a separate account. Passed raw;
+    // the manager expands ~/$HOME and sets the env var on both spawn paths.
     let config = ClaudeStartConfig {
         conversation_id,
         project_name,
@@ -118,7 +111,7 @@ pub async fn send_message(
         sandboxed,
         git_common_dir,
         extra_env,
-        claude_config_dir: resolved_config_dir,
+        claude_config_dir,
     };
 
     context_state.0.claude_agents.send_message(
@@ -174,31 +167,6 @@ async fn build_agent_api_env(
     ]
 }
 
-/// Expand a user-entered Claude config directory to an absolute path.
-///
-/// The value is set as the `CLAUDE_CONFIG_DIR` env var, which the CLI does not
-/// shell-expand, so a leading `~` or `$HOME` is replaced with `home` here. Blank
-/// or whitespace-only input yields `None` (use the default `~/.claude`). Other
-/// paths (absolute or already-expanded) pass through trimmed.
-fn expand_home_path(raw: Option<&str>, home: &str) -> Option<String> {
-    let trimmed = raw?.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let home = home.trim_end_matches('/');
-    let expanded = if trimmed == "~" || trimmed == "$HOME" {
-        home.to_string()
-    } else if let Some(rest) = trimmed.strip_prefix("~/") {
-        format!("{home}/{rest}")
-    } else if let Some(rest) = trimmed.strip_prefix("$HOME/") {
-        format!("{home}/{rest}")
-    } else {
-        trimmed.to_string()
-    };
-    Some(expanded)
-}
-
 /// Stop a running Claude CLI process.
 #[tauri::command]
 pub fn stop_agent(
@@ -213,57 +181,4 @@ pub fn stop_agent(
 #[tauri::command]
 pub fn list_running(context_state: tauri::State<OverseerContextState>) -> Vec<String> {
     context_state.0.claude_agents.list_running()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::expand_home_path;
-
-    const HOME: &str = "/Users/dev";
-
-    #[test]
-    fn expands_tilde_prefix() {
-        assert_eq!(
-            expand_home_path(Some("~/.claude-work"), HOME),
-            Some("/Users/dev/.claude-work".to_string())
-        );
-    }
-
-    #[test]
-    fn expands_home_var_prefix() {
-        assert_eq!(
-            expand_home_path(Some("$HOME/.claude-work"), HOME),
-            Some("/Users/dev/.claude-work".to_string())
-        );
-    }
-
-    #[test]
-    fn bare_tilde_and_home_become_home() {
-        assert_eq!(expand_home_path(Some("~"), HOME), Some(HOME.to_string()));
-        assert_eq!(expand_home_path(Some("$HOME"), HOME), Some(HOME.to_string()));
-    }
-
-    #[test]
-    fn absolute_path_passes_through_trimmed() {
-        assert_eq!(
-            expand_home_path(Some("  /opt/claude-work  "), HOME),
-            Some("/opt/claude-work".to_string())
-        );
-    }
-
-    #[test]
-    fn blank_and_none_yield_none() {
-        assert_eq!(expand_home_path(Some(""), HOME), None);
-        assert_eq!(expand_home_path(Some("   "), HOME), None);
-        assert_eq!(expand_home_path(None, HOME), None);
-    }
-
-    // A trailing slash on HOME must not produce a doubled slash.
-    #[test]
-    fn home_with_trailing_slash_is_normalized() {
-        assert_eq!(
-            expand_home_path(Some("~/.claude"), "/Users/dev/"),
-            Some("/Users/dev/.claude".to_string())
-        );
-    }
 }

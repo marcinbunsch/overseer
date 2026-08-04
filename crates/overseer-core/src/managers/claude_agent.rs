@@ -43,6 +43,31 @@ fn build_claude_sandbox_spec(
     .with_claude_config_dir(claude_config_dir.map(std::path::PathBuf::from)))
 }
 
+/// Expand a per-project Claude config directory to an absolute path.
+///
+/// The value becomes the `CLAUDE_CONFIG_DIR` env var, which the CLI does not
+/// shell-expand, so a leading `~`/`$HOME` is replaced with `home` here. Blank or
+/// whitespace-only input yields `None` (use the default `~/.claude`). Other paths
+/// pass through trimmed.
+fn expand_config_dir(raw: Option<&str>, home: &str) -> Option<String> {
+    let trimmed = raw?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let home = home.trim_end_matches('/');
+    let expanded = if trimmed == "~" || trimmed == "$HOME" {
+        home.to_string()
+    } else if let Some(rest) = trimmed.strip_prefix("~/") {
+        format!("{home}/{rest}")
+    } else if let Some(rest) = trimmed.strip_prefix("$HOME/") {
+        format!("{home}/{rest}")
+    } else {
+        trimmed.to_string()
+    };
+    Some(expanded)
+}
+
 /// Entry for a single Claude process.
 struct ClaudeProcessEntry {
     process: Arc<Mutex<Option<AgentProcess>>>,
@@ -85,9 +110,10 @@ pub struct ClaudeStartConfig {
     /// applied when `sandboxed`). Carries the internal git API address + token so
     /// the agent can push / open PRs on the host. Empty by default.
     pub extra_env: Vec<(String, String)>,
-    /// A per-project `CLAUDE_CONFIG_DIR` override, already expanded to an absolute
-    /// path. When `sandboxed`, the Seatbelt profile grants read+write to it. The
-    /// env var itself is set via `extra_env` (both spawn paths). `None` uses the
+    /// A per-project `CLAUDE_CONFIG_DIR` override — the raw user value (may start
+    /// with `~`/`$HOME`). `start` expands it against the spawn host's `$HOME`,
+    /// sets the `CLAUDE_CONFIG_DIR` env var on both spawn paths, and (when
+    /// sandboxed) grants the Seatbelt profile read+write to it. `None` uses the
     /// default `~/.claude`.
     pub claude_config_dir: Option<String>,
 }
@@ -139,8 +165,23 @@ impl ClaudeAgentManager {
         let sandboxed = config.sandboxed;
         let sandbox_working_dir = config.working_dir.clone();
         let git_common_dir = config.git_common_dir.clone();
-        let sandbox_extra_env = config.extra_env.clone();
-        let sandbox_config_dir = config.claude_config_dir.clone();
+
+        // Resolve a per-project CLAUDE_CONFIG_DIR (raw ~/$HOME allowed) against the
+        // spawn host's HOME — the machine that runs `claude`, so `~` resolves to
+        // the right home for local, browser, and remote-server spawns alike.
+        let resolved_config_dir = std::env::var("HOME")
+            .ok()
+            .and_then(|home| expand_config_dir(config.claude_config_dir.as_deref(), &home));
+
+        // Every caller just sets claude_config_dir; the env var that points Claude
+        // at it is added here so it reaches both spawn paths and no caller can
+        // forget it. The sandbox path scrubs the host env and re-injects from this
+        // same list, so the pair must be in it too.
+        let mut resolved_extra_env = config.extra_env;
+        if let Some(ref dir) = resolved_config_dir {
+            resolved_extra_env.push(("CLAUDE_CONFIG_DIR".to_string(), dir.clone()));
+        }
+        let sandbox_extra_env = resolved_extra_env.clone();
 
         // Build config using core
         let claude_config = ClaudeConfig {
@@ -160,10 +201,10 @@ impl ClaudeAgentManager {
             log_line(&log_handle, "STDIN", initial);
         }
 
-        // Non-sandboxed spawns apply extra env here (e.g. a per-project
-        // CLAUDE_CONFIG_DIR). Sandboxed spawns scrub the host env and re-inject
-        // via the SandboxSpec below, so this field is ignored on that path.
-        spawn_config.extra_env = config.extra_env;
+        // Non-sandboxed spawns apply extra env (incl. CLAUDE_CONFIG_DIR) here.
+        // Sandboxed spawns scrub the host env and re-inject via the SandboxSpec
+        // below, so this field is ignored on that path.
+        spawn_config.extra_env = resolved_extra_env;
 
         // When requested, wrap the spawn in a Seatbelt sandbox. Fail loudly if the
         // spec can't be built — never silently run an agent unsandboxed.
@@ -172,7 +213,7 @@ impl ClaudeAgentManager {
                 &sandbox_working_dir,
                 git_common_dir.as_deref(),
                 sandbox_extra_env,
-                sandbox_config_dir.as_deref(),
+                resolved_config_dir.as_deref(),
             )?;
             spawn_config = spawn_config.sandbox(spec);
         }
@@ -536,6 +577,52 @@ fn check_auto_approval(
 mod tests {
     use super::*;
 
+    const HOME: &str = "/Users/dev";
+
+    #[test]
+    fn expand_config_dir_expands_tilde_and_home_var() {
+        assert_eq!(
+            expand_config_dir(Some("~/.claude-work"), HOME),
+            Some("/Users/dev/.claude-work".to_string())
+        );
+        assert_eq!(
+            expand_config_dir(Some("$HOME/.claude-work"), HOME),
+            Some("/Users/dev/.claude-work".to_string())
+        );
+    }
+
+    #[test]
+    fn expand_config_dir_bare_tilde_and_home_become_home() {
+        assert_eq!(expand_config_dir(Some("~"), HOME), Some(HOME.to_string()));
+        assert_eq!(
+            expand_config_dir(Some("$HOME"), HOME),
+            Some(HOME.to_string())
+        );
+    }
+
+    #[test]
+    fn expand_config_dir_passes_absolute_through_trimmed() {
+        assert_eq!(
+            expand_config_dir(Some("  /opt/claude-work  "), HOME),
+            Some("/opt/claude-work".to_string())
+        );
+    }
+
+    #[test]
+    fn expand_config_dir_blank_and_none_yield_none() {
+        assert_eq!(expand_config_dir(Some(""), HOME), None);
+        assert_eq!(expand_config_dir(Some("   "), HOME), None);
+        assert_eq!(expand_config_dir(None, HOME), None);
+    }
+
+    #[test]
+    fn expand_config_dir_normalizes_trailing_slash_on_home() {
+        assert_eq!(
+            expand_config_dir(Some("~/.claude"), "/Users/dev/"),
+            Some("/Users/dev/.claude".to_string())
+        );
+    }
+
     // ------------------------------------------------------------------------
     // Approval Response Building Tests
     // ------------------------------------------------------------------------
@@ -678,7 +765,10 @@ mod tests {
     /// - ("Bash", "git") - approve prefix for Bash commands
     fn setup_approval_manager_with_approvals(
         approvals: Vec<(&str, &str)>,
-    ) -> (Arc<ProjectApprovalManager>, crate::test_support::TestChatDir) {
+    ) -> (
+        Arc<ProjectApprovalManager>,
+        crate::test_support::TestChatDir,
+    ) {
         use crate::test_support::TestChatDir;
 
         let test_dir = TestChatDir::new();
@@ -848,7 +938,10 @@ mod tests {
 
         // Tool is approved, so should auto-approve
         if let AgentEvent::ToolApproval { auto_approved, .. } = result {
-            assert!(auto_approved, "Tool approval should work with empty prefixes");
+            assert!(
+                auto_approved,
+                "Tool approval should work with empty prefixes"
+            );
         } else {
             panic!("Expected ToolApproval event");
         }
@@ -877,7 +970,10 @@ mod tests {
 
         // No tool approval and no prefixes to match - should NOT auto-approve
         if let AgentEvent::ToolApproval { auto_approved, .. } = result {
-            assert!(!auto_approved, "Should NOT auto-approve without matching prefixes");
+            assert!(
+                !auto_approved,
+                "Should NOT auto-approve without matching prefixes"
+            );
         } else {
             panic!("Expected ToolApproval event");
         }
