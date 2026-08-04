@@ -633,6 +633,9 @@ export class WorkspaceStore {
       getChatDir: () => this.getChatDir(),
       getInitPrompt: () => this.buildInitPrompt(),
       getProjectName: () => this.projectName,
+      // Live lookup (not snapshotted) so editing the project setting applies to
+      // the next message, including in existing chats.
+      getClaudeConfigDir: () => projectRegistry.getProjectStore(this.projectId)?.claudeConfigDir,
       getWorkspaceName: () => this.path.split("/").pop() || "unknown",
       getWorkspaceId: () => this.id,
       getNotificationLabel: () => `${this.projectName}/${this.getWorkspaceName()}`,

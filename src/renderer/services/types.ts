@@ -72,7 +72,9 @@ export interface AgentService {
     initPrompt?: string,
     projectName?: string,
     effortLevel?: string | null,
-    sandboxed?: boolean
+    sandboxed?: boolean,
+    /** Per-project CLAUDE_CONFIG_DIR override. Claude only; other agents ignore it. */
+    claudeConfigDir?: string
   ): Promise<void>
   sendToolApproval(
     chatId: string,

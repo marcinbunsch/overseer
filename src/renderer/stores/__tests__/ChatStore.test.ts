@@ -100,6 +100,7 @@ function createTestContext(overrides?: TestContextOverrides): ChatStoreContext {
     getChatDir: overrides?.getChatDir ?? (() => Promise.resolve("/tmp/test-chats")),
     getInitPrompt: overrides?.getInitPrompt ?? (() => undefined),
     getProjectName: overrides?.getProjectName ?? (() => "test-project"),
+    getClaudeConfigDir: overrides?.getClaudeConfigDir ?? (() => undefined),
     getWorkspaceName: overrides?.getWorkspaceName ?? (() => "test-workspace"),
     getWorkspaceId: overrides?.getWorkspaceId ?? (() => "test-workspace-id"),
     getNotificationLabel: overrides?.getNotificationLabel ?? (() => "test-branch"),
@@ -926,7 +927,8 @@ describe("ChatStore", () => {
       undefined, // initPrompt
       "test-project",
       null, // effortLevel
-      false // sandboxed
+      false, // sandboxed
+      undefined // claudeConfigDir (unset in test context)
     )
   })
 
@@ -945,8 +947,46 @@ describe("ChatStore", () => {
       undefined, // initPrompt
       "test-project",
       null, // effortLevel
-      false // sandboxed
+      false, // sandboxed
+      undefined // claudeConfigDir (unset in test context)
     )
+  })
+
+  it("sendMessage forwards the project's claudeConfigDir for a Claude chat", async () => {
+    const store = createChatStore(
+      { agentType: "claude" },
+      { getClaudeConfigDir: () => "~/.claude-work" }
+    )
+
+    await store.sendMessage("test message", "/home/user/wt")
+
+    expect(mockAgentService.sendMessage).toHaveBeenCalledWith(
+      "test-chat-id",
+      "test message",
+      "/home/user/wt",
+      "/tmp/test-chats",
+      null, // modelVersion
+      "default", // permissionMode
+      undefined, // initPrompt
+      "test-project",
+      null, // effortLevel
+      false, // sandboxed
+      "~/.claude-work"
+    )
+  })
+
+  it("sendMessage does not forward claudeConfigDir for a non-Claude chat", async () => {
+    const store = createChatStore(
+      { agentType: "codex" },
+      { getClaudeConfigDir: () => "~/.claude-work" }
+    )
+
+    await store.sendMessage("test message", "/home/user/wt")
+
+    const calls = vi.mocked(mockAgentService.sendMessage).mock.calls as unknown[][]
+    const lastCall = calls[calls.length - 1]
+    // 11th positional arg (claudeConfigDir) must be undefined for non-Claude.
+    expect(lastCall[10]).toBeUndefined()
   })
 
   describe("sandboxed toggle", () => {
@@ -1285,7 +1325,8 @@ describe("ChatStore", () => {
         undefined,
         "test-project",
         null, // effortLevel
-        false // sandboxed
+        false, // sandboxed
+        undefined // claudeConfigDir
       )
     })
 
@@ -1786,7 +1827,8 @@ Live text.`,
         undefined, // initPrompt
         "test-project",
         null, // effortLevel
-        false // sandboxed
+        false, // sandboxed
+        undefined // claudeConfigDir
       )
     })
 
@@ -1805,7 +1847,8 @@ Live text.`,
         undefined, // initPrompt
         "test-project",
         null, // effortLevel
-        false // sandboxed
+        false, // sandboxed
+        undefined // claudeConfigDir
       )
     })
 
@@ -1827,7 +1870,8 @@ Live text.`,
         expect.stringContaining("Custom init prompt"),
         "test-project",
         null, // effortLevel (null for non-claude agents)
-        false // sandboxed
+        false, // sandboxed
+        undefined // claudeConfigDir
       )
 
       // Verify the shell instruction is included
