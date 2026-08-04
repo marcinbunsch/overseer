@@ -50,7 +50,3 @@ libc = "0.2"
 objc2 = "0.6.3"
 objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSImage", "NSRunningApplication"] }
 objc2-foundation = { version = "0.3.2", features = ["NSData"] }
-# The tauri-plugin-notification desktop path posts via notify-rust and never reports
-# clicks back to JS. We post through mac-notification-sys directly (already in the tree
-# transitively via notify-rust) because it returns the click on a blocking call.
-mac-notification-sys = "0.6"

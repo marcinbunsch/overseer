@@ -169,6 +169,14 @@ To preview all design system elements, enable dev mode and go to Settings → De
 **Cause**: The event forwarding thread used `process.recv()` (blocking) while holding a mutex lock on the process. When TypeScript tried to send stdin via `codex_stdin`, it couldn't acquire the lock because the event thread was blocked waiting for data while holding it.
 **Fix**: Use `process.try_recv()` (non-blocking) instead, with a small sleep (10ms) when no data is available. This pattern releases the mutex between checks, allowing stdin writes to proceed. See `src-tauri/src/agents/claude.rs` for the correct pattern.
 
+### 2026-08-04: mac-notification-sys busy-spins a core per notification
+
+**Issue**: CPU spiked to 600% after the app ran for hours. Safari's JS timeline showed no activity — the burn was in native threads.
+**Cause**: `send_completion_notification` (lib.rs) posted through `mac-notification-sys` with `wait_for_click(true)` on a detached thread to capture notification clicks. That crate's `sendNotification` runs `while (keepRunning) { [runLoop runUntilDate:+0.1] }` (objc/notify.m). `runUntilDate:` only sleeps if the thread's run loop has an input source; on a bare background thread it returns instantly, so the loop busy-spins a full core until the user clicks/dismisses. `wait_for_click(true)` keeps `keepRunning=YES` the whole time. A `sample` showed 8 threads parked in `Notification::send` = ~600–800% CPU.
+**How to diagnose**: `sample <pid>`; ignore threads counted 1955 that leaf in `mach_msg`/`__psynch_cvwait`/`kevent`/`semaphore_wait` (idle). Look for threads with deep, churning stacks (`_CFRunLoopFinished`, `clock_gettime`, `os_unfair_lock_lock_slow`).
+**Fix**: Reverted to `tauri-plugin-notification` on all platforms (display-only, no click routing). Removed `mac-notification-sys`, the `NotificationClicked` event, and the frontend click handler.
+**Lesson**: Don't run a run-loop-driven blocking API on a bare background thread — the run loop needs a source or it spins instead of sleeps.
+
 ### 2026-02-17: Claude Usage Indicators - Security & Lifecycle
 
 **Issue**: Adding usage limit indicators for Claude API.
