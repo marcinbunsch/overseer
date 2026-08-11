@@ -103,6 +103,29 @@ pub struct ClaudeStreamEvent {
     /// Status field for system status events (e.g., "compacting").
     #[serde(default)]
     pub status: Option<String>,
+
+    /// Background task ID (for "task_started" / "task_notification" system events).
+    ///
+    /// When Claude launches a background Agent tool, the CLI emits system events
+    /// carrying the task's ID so we can track which background tasks are running.
+    #[serde(default)]
+    pub task_id: Option<String>,
+
+    /// Current set of background tasks (for "background_tasks_changed" events).
+    ///
+    /// This is the authoritative list of running background tasks. We use it to
+    /// resync our tracked set rather than relying only on incremental start/stop.
+    #[serde(default)]
+    pub tasks: Option<Vec<BackgroundTask>>,
+}
+
+/// A background task entry from a "background_tasks_changed" system event.
+///
+/// Only the `task_id` matters for turn-completion tracking; other fields are ignored.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BackgroundTask {
+    /// The unique ID of this background task.
+    pub task_id: String,
 }
 
 /// A control request from Claude (tool approval, question, etc.)

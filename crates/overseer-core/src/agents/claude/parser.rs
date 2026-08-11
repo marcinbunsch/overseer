@@ -59,6 +59,26 @@ pub struct ClaudeParser {
     ///
     /// We buffer incomplete data until we get the full line.
     buffer: String,
+
+    /// Task IDs of background Agent tools that are currently running.
+    ///
+    /// # Why We Track This
+    ///
+    /// A background Agent tool (`task_type: local_agent`) returns its
+    /// `tool_result` immediately and keeps working inside the live CLI process.
+    /// The launching turn then emits a `result` event while the agent is still
+    /// going. If we treated that `result` as turn-end, Overseer would mark the
+    /// chat idle, tear the process down, and orphan the running agent.
+    ///
+    /// While this set is non-empty we defer `TurnComplete` (see
+    /// `pending_turn_complete`) until every background task finishes.
+    active_bg_tasks: std::collections::HashSet<String>,
+
+    /// A `result` arrived while background tasks were still running.
+    ///
+    /// We hold the `TurnComplete` back and emit it once `active_bg_tasks`
+    /// drains to empty (the "drain check").
+    pending_turn_complete: bool,
 }
 
 /// # Rust Concept: impl Blocks
@@ -262,6 +282,19 @@ impl ClaudeParser {
         events
     }
 
+    /// Emit a deferred `TurnComplete` if all background tasks have finished.
+    ///
+    /// Called after a background task starts or stops. When the last running
+    /// task drains and a `result` arrived earlier (`pending_turn_complete`),
+    /// the held-back completion fires now.
+    fn drain_turn_complete(&mut self) -> Vec<AgentEvent> {
+        if self.active_bg_tasks.is_empty() && self.pending_turn_complete {
+            self.pending_turn_complete = false;
+            return vec![AgentEvent::TurnComplete];
+        }
+        Vec::new()
+    }
+
     /// Translate a Claude stream event into zero or more AgentEvents.
     ///
     /// # Rust Concept: Pattern Matching with match
@@ -271,7 +304,7 @@ impl ClaudeParser {
     /// - Can match on patterns, not just values
     /// - Can destructure data while matching
     /// - Returns a value (it's an expression)
-    fn translate_event(&self, event: &ClaudeStreamEvent) -> Vec<AgentEvent> {
+    fn translate_event(&mut self, event: &ClaudeStreamEvent) -> Vec<AgentEvent> {
         // Clone parent_tool_use_id for use in events
         // We clone here because we'll use it multiple times
         let parent_tool_use_id = event.parent_tool_use_id.clone();
@@ -483,9 +516,18 @@ impl ClaudeParser {
             // "result" — turn is complete
             // ================================================
             //
-            // Short form: when the match arm is simple, write it inline
-            // `vec![...]` creates a single-element vector
-            "result" => vec![AgentEvent::TurnComplete],
+            // A background Agent tool keeps running after its launching turn
+            // emits `result`. If any background task is still active, defer the
+            // completion until the tasks drain (see `drain_turn_complete`);
+            // otherwise complete the turn now.
+            "result" => {
+                if self.active_bg_tasks.is_empty() {
+                    vec![AgentEvent::TurnComplete]
+                } else {
+                    self.pending_turn_complete = true;
+                    Vec::new()
+                }
+            }
 
             // ================================================
             // "control_request" — tool approval or question
@@ -634,6 +676,32 @@ impl ClaudeParser {
                                 tool_use_id: None,
                                 is_info: Some(true),
                             }];
+                        }
+                        // A background Agent tool started.
+                        // e.g. {"type":"system","subtype":"task_started","task_id":"a848..."}
+                        "task_started" => {
+                            if let Some(ref task_id) = event.task_id {
+                                self.active_bg_tasks.insert(task_id.clone());
+                            }
+                            return Vec::new();
+                        }
+                        // Authoritative resync of the running background tasks.
+                        // e.g. {"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a848..."}]}
+                        "background_tasks_changed" => {
+                            self.active_bg_tasks = event
+                                .tasks
+                                .as_ref()
+                                .map(|tasks| tasks.iter().map(|t| t.task_id.clone()).collect())
+                                .unwrap_or_default();
+                            return self.drain_turn_complete();
+                        }
+                        // A background Agent tool finished.
+                        // e.g. {"type":"system","subtype":"task_notification","task_id":"a848...","status":"stopped"}
+                        "task_notification" => {
+                            if let Some(ref task_id) = event.task_id {
+                                self.active_bg_tasks.remove(task_id);
+                            }
+                            return self.drain_turn_complete();
                         }
                         _ => {}
                     }
@@ -1015,5 +1083,110 @@ mod tests {
             AgentEvent::Message { content, is_info: Some(true), .. }
             if content.contains("compacted")
         )));
+    }
+
+    // Helper: count TurnComplete events in a slice.
+    fn turn_complete_count(events: &[AgentEvent]) -> usize {
+        events
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::TurnComplete))
+            .count()
+    }
+
+    #[test]
+    fn result_with_active_bg_task_defers_turn_complete() {
+        let mut parser = ClaudeParser::new();
+
+        // A background agent starts.
+        let started = parser.feed(
+            "{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"task-a\"}\n",
+        );
+        assert_eq!(turn_complete_count(&started), 0);
+
+        // The launching turn emits `result` while the agent still runs.
+        let result = parser.feed(r#"{"type":"result","result":"success"}"#);
+        let result = [result, parser.feed("\n")].concat();
+        assert_eq!(
+            turn_complete_count(&result),
+            0,
+            "result must not complete the turn while a background task is active"
+        );
+    }
+
+    #[test]
+    fn task_notification_drains_last_task_and_completes() {
+        let mut parser = ClaudeParser::new();
+
+        parser.feed("{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"task-a\"}\n");
+        parser.feed("{\"type\":\"result\",\"result\":\"success\"}\n");
+
+        // The background task finishes; the deferred completion fires now.
+        let done = parser.feed(
+            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"task-a\",\"status\":\"stopped\"}\n",
+        );
+        assert_eq!(turn_complete_count(&done), 1);
+    }
+
+    #[test]
+    fn result_with_no_active_tasks_completes_immediately() {
+        // Regression guard: the common path still completes the turn.
+        let mut parser = ClaudeParser::new();
+        let events = parser.feed("{\"type\":\"result\",\"result\":\"success\"}\n");
+        assert_eq!(turn_complete_count(&events), 1);
+    }
+
+    #[test]
+    fn two_tasks_complete_only_after_both_notifications() {
+        let mut parser = ClaudeParser::new();
+
+        parser.feed("{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"task-a\"}\n");
+        parser.feed("{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"task-b\"}\n");
+        parser.feed("{\"type\":\"result\",\"result\":\"success\"}\n");
+
+        // First task drains — still one running, no completion yet.
+        let after_a = parser.feed(
+            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"task-a\",\"status\":\"stopped\"}\n",
+        );
+        assert_eq!(turn_complete_count(&after_a), 0);
+
+        // Second task drains — now the turn completes.
+        let after_b = parser.feed(
+            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"task-b\",\"status\":\"stopped\"}\n",
+        );
+        assert_eq!(turn_complete_count(&after_b), 1);
+    }
+
+    #[test]
+    fn background_tasks_changed_resync_then_drain_and_complete() {
+        let mut parser = ClaudeParser::new();
+
+        // Resync sets the active set to one task.
+        parser.feed(
+            "{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[{\"task_id\":\"task-a\"}]}\n",
+        );
+        parser.feed("{\"type\":\"result\",\"result\":\"success\"}\n");
+
+        // Resync to an empty set drains the task; deferred completion fires.
+        let drained = parser.feed(
+            "{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[]}\n",
+        );
+        assert_eq!(turn_complete_count(&drained), 1);
+    }
+
+    #[test]
+    fn task_notification_before_result_completes_normally() {
+        // Agent finishes fast: notification arrives before the turn's `result`.
+        let mut parser = ClaudeParser::new();
+
+        parser.feed("{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"task-a\"}\n");
+        let notified = parser.feed(
+            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"task-a\",\"status\":\"stopped\"}\n",
+        );
+        // No `result` yet, so nothing to drain.
+        assert_eq!(turn_complete_count(&notified), 0);
+
+        // `result` with an empty active set completes normally.
+        let result = parser.feed("{\"type\":\"result\",\"result\":\"success\"}\n");
+        assert_eq!(turn_complete_count(&result), 1);
     }
 }
