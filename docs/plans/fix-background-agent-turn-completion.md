@@ -1,142 +1,156 @@
-# Fix: Claude reports "done" while a background Agent is still running
+# Fix: background task completion fires the main turn's TurnComplete
+
+## Status
+
+`be5cd1c "Defer turn completion while a background Agent runs"` is already shipped and is
+the source of the current bug. This plan replaces that approach's task-tracking with one
+that only tracks real background **agents**, not background Bash tasks.
 
 ## Problem
 
-When Claude uses the **`Agent` tool** (a background subagent, `task_type: local_agent`),
-Overseer marks the turn complete too early, then keeps streaming the subagent's output
-after the "done" marker. It also throws the subagent's work away. The user's words:
-"finishing too early, reporting being done and then streaming stuff — it works like garbage."
+The user: "agents finishing are triggering turn complete for the main turn." A background
+task finishing (including a background `pnpm checks` Bash run) fires the launching turn's
+`TurnComplete`.
 
-### Evidence
+## What the CLI actually emits
 
-Traced from a real session (`~/.config/overseer/chats/cases/xerus/51d5aa36-….jsonl`
-and the raw `.log`). Background-task lifecycle from the CLI stream-json:
+Traced from `~/.config/overseer/chats/cases/archived/bu-assignment-results-…/51d5aa36-….log`
+(the raw stream-json, prefixed `[ts] STDOUT:`).
 
-```
-12:30:52.266  assistant tool_use  name=Agent  id=toolu_01Bsq…      (background launch)
-12:30:52.272  system  subtype=task_started        task_id=a848…  tool_use_id=toolu_01Bsq…
-12:30:52.272  system  subtype=background_tasks_changed  tasks=[{task_id:a848…}]
-12:30:52.274  user    tool_result for toolu_01Bsq…               (returns immediately: "started")
-12:30:55.100  result  subtype=success                            ← turn "ends" here
-12:30:58…31:00  assistant tool_use Bash  parent_tool_use_id=toolu_01Bsq…  (agent still working)
-12:32:19      system  subtype=task_notification  task_id=a848…  status=stopped
-```
+**Two different things both use `task_started` / `task_notification`:**
 
-### Root cause
+1. **A background `Agent` tool** (`task_type: "local_agent"`). 16-hex id. It ALSO emits a
+   `background_tasks_changed` carrying `task_type` and a description:
+   ```
+   12:30:52  assistant tool_use Agent
+   12:30:52  system background_tasks_changed  tasks=[{task_id:a848ca4aa9b7d8fca, task_type:"local_agent", description:"Find grading scalar recalculation logic"}]
+   12:30:52  system task_started  task_id=a848ca4aa9b7d8fca
+   ```
 
-`crates/overseer-core/src/agents/claude/parser.rs:488` maps **every** `type:"result"`
-to `AgentEvent::TurnComplete`. A background agent returns a `tool_result` immediately and
-the launching turn emits `result` while the agent keeps running. That `result` should not
-end the turn.
+2. **A background Bash command** (e.g. `pnpm checks` with `run_in_background`). Short id
+   (`b92gx6e23`). It emits ONLY bare `task_started` / `task_notification` — **no**
+   `background_tasks_changed`, **no** `task_type`:
+   ```
+   12:40:34  system task_started       task_id=b92gx6e23
+   12:40:49  system task_notification  task_id=b92gx6e23  status=completed
+   12:41:06  system task_started       task_id=bqh1ozud9
+   12:41:35  system task_notification  task_id=bqh1ozud9  status=completed
+   12:41:47  result success num_turns=43        ← the turn's real end
+   ```
+   Here the main assistant (`parent_tool_use_id` absent) runs continuously THROUGH both
+   background Bash tasks and ends only at the trailing `result`.
 
-Two symptoms fall out of this:
+**`background_tasks_changed` fires only on agent START, not on finish.** It appears once
+(12:30:52, tasks=1) and never again — not when the agent stops. So the agent-finished
+signal is `task_notification` with the agent's id, not a `background_tasks_changed` back
+to empty.
 
-1. **UX** — Overseer fires `TurnComplete` at the first `result`: notifications play, the
-   chat goes idle, then the background agent's tool calls stream in *after* the "done"
-   marker.
-2. **Correctness** — because the chat looks idle, the turn ends and (on the next user
-   message / config change) the process is torn down and restarted with `--resume`. That
-   orphans the still-running background agent; its result is never recorded
-   (`task_notification … status=stopped`, "running when the previous Claude Code process
-   exited"). Next turn Claude notices "the background agent didn't finish" and redoes the
-   whole search inline — wasted work.
+## Root cause
 
-### Why the parser is the right fix point
-
-Overseer runs the CLI in streaming mode (`--output-format stream-json --input-format
-stream-json --verbose`, **no** `--print`; see `crates/overseer-core/src/agents/claude/spawn.rs`).
-The process stays alive across turns, reading stdin. The background agent runs inside that
-live process. It only gets orphaned because Overseer treats the early `result` as
-turn-end and tears the process down. If we **don't** emit `TurnComplete` while a background
-task is active:
-
-- `isSending` stays `true` in `ChatStore.ts`, so the chat stays "running" — no early
-  notification, no idle status.
-- The `turnComplete`-driven restart / `_configChanged` teardown never runs mid-task.
-- The live stdin process keeps the background agent alive.
-
-So gating `TurnComplete` in the parser fixes both symptoms.
-
-## Plan
-
-### Change 1 — Parser tracks background tasks
-
-File: `crates/overseer-core/src/agents/claude/parser.rs`
-
-Add state to `ClaudeParser`:
+`crates/overseer-core/src/agents/claude/parser.rs`, the `task_started` arm (line 682):
 
 ```rust
-active_bg_tasks: std::collections::HashSet<String>,  // running task_ids
-pending_turn_complete: bool,                          // a `result` arrived while tasks active
-```
-
-Change `translate_event(&self, …)` → `translate_event(&mut self, …)` (only caller is
-`parse_line`, already `&mut self`).
-
-New `system` subtype arms (alongside the existing `status` / `compact_boundary`):
-
-- `task_started` → `active_bg_tasks.insert(task_id)`; emit nothing.
-- `background_tasks_changed` → replace `active_bg_tasks` with the event's `task_id`s
-  (authoritative resync); then run the drain check below.
-- `task_notification` → `active_bg_tasks.remove(task_id)`; then run the drain check.
-
-**Drain check** (helper): if `active_bg_tasks` is now empty and `pending_turn_complete`,
-set `pending_turn_complete = false` and emit `AgentEvent::TurnComplete`.
-
-Change the `result` arm:
-
-```rust
-"result" => {
-    if self.active_bg_tasks.is_empty() {
-        vec![AgentEvent::TurnComplete]
-    } else {
-        self.pending_turn_complete = true;
-        Vec::new()                    // defer — completion fires when tasks drain
+"task_started" => {
+    if let Some(ref task_id) = event.task_id {
+        self.active_bg_tasks.insert(task_id.clone());   // inserts EVERY task, incl. Bash
     }
+    return Vec::new();
 }
 ```
 
-### Change 2 — Deserialize the task fields
+`task_started` carries no `task_type`, so this inserts background **Bash** ids into
+`active_bg_tasks`. Then the `task_notification` arm (line 700) removes them and calls
+`drain_turn_complete()`, which fires `TurnComplete` when the set empties and a `result`
+was pending. Net: a background `pnpm checks` finishing fires the main turn's completion.
+
+(Secondary: the real main-turn `result` at 12:30:55, num_turns=2 — the assistant answered
+and detached a research agent — gets suppressed as "premature." Under the chosen behavior
+below that suppression is correct, but only for real agents.)
+
+## Chosen behavior
+
+**Stay running until the background agent finishes.** From the moment the assistant
+answers and detaches a `local_agent`, the chat stays "running"; `TurnComplete` fires once,
+when the last running agent finishes. Only `task_type: "local_agent"` tasks count.
+Background Bash tasks never affect turn completion.
+
+## Plan
+
+### Change 1 — Deserialize `task_type`
 
 File: `crates/overseer-core/src/agents/claude/types.rs`
 
-`ClaudeStreamEvent` already has `subtype` and `status`. Add:
+`BackgroundTask` currently has only `task_id`. Add:
 
-- `task_id: Option<String>` (top-level; used by `task_started` / `task_notification`)
-- `tasks: Option<Vec<BackgroundTask>>` where `BackgroundTask { task_id: String }`
-  (other fields ignored)
+```rust
+#[serde(default)]
+pub task_type: Option<String>,
+```
 
-### Change 3 — Confirm no teardown fires during suppression
+### Change 2 — Track only agents, drive the set from `background_tasks_changed`
 
-No expected code change. During implementation, re-read the `Done` handler and the
-`_configChanged` path in `ChatStore.ts` to confirm nothing stops the process while
-`active_bg_tasks` is non-empty. `Done` (emitted on real process exit,
-`claude_agent.rs:327`) remains the fallback turn-end if a task never sends a terminal
-notification.
+File: `crates/overseer-core/src/agents/claude/parser.rs`
 
-### Change 4 — Tests
+`background_tasks_changed` is the only event that carries `task_type`, so it is the source
+of truth for which ids are agents. Keep a set of agent ids learned from it.
+
+- **`background_tasks_changed`** — insert every `task_id` whose `task_type == "local_agent"`
+  into `active_bg_tasks`. (Union, not replace: the event fires on start and lists the
+  agents that just launched. It never fires on finish, so replacing would be a no-op for
+  draining anyway; union is simpler to reason about with sequential launches.) Emit nothing.
+
+- **`task_started`** — remove the insert entirely. `task_started` can't be classified
+  (no `task_type`); we learn agent ids from `background_tasks_changed` instead. Emit nothing.
+
+- **`task_notification`** — only act if `task_id` is in `active_bg_tasks` (i.e. it's an
+  agent). Remove it, then run the drain check. If the id isn't tracked (background Bash),
+  ignore the event entirely — no drain, no completion.
+
+- **`result`** — unchanged shape: if `active_bg_tasks` is empty → `TurnComplete`; else set
+  `pending_turn_complete = true` and emit nothing (suppress the premature result while an
+  agent runs).
+
+- **`drain_turn_complete`** — unchanged: if the agent set is empty and a result was
+  pending, fire `TurnComplete` once and clear the pending flag.
+
+Net effect on the traced session:
+- 12:40 / 12:48 / … background Bash tasks: `task_started` no longer tracks them;
+  `task_notification` finds them absent from the agent set and ignores them. The main turn
+  completes only at its trailing `result`. ✓
+- 12:30 background agent: `background_tasks_changed` records `a848…` as a `local_agent`;
+  the 12:30:55 `result` is suppressed (agent active); the chat stays running; when the
+  agent's `task_notification` removes `a848…`, the drain fires one `TurnComplete`. ✓
+
+### Change 3 — Tests
 
 `parser.rs` unit tests:
 
-- `result` with an active background task → **no** `TurnComplete`.
-- `task_notification` draining the last task after a deferred `result` → emits `TurnComplete`.
-- `result` with no active tasks → still emits `TurnComplete` (regression guard).
-- two tasks: `TurnComplete` fires only after **both** notifications.
-- `background_tasks_changed` resync sets the active set; draining to `[]` then a `result`
-  with empty set completes normally.
-- `task_notification` arriving *before* `result` (agent finishes fast) → `result` still
-  completes normally.
+- Background Bash lifecycle (`task_started`/`task_notification`, short id, **no**
+  `background_tasks_changed`) while a `result` is pending → does NOT fire `TurnComplete`.
+  Guards the reported bug.
+- `background_tasks_changed` with `task_type:"local_agent"` then a `result` → suppressed
+  (no completion). Then `task_notification` for that id → fires one `TurnComplete`.
+- `result` with no tracked agents → fires `TurnComplete` (regression guard).
+- Two agents in one `background_tasks_changed` (tasks=[a,b]) → `TurnComplete` fires only
+  after both `task_notification`s.
+- Mixed: agent + background Bash both "running"; the Bash `task_notification` fires first
+  → no completion; the agent `task_notification` fires → completion.
 
-Run: `cargo test -p overseer-core`, `pnpm test`, and `cargo check`.
+Run: `cargo test -p overseer-core`, `pnpm test`, `cargo check` (set `CARGO_HOME=/tmp` under
+sandbox).
 
-## Known limitation
+## Known limitations
 
-If a background task never sends a terminal `task_notification` (e.g. the process is
-killed), the parser won't emit the deferred `TurnComplete` — but the `Done` event on
-process exit already unblocks the UI.
-
-## Optional follow-up (not in this cut)
-
-Emit a lightweight info message when a background task starts ("Background agent
-running: …") so the still-running state is obvious while the turn stays open. Left out to
-keep scope tight; the `Agent` tool_use message already renders in the work section.
+- **Sequential agents with a premature result between them.** If a turn detaches agent A,
+  yields a `result` (pending), A finishes (drain fires `TurnComplete`), then the assistant
+  detaches agent B, the turn completes early. Not observed in the traced data (the one
+  natural agent case was interrupted by the user before it finished). Accepting this;
+  revisit if it shows up.
+- **Same-turn trailing result after drain.** If a natural agent completion drains and
+  fires `TurnComplete`, and the CLI then emits a trailing `result` for the same turn
+  (empty set → `result` arm fires again), that double-fires. Whether a natural completion
+  produces a trailing result is unconfirmed (the traced trailing result at 12:32:21
+  belonged to the user's "please continue" turn). If double-completion causes a visible
+  problem, make the `Done`/`TurnComplete` handling idempotent in `ChatStore.ts`.
+- If an agent never sends a terminal `task_notification`, the deferred `TurnComplete` never
+  fires; the `Done` event on process exit remains the fallback.

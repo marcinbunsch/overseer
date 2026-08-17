@@ -60,18 +60,24 @@ pub struct ClaudeParser {
     /// We buffer incomplete data until we get the full line.
     buffer: String,
 
-    /// Task IDs of background Agent tools that are currently running.
+    /// Task IDs of background Agent tools (`task_type: "local_agent"`) that are
+    /// currently running.
     ///
     /// # Why We Track This
     ///
-    /// A background Agent tool (`task_type: local_agent`) returns its
-    /// `tool_result` immediately and keeps working inside the live CLI process.
-    /// The launching turn then emits a `result` event while the agent is still
-    /// going. If we treated that `result` as turn-end, Overseer would mark the
-    /// chat idle, tear the process down, and orphan the running agent.
+    /// A background Agent tool returns its `tool_result` immediately and keeps
+    /// working inside the live CLI process. The launching turn then emits a
+    /// `result` event while the agent is still going. If we treated that `result`
+    /// as turn-end, Overseer would mark the chat idle, tear the process down, and
+    /// orphan the running agent.
     ///
     /// While this set is non-empty we defer `TurnComplete` (see
-    /// `pending_turn_complete`) until every background task finishes.
+    /// `pending_turn_complete`) until every agent finishes.
+    ///
+    /// Only agents belong here. Background Bash commands reuse the same
+    /// `task_started` / `task_notification` events but carry no `task_type`, so we
+    /// learn which IDs are agents from `background_tasks_changed` (the only event
+    /// that reports `task_type`) and ignore the rest.
     active_bg_tasks: std::collections::HashSet<String>,
 
     /// A `result` arrived while background tasks were still running.
@@ -677,31 +683,40 @@ impl ClaudeParser {
                                 is_info: Some(true),
                             }];
                         }
-                        // A background Agent tool started.
+                        // A background task started. This fires for both Agent tools
+                        // and background Bash commands, and carries no `task_type`, so
+                        // we can't classify it here. We learn which IDs are agents from
+                        // `background_tasks_changed` below, so ignore this event.
                         // e.g. {"type":"system","subtype":"task_started","task_id":"a848..."}
                         "task_started" => {
-                            if let Some(ref task_id) = event.task_id {
-                                self.active_bg_tasks.insert(task_id.clone());
+                            return Vec::new();
+                        }
+                        // Reports the agents that just launched, with `task_type`. This
+                        // is the only event carrying `task_type`, so it's how we tell an
+                        // Agent tool from a background Bash command. Fires on start, never
+                        // on finish, so we union the "local_agent" IDs into the set.
+                        // e.g. {"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a848...","task_type":"local_agent"}]}
+                        "background_tasks_changed" => {
+                            if let Some(ref tasks) = event.tasks {
+                                for task in tasks {
+                                    if task.task_type.as_deref() == Some("local_agent") {
+                                        self.active_bg_tasks.insert(task.task_id.clone());
+                                    }
+                                }
                             }
                             return Vec::new();
                         }
-                        // Authoritative resync of the running background tasks.
-                        // e.g. {"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a848..."}]}
-                        "background_tasks_changed" => {
-                            self.active_bg_tasks = event
-                                .tasks
-                                .as_ref()
-                                .map(|tasks| tasks.iter().map(|t| t.task_id.clone()).collect())
-                                .unwrap_or_default();
-                            return self.drain_turn_complete();
-                        }
-                        // A background Agent tool finished.
+                        // A background task finished. Only act if the ID is a tracked
+                        // agent; background Bash commands fire this too and must not
+                        // affect turn completion.
                         // e.g. {"type":"system","subtype":"task_notification","task_id":"a848...","status":"stopped"}
                         "task_notification" => {
                             if let Some(ref task_id) = event.task_id {
-                                self.active_bg_tasks.remove(task_id);
+                                if self.active_bg_tasks.remove(task_id) {
+                                    return self.drain_turn_complete();
+                                }
                             }
-                            return self.drain_turn_complete();
+                            return Vec::new();
                         }
                         _ => {}
                     }
@@ -1093,15 +1108,19 @@ mod tests {
             .count()
     }
 
+    // A background Agent tool registers via `background_tasks_changed` with
+    // `task_type:"local_agent"` — that's the only event carrying `task_type`.
+    fn register_agent(parser: &mut ClaudeParser, task_id: &str) {
+        parser.feed(&format!(
+            "{{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[{{\"task_id\":\"{task_id}\",\"task_type\":\"local_agent\"}}]}}\n",
+        ));
+    }
+
     #[test]
-    fn result_with_active_bg_task_defers_turn_complete() {
+    fn result_with_active_agent_defers_turn_complete() {
         let mut parser = ClaudeParser::new();
 
-        // A background agent starts.
-        let started = parser.feed(
-            "{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"task-a\"}\n",
-        );
-        assert_eq!(turn_complete_count(&started), 0);
+        register_agent(&mut parser, "agent-a");
 
         // The launching turn emits `result` while the agent still runs.
         let result = parser.feed(r#"{"type":"result","result":"success"}"#);
@@ -1109,20 +1128,20 @@ mod tests {
         assert_eq!(
             turn_complete_count(&result),
             0,
-            "result must not complete the turn while a background task is active"
+            "result must not complete the turn while a background agent is active"
         );
     }
 
     #[test]
-    fn task_notification_drains_last_task_and_completes() {
+    fn agent_notification_drains_and_completes() {
         let mut parser = ClaudeParser::new();
 
-        parser.feed("{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"task-a\"}\n");
+        register_agent(&mut parser, "agent-a");
         parser.feed("{\"type\":\"result\",\"result\":\"success\"}\n");
 
-        // The background task finishes; the deferred completion fires now.
+        // The agent finishes; the deferred completion fires now.
         let done = parser.feed(
-            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"task-a\",\"status\":\"stopped\"}\n",
+            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"agent-a\",\"status\":\"stopped\"}\n",
         );
         assert_eq!(turn_complete_count(&done), 1);
     }
@@ -1136,51 +1155,66 @@ mod tests {
     }
 
     #[test]
-    fn two_tasks_complete_only_after_both_notifications() {
+    fn two_agents_complete_only_after_both_notifications() {
         let mut parser = ClaudeParser::new();
 
-        parser.feed("{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"task-a\"}\n");
-        parser.feed("{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"task-b\"}\n");
+        // Two agents launch in one `background_tasks_changed`.
+        parser.feed(
+            "{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[{\"task_id\":\"agent-a\",\"task_type\":\"local_agent\"},{\"task_id\":\"agent-b\",\"task_type\":\"local_agent\"}]}\n",
+        );
         parser.feed("{\"type\":\"result\",\"result\":\"success\"}\n");
 
-        // First task drains — still one running, no completion yet.
+        // First agent drains — still one running, no completion yet.
         let after_a = parser.feed(
-            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"task-a\",\"status\":\"stopped\"}\n",
+            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"agent-a\",\"status\":\"stopped\"}\n",
         );
         assert_eq!(turn_complete_count(&after_a), 0);
 
-        // Second task drains — now the turn completes.
+        // Second agent drains — now the turn completes.
         let after_b = parser.feed(
-            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"task-b\",\"status\":\"stopped\"}\n",
+            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"agent-b\",\"status\":\"stopped\"}\n",
         );
         assert_eq!(turn_complete_count(&after_b), 1);
     }
 
     #[test]
-    fn background_tasks_changed_resync_then_drain_and_complete() {
+    fn background_bash_task_does_not_affect_completion() {
+        // The reported bug: a background Bash command (e.g. `pnpm checks`) finishing
+        // must not complete the main turn. Bash tasks emit bare `task_started` /
+        // `task_notification` with no `background_tasks_changed` and no `task_type`,
+        // so they are never tracked as agents.
         let mut parser = ClaudeParser::new();
 
-        // Resync sets the active set to one task.
-        parser.feed(
-            "{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[{\"task_id\":\"task-a\"}]}\n",
-        );
+        // An agent is running, so the turn's `result` is deferred.
+        register_agent(&mut parser, "agent-a");
         parser.feed("{\"type\":\"result\",\"result\":\"success\"}\n");
 
-        // Resync to an empty set drains the task; deferred completion fires.
-        let drained = parser.feed(
-            "{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[]}\n",
+        // A background Bash task runs and finishes.
+        parser.feed("{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"bash-1\"}\n");
+        let bash_done = parser.feed(
+            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"bash-1\",\"status\":\"completed\"}\n",
         );
-        assert_eq!(turn_complete_count(&drained), 1);
+        assert_eq!(
+            turn_complete_count(&bash_done),
+            0,
+            "a background Bash task finishing must not complete the turn"
+        );
+
+        // The agent finishing is what completes the turn.
+        let agent_done = parser.feed(
+            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"agent-a\",\"status\":\"stopped\"}\n",
+        );
+        assert_eq!(turn_complete_count(&agent_done), 1);
     }
 
     #[test]
-    fn task_notification_before_result_completes_normally() {
+    fn agent_notification_before_result_completes_normally() {
         // Agent finishes fast: notification arrives before the turn's `result`.
         let mut parser = ClaudeParser::new();
 
-        parser.feed("{\"type\":\"system\",\"subtype\":\"task_started\",\"task_id\":\"task-a\"}\n");
+        register_agent(&mut parser, "agent-a");
         let notified = parser.feed(
-            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"task-a\",\"status\":\"stopped\"}\n",
+            "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"agent-a\",\"status\":\"stopped\"}\n",
         );
         // No `result` yet, so nothing to drain.
         assert_eq!(turn_complete_count(&notified), 0);

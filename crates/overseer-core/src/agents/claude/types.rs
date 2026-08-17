@@ -121,11 +121,18 @@ pub struct ClaudeStreamEvent {
 
 /// A background task entry from a "background_tasks_changed" system event.
 ///
-/// Only the `task_id` matters for turn-completion tracking; other fields are ignored.
+/// `task_type` distinguishes a background Agent tool (`"local_agent"`) from other
+/// background work. This event is the only place the CLI reports `task_type`, so it is
+/// how we tell agents apart from background Bash commands (which reuse the same
+/// `task_started` / `task_notification` events but carry no `task_type`).
 #[derive(Debug, Clone, Deserialize)]
 pub struct BackgroundTask {
     /// The unique ID of this background task.
     pub task_id: String,
+
+    /// The kind of background task. `"local_agent"` for a background Agent tool.
+    #[serde(default)]
+    pub task_type: Option<String>,
 }
 
 /// A control request from Claude (tool approval, question, etc.)
