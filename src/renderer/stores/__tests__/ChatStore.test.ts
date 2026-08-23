@@ -2843,4 +2843,63 @@ Live text.`,
       expect(cursor).toBe(2)
     })
   })
+
+  describe("continueAutonomousRun", () => {
+    // Verify the "Continue" button path: resume a capped run without touching the
+    // persisted workspace files (autonomous-prompt/progress/review .md).
+    const wroteAutonomousFile = () =>
+      vi
+        .mocked(invoke)
+        .mock.calls.some(
+          (call) =>
+            call[0] === "write_file" &&
+            typeof (call[1] as { path?: string })?.path === "string" &&
+            (call[1] as { path: string }).path.includes("autonomous-")
+        )
+
+    it("re-arms the run and starts the first iteration", async () => {
+      const store = createChatStore()
+
+      await store.continueAutonomousRun(5)
+
+      expect(store.autonomousMode).toBe(true)
+      expect(store.autonomousRunning).toBe(true)
+      expect(store.autonomousMaxIterations).toBe(5)
+      expect(store.autonomousPhase).toBe("implementation")
+      // runNextIteration increments from 0, so the first iteration is now in flight
+      expect(store.autonomousIteration).toBe(1)
+      expect(mockAgentService.sendMessage).toHaveBeenCalled()
+    })
+
+    it("does not rewrite the persisted workspace files", async () => {
+      const store = createChatStore()
+
+      await store.continueAutonomousRun(5)
+
+      expect(wroteAutonomousFile()).toBe(false)
+    })
+
+    it("carries the review config through", async () => {
+      const store = createChatStore()
+
+      await store.continueAutonomousRun(5, { agentType: "gemini", modelVersion: "gemini-2.5-pro" })
+
+      expect(store.autonomousReviewAgentType).toBe("gemini")
+      expect(store.autonomousReviewModelVersion).toBe("gemini-2.5-pro")
+    })
+
+    it("is a no-op while a run is already active", async () => {
+      const store = createChatStore()
+      runInAction(() => {
+        store.autonomousRunning = true
+      })
+
+      await store.continueAutonomousRun(5)
+
+      // Nothing re-armed: iteration and max-iterations left untouched
+      expect(store.autonomousIteration).toBe(0)
+      expect(store.autonomousMaxIterations).toBe(25)
+      expect(mockAgentService.sendMessage).not.toHaveBeenCalled()
+    })
+  })
 })

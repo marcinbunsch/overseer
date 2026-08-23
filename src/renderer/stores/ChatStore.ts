@@ -688,27 +688,7 @@ export class ChatStore {
     const workspacePath = this.context.getWorkspacePath()
     if (!workspacePath) return
 
-    // Kill any active generation before starting (e.g. agent waiting in plan mode)
-    if (this.isSending || this.pendingPlanApproval) {
-      if (this.service) {
-        await this.service.interruptTurn(this.chat.id)
-      }
-      this.pendingPlanApproval = null
-      this.pendingToolUses = []
-      this.isSending = false
-    }
-
-    // Generate unique session ID for this autonomous run
-    this.autonomousSessionId = `${this.chat.id}-auto-${Date.now()}`
-    this.autonomousMode = true
-    this.autonomousRunning = true
-    this.autonomousIteration = 0
-    this.autonomousMaxIterations = maxIterations
-    this.autonomousPhase = "implementation"
-    this.autonomousReviewAgentType = reviewConfig?.agentType ?? null
-    this.autonomousReviewModelVersion = reviewConfig?.modelVersion ?? null
-    // Save original permission mode to restore after autonomous run completes
-    this.originalPermissionMode = this.chat.permissionMode
+    await this.initAutonomousRunState(maxIterations, reviewConfig)
 
     // Write the prompt and progress files to workspace
     try {
@@ -741,6 +721,60 @@ export class ChatStore {
     await this.runNextIteration()
   }
 
+  /**
+   * Resume a run that stopped because it hit the iteration cap. The prompt/progress/review
+   * files persist in the workspace, so we re-arm the run and let the agent read
+   * `autonomous-progress.md` to continue — we do NOT rewrite the files here.
+   */
+  @action
+  async continueAutonomousRun(
+    maxIterations: number,
+    reviewConfig?: AutonomousReviewConfig
+  ): Promise<void> {
+    if (this.autonomousRunning) return
+
+    const workspacePath = this.context.getWorkspacePath()
+    if (!workspacePath) return
+
+    await this.initAutonomousRunState(maxIterations, reviewConfig)
+
+    this.pushAutonomousMessage("autonomous-start", 0)
+    await this.runNextIteration()
+  }
+
+  /**
+   * Set up the observable state for a new batch of iterations, shared by start and continue.
+   * Kills any active generation, resets the iteration counter, and saves the permission mode
+   * to restore when the run ends. Does not touch workspace files.
+   */
+  @action
+  private async initAutonomousRunState(
+    maxIterations: number,
+    reviewConfig?: AutonomousReviewConfig
+  ): Promise<void> {
+    // Kill any active generation before starting (e.g. agent waiting in plan mode)
+    if (this.isSending || this.pendingPlanApproval) {
+      if (this.service) {
+        await this.service.interruptTurn(this.chat.id)
+      }
+      this.pendingPlanApproval = null
+      this.pendingToolUses = []
+      this.isSending = false
+    }
+
+    // Generate unique session ID for this autonomous run
+    this.autonomousSessionId = `${this.chat.id}-auto-${Date.now()}`
+    this.autonomousMode = true
+    this.autonomousRunning = true
+    this.autonomousIteration = 0
+    this.autonomousMaxIterations = maxIterations
+    this.autonomousPhase = "implementation"
+    this.autonomousReviewAgentType = reviewConfig?.agentType ?? null
+    this.autonomousReviewModelVersion = reviewConfig?.modelVersion ?? null
+    // Save original permission mode to restore after autonomous run completes
+    this.originalPermissionMode = this.chat.permissionMode
+  }
+
   @action
   stopAutonomousRun(): void {
     if (!this.autonomousRunning) return
@@ -767,7 +801,7 @@ export class ChatStore {
 
     // Check iteration limit
     if (this.autonomousIteration >= this.autonomousMaxIterations) {
-      this.finishAutonomousRun("Max iterations reached")
+      this.finishAutonomousRun("Max iterations reached", true)
       return
     }
 
@@ -834,7 +868,7 @@ export class ChatStore {
   }
 
   @action
-  private finishAutonomousRun(reason?: string): void {
+  private finishAutonomousRun(reason?: string, maxIterationsReached = false): void {
     this.autonomousRunning = false
 
     // Restore original permission mode
@@ -843,7 +877,12 @@ export class ChatStore {
       this.originalPermissionMode = undefined
     }
 
-    this.pushAutonomousMessage("autonomous-complete", this.autonomousIteration, reason)
+    this.pushAutonomousMessage(
+      "autonomous-complete",
+      this.autonomousIteration,
+      reason,
+      maxIterationsReached
+    )
   }
 
   /**
@@ -943,7 +982,8 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
   private pushAutonomousMessage(
     autonomousType: AutonomousMessageType,
     iteration: number,
-    reason?: string
+    reason?: string,
+    maxIterationsReached = false
   ): void {
     let content: string
     switch (autonomousType) {
@@ -973,6 +1013,11 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
         autonomousType,
         iteration,
         maxIterations: this.autonomousMaxIterations,
+        // Stamp restart info on a cap-hit completion so the Continue button is self-contained
+        // and survives an app reload (the live review config is otherwise lost).
+        maxIterationsReached,
+        reviewAgentType: this.autonomousReviewAgentType ?? undefined,
+        reviewModelVersion: this.autonomousReviewModelVersion,
       },
     })
   }

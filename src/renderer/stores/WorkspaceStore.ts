@@ -607,6 +607,14 @@ export class WorkspaceStore {
   }
 
   @action
+  async continueAutonomousRun(
+    maxIterations: number,
+    reviewConfig?: AutonomousReviewConfig
+  ): Promise<void> {
+    await this.activeChat?.continueAutonomousRun(maxIterations, reviewConfig)
+  }
+
+  @action
   stopAutonomousRun(): void {
     this.activeChat?.stopAutonomousRun()
   }

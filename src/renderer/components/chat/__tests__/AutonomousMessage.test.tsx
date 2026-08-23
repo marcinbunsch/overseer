@@ -1,10 +1,26 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, expect, it } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { describe, expect, it, vi, beforeEach } from "vitest"
+import { render, screen, fireEvent } from "@testing-library/react"
 import type { Message } from "../../../types"
 import { AutonomousMessage, isAutonomousMessage } from "../AutonomousMessage"
+
+const continueAutonomousRun = vi.fn()
+let autonomousRunning = false
+
+vi.mock("../../../stores/ProjectRegistry", () => ({
+  projectRegistry: {
+    get selectedWorkspaceStore() {
+      return {
+        continueAutonomousRun,
+        get activeChat() {
+          return { autonomousRunning }
+        },
+      }
+    },
+  },
+}))
 
 describe("AutonomousMessage", () => {
   const createMessage = (
@@ -26,6 +42,11 @@ describe("AutonomousMessage", () => {
       iteration: 1,
       maxIterations: 25,
     },
+  })
+
+  beforeEach(() => {
+    continueAutonomousRun.mockClear()
+    autonomousRunning = false
   })
 
   it("renders autonomous-start message", () => {
@@ -95,6 +116,79 @@ describe("AutonomousMessage", () => {
 
     expect(screen.getByTestId("autonomous-message-autonomous-complete")).toBeInTheDocument()
     expect(screen.getByText(/Autonomous Mode Complete/)).toBeInTheDocument()
+  })
+
+  it("shows a Continue button only when the run hit the iteration cap", () => {
+    const capped: Message = {
+      ...createMessage("autonomous-complete", "Autonomous Mode Complete — Max iterations reached"),
+      meta: {
+        type: "system",
+        label: "Autonomous",
+        autonomousType: "autonomous-complete",
+        iteration: 25,
+        maxIterations: 25,
+        maxIterationsReached: true,
+      },
+    }
+    render(<AutonomousMessage message={capped} />)
+    expect(screen.getByTestId("autonomous-continue-button")).toBeInTheDocument()
+  })
+
+  it("hides the Continue button on a normal completion", () => {
+    const finished = createMessage(
+      "autonomous-complete",
+      "Autonomous Mode Complete — Task finished"
+    )
+    render(<AutonomousMessage message={finished} />)
+    expect(screen.queryByTestId("autonomous-continue-button")).not.toBeInTheDocument()
+  })
+
+  it("continues with the meta's max iterations and review config on click", () => {
+    const capped: Message = {
+      id: "test-id",
+      role: "user",
+      content: "Autonomous Mode Complete — Max iterations reached",
+      timestamp: new Date(),
+      meta: {
+        type: "system",
+        label: "Autonomous",
+        autonomousType: "autonomous-complete",
+        iteration: 5,
+        maxIterations: 5,
+        maxIterationsReached: true,
+        reviewAgentType: "gemini",
+        reviewModelVersion: "gemini-2.5-pro",
+      },
+    }
+    render(<AutonomousMessage message={capped} />)
+
+    fireEvent.click(screen.getByTestId("autonomous-continue-button"))
+
+    expect(continueAutonomousRun).toHaveBeenCalledWith(5, {
+      agentType: "gemini",
+      modelVersion: "gemini-2.5-pro",
+    })
+  })
+
+  it("disables the Continue button while a run is active", () => {
+    autonomousRunning = true
+    const capped: Message = {
+      id: "test-id",
+      role: "user",
+      content: "Autonomous Mode Complete — Max iterations reached",
+      timestamp: new Date(),
+      meta: {
+        type: "system",
+        label: "Autonomous",
+        autonomousType: "autonomous-complete",
+        iteration: 25,
+        maxIterations: 25,
+        maxIterationsReached: true,
+      },
+    }
+    render(<AutonomousMessage message={capped} />)
+
+    expect(screen.getByTestId("autonomous-continue-button")).toBeDisabled()
   })
 
   it("renders autonomous-stopped message", () => {

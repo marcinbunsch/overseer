@@ -1,14 +1,18 @@
 import { useState } from "react"
-import type { Message, AutonomousMessageType } from "../../types"
+import { observer } from "mobx-react-lite"
+import type { Message, AutonomousMessageType, AutonomousReviewConfig } from "../../types"
 import { Play, RotateCw, CheckCircle, StopCircle, ChevronRight, ChevronDown } from "lucide-react"
 import classNames from "classnames"
 import { MarkdownContent } from "./MarkdownContent"
+import { projectRegistry } from "../../stores/ProjectRegistry"
 
 interface AutonomousMessageProps {
   message: Message
 }
 
-export function AutonomousMessage({ message }: AutonomousMessageProps) {
+export const AutonomousMessage = observer(function AutonomousMessage({
+  message,
+}: AutonomousMessageProps) {
   const [expanded, setExpanded] = useState(false)
   const autonomousType = message.meta?.autonomousType as AutonomousMessageType | undefined
   if (!autonomousType) return null
@@ -31,6 +35,25 @@ export function AutonomousMessage({ message }: AutonomousMessageProps) {
 
   // For loop messages, the content is the prompt that should be expandable
   const promptContent = isLoopMessage ? message.content : null
+
+  // Show a Continue button only on completions that stopped because they hit the cap.
+  const showContinueButton =
+    autonomousType === "autonomous-complete" && message.meta?.maxIterationsReached === true
+  // Disable while a run is already active for the current chat, to avoid a double-start.
+  const runInProgress =
+    projectRegistry.selectedWorkspaceStore?.activeChat?.autonomousRunning ?? false
+
+  const onContinue = () => {
+    const meta = message.meta
+    if (!meta?.maxIterations) return
+    const reviewConfig: AutonomousReviewConfig | undefined = meta.reviewAgentType
+      ? { agentType: meta.reviewAgentType, modelVersion: meta.reviewModelVersion ?? null }
+      : undefined
+    void projectRegistry.selectedWorkspaceStore?.continueAutonomousRun(
+      meta.maxIterations,
+      reviewConfig
+    )
+  }
 
   return (
     <div
@@ -65,11 +88,22 @@ export function AutonomousMessage({ message }: AutonomousMessageProps) {
           <span className="text-xs font-medium text-ovr-text-secondary">
             <MarkdownContent content={message.content} className="inline" />
           </span>
+          {showContinueButton && (
+            <button
+              onClick={onContinue}
+              disabled={runInProgress}
+              className="ovr-btn-ghost ml-auto flex items-center gap-1 px-2 py-1 text-xs"
+              data-testid="autonomous-continue-button"
+            >
+              <Play size={12} />
+              Continue
+            </button>
+          )}
         </div>
       )}
     </div>
   )
-}
+})
 
 function getAutonomousStyle(type: AutonomousMessageType): {
   icon: React.ReactNode

@@ -82,6 +82,12 @@ export interface MessageMeta {
   phase?: "implementation" | "review"
   /** Display label for the review agent (e.g. "Gemini 2.5 Pro") when a review agent is configured */
   reviewAgentLabel?: string
+  /** True on an autonomous-complete message that stopped because it hit the iteration cap */
+  maxIterationsReached?: boolean
+  /** Review agent type stored on a cap-hit completion, so Continue can re-arm after an app reload */
+  reviewAgentType?: AgentType
+  /** Review model version stored on a cap-hit completion, paired with reviewAgentType */
+  reviewModelVersion?: string | null
 }
 
 export interface Message {
