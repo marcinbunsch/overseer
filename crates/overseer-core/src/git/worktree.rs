@@ -311,6 +311,10 @@ pub async fn add_workspace(repo_path: &Path, branch: &str) -> Result<PathBuf, Gi
 ///   the user's back.
 /// - `force: true` runs `git worktree remove --force <path>`, deliberately
 ///   discarding any uncommitted changes.
+/// - If git no longer tracks the path as a worktree (the directory was deleted
+///   out from under it, or the admin entry is already gone), the removal still
+///   succeeds: it prunes the stale metadata with `git worktree prune`, and — on
+///   `force` — deletes any leftover directory. The workspace is gone either way.
 ///
 /// # Errors
 ///
@@ -323,35 +327,47 @@ pub async fn archive_workspace(
 ) -> Result<(), GitError> {
     let workspace_str = workspace_path.to_string_lossy();
 
+    let mut args = vec!["worktree", "remove"];
     if force {
-        // Deliberate discard: remove the worktree even if it has changes.
-        let output = run_git(
-            &["worktree", "remove", "--force", &workspace_str],
-            repo_path,
-        )
-        .await?;
-
-        return if output.success {
-            Ok(())
-        } else {
-            Err(GitError::GitFailed {
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            })
-        };
+        args.push("--force");
     }
+    args.push(&workspace_str);
 
-    // Non-force: a plain remove. git refuses (and tells you to use --force)
-    // when the worktree is dirty. Surface that as WorktreeDirty so the caller
-    // can prompt before discarding anything.
-    let output = run_git(&["worktree", "remove", &workspace_str], repo_path).await?;
+    let output = run_git(&args, repo_path).await?;
 
     if output.success {
         return Ok(());
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if stderr.contains("--force") || stderr.contains("contains modified or untracked") {
+
+    // git doesn't recognise the path as a worktree — the directory was removed
+    // out from under it, or the admin entry is already gone. The user's goal is
+    // met (the workspace is gone), so prune the stale metadata and report
+    // success. `git worktree prune` only drops entries whose directories are
+    // missing, so it never touches a live workspace.
+    if stderr.contains("is not a working tree") || stderr.contains("not a working tree") {
+        let _ = run_git(&["worktree", "prune"], repo_path).await;
+
+        if !workspace_path.exists() {
+            return Ok(());
+        }
+
+        // The directory still exists but git doesn't track it. Only discard it
+        // on force — otherwise we'd silently delete a directory that might hold
+        // uncommitted work, which the non-force path must never do.
+        if force {
+            std::fs::remove_dir_all(workspace_path).map_err(|e| {
+                GitError::PathError(format!("Failed to remove workspace directory: {e}"))
+            })?;
+            return Ok(());
+        }
+    }
+
+    // Non-force plain remove: git refuses (and tells you to use --force) when
+    // the worktree is dirty. Surface that as WorktreeDirty so the caller can
+    // prompt before discarding anything.
+    if !force && (stderr.contains("--force") || stderr.contains("contains modified or untracked")) {
         return Err(GitError::WorktreeDirty {
             path: workspace_str.to_string(),
         });
@@ -472,6 +488,66 @@ mod tests {
 
         archive_workspace(repo, &wt, false).await.unwrap();
         assert!(!wt.exists());
+    }
+
+    #[tokio::test]
+    async fn archive_workspace_ok_when_directory_already_deleted() {
+        let dir = init_temp_repo();
+        let repo = dir.path();
+
+        let wt = repo.join("wt");
+        let add = Command::new("git")
+            .args(["worktree", "add", wt.to_str().unwrap(), "-b", "feature"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(
+            add.status.success(),
+            "worktree add failed: {}",
+            String::from_utf8_lossy(&add.stderr)
+        );
+
+        // Delete the directory out from under git, leaving a stale admin entry.
+        std::fs::remove_dir_all(&wt).unwrap();
+
+        // Without force, this should still succeed — the workspace is gone.
+        archive_workspace(repo, &wt, false).await.unwrap();
+
+        // The stale worktree entry was pruned.
+        let workspaces = list_workspaces(repo).await.unwrap();
+        assert!(
+            !workspaces.iter().any(|w| w.path == wt.to_string_lossy()),
+            "stale worktree entry was not pruned: {workspaces:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn archive_workspace_force_removes_leftover_unregistered_dir() {
+        let dir = init_temp_repo();
+        let repo = dir.path();
+
+        // A plain directory git does not track as a worktree.
+        let leftover = repo.join("leftover");
+        std::fs::create_dir(&leftover).unwrap();
+        std::fs::write(leftover.join("file.txt"), "stuff").unwrap();
+
+        archive_workspace(repo, &leftover, true).await.unwrap();
+        assert!(!leftover.exists());
+    }
+
+    #[tokio::test]
+    async fn archive_workspace_without_force_keeps_leftover_unregistered_dir() {
+        let dir = init_temp_repo();
+        let repo = dir.path();
+
+        // A plain directory git does not track as a worktree.
+        let leftover = repo.join("leftover");
+        std::fs::create_dir(&leftover).unwrap();
+
+        // Without force we must not silently delete an unregistered directory.
+        let err = archive_workspace(repo, &leftover, false).await.unwrap_err();
+        assert!(matches!(err, GitError::GitFailed { .. }));
+        assert!(leftover.exists());
     }
 
     #[test]
