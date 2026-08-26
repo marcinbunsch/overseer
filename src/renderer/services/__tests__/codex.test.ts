@@ -615,6 +615,146 @@ describe("CodexAgentService", () => {
     service.stopChat("chat-1")
   })
 
+  it("resumes a persisted thread on server restart instead of starting a new one", async () => {
+    const service = await freshService()
+
+    // A chat with a persisted thread id but no running server (app restarted).
+    // @ts-expect-error - accessing private method for test setup
+    const chat = service.getOrCreateChat("chat-1")
+    chat.threadId = "thread-persisted"
+
+    const stdinCalls: string[] = []
+    let initializeResolved = false
+
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+      if (cmd === "start_codex_server") return undefined
+      if (cmd === "codex_stdin") {
+        const data = (args as { data: string }).data
+        stdinCalls.push(data)
+        const respond = (result: unknown) => {
+          setTimeout(() => {
+            const msg = JSON.parse(data)
+            const response = JSON.stringify({ id: msg.id, result })
+            const stdoutListener = vi
+              .mocked(listen)
+              .mock.calls.find((c) => c[0] === "codex:stdout:chat-1")
+            if (stdoutListener) {
+              ;(stdoutListener[1] as (event: { payload: string }) => void)({ payload: response })
+            }
+          }, 5)
+        }
+        if (data.includes('"method":"initialize"')) {
+          respond({ userAgent: "codex/test" })
+          initializeResolved = true
+        }
+        if (data.includes('"method":"thread/resume"') && initializeResolved) {
+          respond({ thread: { id: "thread-persisted" } })
+        }
+        if (data.includes('"method":"turn/start"')) {
+          respond({ turn: { id: "turn-1", status: "inProgress" } })
+        }
+      }
+      return undefined
+    })
+
+    await service.sendMessage(
+      "chat-1",
+      "carry on",
+      "/tmp",
+      undefined,
+      null,
+      null,
+      "init instructions"
+    )
+
+    // It must resume, never start a new thread.
+    const resumeCall = stdinCalls.find((d) => d.includes('"method":"thread/resume"'))
+    expect(resumeCall).toBeDefined()
+    expect(stdinCalls.some((d) => d.includes('"method":"thread/start"'))).toBe(false)
+
+    const resumeData = JSON.parse(resumeCall!) as { params: { threadId: string } }
+    expect(resumeData.params.threadId).toBe("thread-persisted")
+
+    // initPrompt must NOT be re-injected on a resumed thread.
+    const turnStartCall = stdinCalls.find((d) => d.includes('"method":"turn/start"'))
+    const turnStartData = JSON.parse(turnStartCall!) as {
+      params: { input: Array<{ type: string; text: string }> }
+    }
+    expect(turnStartData.params.input.find((i) => i.type === "text")?.text).toBe("carry on")
+
+    service.stopChat("chat-1")
+  })
+
+  it("falls back to thread/start and warns the user when resume fails", async () => {
+    const service = await freshService()
+    const eventCb = vi.fn()
+    service.onEvent("chat-1", eventCb)
+
+    // @ts-expect-error - accessing private method for test setup
+    const chat = service.getOrCreateChat("chat-1")
+    chat.threadId = "thread-gone"
+
+    const stdinCalls: string[] = []
+    let initializeResolved = false
+
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+      if (cmd === "start_codex_server") return undefined
+      if (cmd === "codex_stdin") {
+        const data = (args as { data: string }).data
+        stdinCalls.push(data)
+        const send = (payload: unknown) => {
+          setTimeout(() => {
+            const stdoutListener = vi
+              .mocked(listen)
+              .mock.calls.find((c) => c[0] === "codex:stdout:chat-1")
+            if (stdoutListener) {
+              ;(stdoutListener[1] as (event: { payload: string }) => void)({
+                payload: JSON.stringify(payload),
+              })
+            }
+          }, 5)
+        }
+        if (data.includes('"method":"initialize"')) {
+          const msg = JSON.parse(data)
+          send({ id: msg.id, result: { userAgent: "codex/test" } })
+          initializeResolved = true
+        }
+        if (data.includes('"method":"thread/resume"') && initializeResolved) {
+          // Rollout is gone — reply with an error.
+          const msg = JSON.parse(data)
+          send({ id: msg.id, error: { code: -32000, message: "thread not found" } })
+        }
+        if (data.includes('"method":"thread/start"')) {
+          const msg = JSON.parse(data)
+          send({ id: msg.id, result: { thread: { id: "thread-fresh" } } })
+        }
+        if (data.includes('"method":"turn/start"')) {
+          const msg = JSON.parse(data)
+          send({ id: msg.id, result: { turn: { id: "turn-1", status: "inProgress" } } })
+        }
+      }
+      return undefined
+    })
+
+    await service.sendMessage("chat-1", "carry on", "/tmp")
+
+    // Tried resume, failed, then started a fresh thread.
+    expect(stdinCalls.some((d) => d.includes('"method":"thread/resume"'))).toBe(true)
+    expect(stdinCalls.some((d) => d.includes('"method":"thread/start"'))).toBe(true)
+    expect(service.getSessionId("chat-1")).toBe("thread-fresh")
+
+    // The user gets an info message about the lost session.
+    expect(eventCb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "message",
+        isInfo: true,
+        content: expect.stringContaining("Couldn't restore the previous Codex session"),
+      })
+    )
+
+    service.stopChat("chat-1")
+  })
+
   it("handleServerRequest emits toolApproval for Bash commands", async () => {
     const service = await freshService()
     const eventCb = vi.fn()

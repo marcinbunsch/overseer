@@ -158,7 +158,7 @@ interface CodexChat {
  * - Multiple chats (threads) can share a server, but currently we use one server per chat
  *   keyed by chatId for simplicity (since each chat can target a different cwd).
  * - Rust handles protocol parsing and emits typed AgentEvents.
- * - TypeScript only handles JSON-RPC responses for client-initiated requests (initialize, thread/start, turn/start).
+ * - TypeScript only handles JSON-RPC responses for client-initiated requests (initialize, thread/start, thread/resume, turn/start).
  */
 class CodexAgentService implements AgentService {
   private chats: Map<string, CodexChat> = new Map()
@@ -232,14 +232,14 @@ class CodexAgentService implements AgentService {
     const chat = this.getOrCreateChat(chatId)
     chat.workingDir = workingDir
 
-    // Track if this is a new session (for initPrompt injection)
-    const isNewSession = !chat.running
+    // Was the app-server already up? Used to decide whether we need to resume a
+    // persisted thread after a (re)start.
+    const serverWasRunning = chat.running
 
     // Start server if not running
     if (!chat.running) {
       await this.attachListeners(chatId)
-      // Clear stale thread ID from a previous server session
-      chat.threadId = null
+      // Keep a persisted thread id — we resume it below instead of dropping it.
 
       console.log(`Starting Codex app-server [${chatId}]`)
       try {
@@ -272,6 +272,39 @@ class CodexAgentService implements AgentService {
     // Use passed permission mode or fall back to configStore
     const approvalPolicy = permissionMode ?? configStore.codexApprovalPolicy
 
+    // Resume a persisted thread after the server was (re)started. The thread
+    // lives on disk (rollout), so thread/resume reloads its context. On a
+    // running server the thread is already live, so we skip this.
+    if (!serverWasRunning && chat.threadId) {
+      try {
+        const result = (await this.sendRequest(chatId, "thread/resume", {
+          threadId: chat.threadId,
+          cwd: workingDir,
+          approvalPolicy,
+          sandbox: "workspace-write",
+        })) as { thread?: { id?: string } }
+
+        const resumedId = result?.thread?.id
+        if (resumedId) {
+          chat.threadId = resumedId
+          this.emitEvent(chatId, { kind: "sessionId", sessionId: resumedId })
+        }
+      } catch (err) {
+        // The rollout for this thread is gone — start a fresh one and tell the user.
+        console.warn(`Failed to resume Codex thread [${chatId}]:`, err)
+        chat.threadId = null
+        this.emitEvent(chatId, {
+          kind: "message",
+          content: "Couldn't restore the previous Codex session; starting a new one.",
+          isInfo: true,
+        })
+      }
+    }
+
+    // Track whether we create a brand-new thread — initPrompt only belongs on a
+    // fresh thread, not a resumed one (which already carries that context).
+    let startedNewThread = false
+
     // If no thread yet, create one
     if (!chat.threadId) {
       const result = (await this.sendRequest(chatId, "thread/start", {
@@ -283,12 +316,13 @@ class CodexAgentService implements AgentService {
       const threadId = result?.thread?.id
       if (threadId) {
         chat.threadId = threadId
+        startedNewThread = true
         this.emitEvent(chatId, { kind: "sessionId", sessionId: threadId })
       }
     }
 
-    // Prepend initPrompt to the first message of a new session
-    const messageText = isNewSession && initPrompt ? `${initPrompt}\n\n${prompt}` : prompt
+    // Prepend initPrompt only to the first message of a brand-new thread
+    const messageText = startedNewThread && initPrompt ? `${initPrompt}\n\n${prompt}` : prompt
 
     // Send the turn
     await this.sendRequest(chatId, "turn/start", {
