@@ -84,6 +84,40 @@ pub fn strip_shell_wrapper(command: &str) -> String {
     tokens[tokens.len() - 1].clone()
 }
 
+/// Pull a human-readable message out of a Codex `error` notification's params.
+///
+/// Codex builds have shipped the error under a few different shapes, so try
+/// each in turn:
+/// - `params.message` — the documented shape
+/// - `params.error.message` (+ `codexErrorInfo`) — mirrors `turn.error`
+/// - `params.error` as a plain string
+///
+/// If none match, fall back to the raw params JSON instead of a bare
+/// "Unknown error", so the actual error is never hidden.
+fn extract_error_message(params: &serde_json::Value) -> String {
+    if let Some(msg) = params.get("message").and_then(|v| v.as_str()) {
+        return msg.to_string();
+    }
+
+    if let Some(error) = params.get("error") {
+        if let Some(msg) = error.get("message").and_then(|v| v.as_str()) {
+            if let Some(info) = error.get("codexErrorInfo").and_then(|v| v.as_str()) {
+                return format!("{msg} ({info})");
+            }
+            return msg.to_string();
+        }
+        if let Some(msg) = error.as_str() {
+            return msg.to_string();
+        }
+    }
+
+    // Empty params tells us nothing; anything else, show it verbatim.
+    if params.as_object().is_some_and(|o| o.is_empty()) {
+        return "Unknown error".to_string();
+    }
+    params.to_string()
+}
+
 /// Result type for server requests that need a response.
 ///
 /// When Codex sends a request (not notification), it expects us to respond.
@@ -593,10 +627,7 @@ impl CodexParser {
 
             // Error notification
             "error" => {
-                let message = params
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown error");
+                let message = extract_error_message(&params);
 
                 vec![AgentEvent::Message {
                     content: format!("Error: {message}"),
@@ -947,5 +978,51 @@ mod tests {
 
         assert!(events.is_empty());
         assert!(pending.is_empty());
+    }
+
+    fn error_content(line: &str) -> String {
+        let mut parser = CodexParser::new();
+        let (events, _) = parser.feed(&format!("{line}\n"));
+        events
+            .iter()
+            .find_map(|e| match e {
+                AgentEvent::Message { content, .. } => Some(content.clone()),
+                _ => None,
+            })
+            .expect("expected a message event")
+    }
+
+    #[test]
+    fn error_notification_uses_message_field() {
+        let line = r#"{"method":"error","params":{"message":"boom"}}"#;
+        assert_eq!(error_content(line), "Error: boom");
+    }
+
+    #[test]
+    fn error_notification_reads_nested_error_object() {
+        let line = r#"{"method":"error","params":{"error":{"message":"Context window exceeded","codexErrorInfo":"ContextWindowExceeded"}}}"#;
+        assert_eq!(
+            error_content(line),
+            "Error: Context window exceeded (ContextWindowExceeded)"
+        );
+    }
+
+    #[test]
+    fn error_notification_reads_error_string() {
+        let line = r#"{"method":"error","params":{"error":"nope"}}"#;
+        assert_eq!(error_content(line), "Error: nope");
+    }
+
+    #[test]
+    fn error_notification_falls_back_to_raw_params() {
+        // No recognizable message field: show the payload rather than hide it.
+        let line = r#"{"method":"error","params":{"detail":"weird shape"}}"#;
+        assert_eq!(error_content(line), r#"Error: {"detail":"weird shape"}"#);
+    }
+
+    #[test]
+    fn error_notification_empty_params_is_unknown() {
+        let line = r#"{"method":"error","params":{}}"#;
+        assert_eq!(error_content(line), "Error: Unknown error");
     }
 }
