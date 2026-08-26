@@ -930,8 +930,9 @@ describe("CodexAgentService", () => {
     }
     expect(msg.method).toBe("turn/interrupt")
     expect(msg.params).toEqual({ threadId: "thread-123", turnId: "turn-xyz" })
-    // It's a notification, so it must not carry an id.
-    expect(msg.id).toBeUndefined()
+    // It's a request, not a notification — it must carry an id or the app-server
+    // ignores it and keeps streaming.
+    expect(typeof msg.id).toBe("number")
   })
 
   it("interruptTurn does nothing after turn/completed clears the turn id", async () => {

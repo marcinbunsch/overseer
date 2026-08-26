@@ -369,14 +369,21 @@ class CodexAgentService implements AgentService {
     const chat = this.chats.get(chatId)
     if (!chat?.threadId || !chat.turnId) return
 
-    // Send interrupt notification - don't kill server to preserve thread context.
-    // The app-server needs both threadId and turnId to cancel the in-flight turn;
-    // without turnId it ignores the message and keeps streaming.
-    this.sendNotification(chatId, "turn/interrupt", {
-      threadId: chat.threadId,
-      turnId: chat.turnId,
-    })
+    const turnId = chat.turnId
+    // Clear now so a repeated stop is a no-op.
     chat.turnId = null
+
+    // turn/interrupt is a JSON-RPC *request*, not a notification (the only client
+    // notification the app-server accepts is "initialized"). Sent without an id it
+    // gets ignored and Codex keeps streaming, so the stop button does nothing. Fire
+    // it as a request and let the empty response resolve in the background — we
+    // don't kill the server, to preserve thread context.
+    void this.sendRequest(chatId, "turn/interrupt", {
+      threadId: chat.threadId,
+      turnId,
+    }).catch((err) => {
+      console.warn(`Failed to interrupt Codex turn [${chatId}]:`, err)
+    })
   }
 
   async stopChat(chatId: string): Promise<void> {
