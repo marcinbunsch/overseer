@@ -141,6 +141,8 @@ interface RustAgentEvent {
 interface CodexChat {
   serverId: string
   threadId: string | null
+  /** Id of the in-flight turn, set on turn/started and cleared on turn/completed. */
+  turnId: string | null
   running: boolean
   workingDir: string
   unlistenStdout: Unsubscribe | null
@@ -175,6 +177,7 @@ class CodexAgentService implements AgentService {
       chat = {
         serverId: chatId,
         threadId: null,
+        turnId: null,
         running: false,
         workingDir: "",
         unlistenStdout: null,
@@ -330,10 +333,16 @@ class CodexAgentService implements AgentService {
 
   async interruptTurn(chatId: string): Promise<void> {
     const chat = this.chats.get(chatId)
-    if (!chat?.threadId) return
+    if (!chat?.threadId || !chat.turnId) return
 
-    // Send interrupt notification - don't kill server to preserve thread context
-    this.sendNotification(chatId, "turn/interrupt", { threadId: chat.threadId })
+    // Send interrupt notification - don't kill server to preserve thread context.
+    // The app-server needs both threadId and turnId to cancel the in-flight turn;
+    // without turnId it ignores the message and keeps streaming.
+    this.sendNotification(chatId, "turn/interrupt", {
+      threadId: chat.threadId,
+      turnId: chat.turnId,
+    })
+    chat.turnId = null
   }
 
   async stopChat(chatId: string): Promise<void> {
@@ -415,7 +424,7 @@ class CodexAgentService implements AgentService {
    * Handle raw stdout lines - only for JSON-RPC responses to our requests.
    * All other parsing is done in Rust.
    */
-  private handleResponseLine(_chatId: string, line: string): void {
+  private handleResponseLine(chatId: string, line: string): void {
     const trimmed = line.trim()
     if (!trimmed) return
 
@@ -433,6 +442,18 @@ class CodexAgentService implements AgentService {
         if (usageData) {
           codexUsageStore.setUsageData(usageData)
         }
+      } else if (notification.method === "turn/started") {
+        // Track the in-flight turn id so interruptTurn can target it.
+        const params = notification.params
+        const turnId =
+          isRecord(params) && isRecord(params.turn) && typeof params.turn.id === "string"
+            ? params.turn.id
+            : null
+        const chat = this.chats.get(chatId)
+        if (chat && turnId) chat.turnId = turnId
+      } else if (notification.method === "turn/completed") {
+        const chat = this.chats.get(chatId)
+        if (chat) chat.turnId = null
       }
       return
     }

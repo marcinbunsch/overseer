@@ -756,4 +756,89 @@ describe("CodexAgentService", () => {
     expect(toolAvailabilityStore.codex!.available).toBe(false)
     expect(toolAvailabilityStore.codex!.error).toContain("command not found")
   })
+
+  it("interruptTurn sends threadId and turnId captured from turn/started", async () => {
+    const service = await freshService()
+
+    // @ts-expect-error - accessing private method for test setup
+    const chat = service.getOrCreateChat("chat-1")
+    chat.threadId = "thread-123"
+
+    // The app-server announces the in-flight turn via a turn/started notification.
+    // @ts-expect-error - exercising JSON-RPC notification handling directly
+    service.handleResponseLine(
+      "chat-1",
+      JSON.stringify({
+        method: "turn/started",
+        params: { turn: { id: "turn-xyz", status: "inProgress" } },
+      })
+    )
+
+    const stdinCalls: string[] = []
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+      if (cmd === "codex_stdin") stdinCalls.push((args as { data: string }).data)
+      return undefined
+    })
+
+    await service.interruptTurn("chat-1")
+
+    expect(stdinCalls).toHaveLength(1)
+    const msg = JSON.parse(stdinCalls[0]) as {
+      method: string
+      params: { threadId: string; turnId: string }
+      id?: number
+    }
+    expect(msg.method).toBe("turn/interrupt")
+    expect(msg.params).toEqual({ threadId: "thread-123", turnId: "turn-xyz" })
+    // It's a notification, so it must not carry an id.
+    expect(msg.id).toBeUndefined()
+  })
+
+  it("interruptTurn does nothing after turn/completed clears the turn id", async () => {
+    const service = await freshService()
+
+    // @ts-expect-error - accessing private method for test setup
+    const chat = service.getOrCreateChat("chat-1")
+    chat.threadId = "thread-123"
+
+    // @ts-expect-error - exercising JSON-RPC notification handling directly
+    service.handleResponseLine(
+      "chat-1",
+      JSON.stringify({
+        method: "turn/started",
+        params: { turn: { id: "turn-xyz" } },
+      })
+    )
+    // @ts-expect-error - exercising JSON-RPC notification handling directly
+    service.handleResponseLine("chat-1", JSON.stringify({ method: "turn/completed", params: {} }))
+
+    const stdinCalls: string[] = []
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+      if (cmd === "codex_stdin") stdinCalls.push((args as { data: string }).data)
+      return undefined
+    })
+
+    await service.interruptTurn("chat-1")
+
+    // No live turn → no interrupt sent.
+    expect(stdinCalls).toHaveLength(0)
+  })
+
+  it("interruptTurn does nothing when no turn is in flight", async () => {
+    const service = await freshService()
+
+    // @ts-expect-error - accessing private method for test setup
+    const chat = service.getOrCreateChat("chat-1")
+    chat.threadId = "thread-123"
+
+    const stdinCalls: string[] = []
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+      if (cmd === "codex_stdin") stdinCalls.push((args as { data: string }).data)
+      return undefined
+    })
+
+    await service.interruptTurn("chat-1")
+
+    expect(stdinCalls).toHaveLength(0)
+  })
 })
