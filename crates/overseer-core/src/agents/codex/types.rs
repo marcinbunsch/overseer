@@ -295,21 +295,12 @@ pub struct CodexItem {
     #[serde(default)]
     pub command: Option<String>,
 
-    /// Diff content (for "fileChange" items).
+    /// File changes (for "fileChange" items).
     ///
-    /// Shows what changed in unified diff format.
+    /// A single apply_patch can touch several files, so this is a list. Each
+    /// entry carries the file path and a unified diff of what changed.
     #[serde(default)]
-    pub diff: Option<String>,
-
-    /// File path (for "fileChange" items).
-    ///
-    /// # Rust Concept: #[serde(rename = "...")]
-    ///
-    /// JSON uses camelCase ("filePath"), Rust uses snake_case ("file_path").
-    /// `rename` bridges this gap.
-    #[serde(rename = "filePath")]
-    #[serde(default)]
-    pub file_path: Option<String>,
+    pub changes: Option<Vec<FileUpdateChange>>,
 
     /// Tool name (for "mcpToolCall" items).
     ///
@@ -330,6 +321,21 @@ pub struct CodexItem {
     /// The agent's text response.
     #[serde(default)]
     pub text: Option<String>,
+}
+
+/// One file's change inside a "fileChange" item.
+///
+/// Matches the app-server `FileUpdateChange` type: the path plus a unified
+/// diff of the edit. `kind` (add/delete/update) is present in the protocol but
+/// we don't need it — the diff already encodes added and removed lines.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileUpdateChange {
+    /// Path of the changed file.
+    pub path: String,
+
+    /// Unified diff of the change.
+    #[serde(default)]
+    pub diff: Option<String>,
 }
 
 // ============================================================================
@@ -432,10 +438,13 @@ mod tests {
     /// Test parsing file change item.
     #[test]
     fn parse_codex_item_file_change() {
-        let json = r#"{"type":"fileChange","filePath":"test.txt","diff":"+ new line"}"#;
+        let json = r#"{"type":"fileChange","changes":[{"path":"test.txt","kind":{"type":"add"},"diff":"+new line"}],"status":"completed"}"#;
         let item: CodexItem = serde_json::from_str(json).unwrap();
         assert_eq!(item.item_type, "fileChange");
-        assert_eq!(item.file_path, Some("test.txt".to_string()));
+        let changes = item.changes.expect("changes present");
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].path, "test.txt");
+        assert_eq!(changes[0].diff, Some("+new line".to_string()));
     }
 
     /// Test parsing MCP tool call item.

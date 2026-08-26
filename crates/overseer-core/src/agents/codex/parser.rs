@@ -118,6 +118,53 @@ fn extract_error_message(params: &serde_json::Value) -> String {
     params.to_string()
 }
 
+/// Reconstruct before/after file contents from a unified diff.
+///
+/// Codex sends edits as a unified diff, but the diff viewer wants the old and
+/// new file contents so it can render its own diff. We rebuild both from the
+/// hunk lines: context lines (` `) go to both sides, `-` lines to the old side,
+/// `+` lines to the new side. Header lines (`@@`, `---`/`+++`, `\ No newline`)
+/// are skipped. Line numbers are relative to the changed region, not the whole
+/// file, which is fine for a preview.
+///
+/// Returns `(old_contents, new_contents, lines_added, lines_removed)`.
+fn reconstruct_edit(diff: &str) -> (String, String, usize, usize) {
+    let mut old_lines: Vec<&str> = Vec::new();
+    let mut new_lines: Vec<&str> = Vec::new();
+    let mut added = 0usize;
+    let mut removed = 0usize;
+
+    for line in diff.lines() {
+        // Skip hunk/file headers and the no-newline marker.
+        if line.starts_with("@@")
+            || line.starts_with("--- ")
+            || line.starts_with("+++ ")
+            || line.starts_with('\\')
+        {
+            continue;
+        }
+
+        match line.as_bytes().first() {
+            Some(b'+') => {
+                new_lines.push(&line[1..]);
+                added += 1;
+            }
+            Some(b'-') => {
+                old_lines.push(&line[1..]);
+                removed += 1;
+            }
+            // Context line — leading space (or a blank line) belongs to both sides.
+            _ => {
+                let content = line.strip_prefix(' ').unwrap_or(line);
+                old_lines.push(content);
+                new_lines.push(content);
+            }
+        }
+    }
+
+    (old_lines.join("\n"), new_lines.join("\n"), added, removed)
+}
+
 /// Result type for server requests that need a response.
 ///
 /// When Codex sends a request (not notification), it expects us to respond.
@@ -497,35 +544,41 @@ impl CodexParser {
                         }]
                     }
 
-                    // File change started
+                    // File change started. One apply_patch may touch several
+                    // files, so emit one Edit message per changed file, each with
+                    // the file path and reconstructed before/after contents so the
+                    // UI can show a real diff.
                     "fileChange" => {
-                        // Extract diff and path
-                        //
-                        // .as_deref() converts Option<String> to Option<&str>
-                        // Then .unwrap_or("") gives &str
-                        let diff = item.diff.as_deref().unwrap_or("");
-                        let file_path = item.file_path.as_deref().unwrap_or("");
+                        let changes = item.changes.unwrap_or_default();
 
-                        // Format like Claude's Edit tool
-                        let input = serde_json::json!({
-                            "file_path": file_path,
-                            "old_string": "",
-                            "new_string": diff
-                        });
-                        let input_str = serde_json::to_string_pretty(&input)
-                            .unwrap_or_else(|_| "{}".to_string());
+                        changes
+                            .into_iter()
+                            .map(|change| {
+                                let diff = change.diff.as_deref().unwrap_or("");
+                                let (old_string, new_string, added, removed) =
+                                    reconstruct_edit(diff);
 
-                        vec![AgentEvent::Message {
-                            content: format!("[Edit]\n{input_str}"),
-                            tool_meta: Some(ToolMeta {
-                                tool_name: "Edit".to_string(),
-                                lines_added: None,
-                                lines_removed: None,
-                            }),
-                            parent_tool_use_id: None,
-                            tool_use_id: None,
-                            is_info: None,
-                        }]
+                                let input = serde_json::json!({
+                                    "file_path": change.path,
+                                    "old_string": old_string,
+                                    "new_string": new_string,
+                                });
+                                let input_str = serde_json::to_string_pretty(&input)
+                                    .unwrap_or_else(|_| "{}".to_string());
+
+                                AgentEvent::Message {
+                                    content: format!("[Edit]\n{input_str}"),
+                                    tool_meta: Some(ToolMeta {
+                                        tool_name: "Edit".to_string(),
+                                        lines_added: Some(added as u32),
+                                        lines_removed: Some(removed as u32),
+                                    }),
+                                    parent_tool_use_id: None,
+                                    tool_use_id: None,
+                                    is_info: None,
+                                }
+                            })
+                            .collect()
                     }
 
                     // MCP tool call (external tools)
@@ -807,6 +860,31 @@ mod tests {
     }
 
     #[test]
+    fn reconstruct_edit_add_and_delete() {
+        // Pure addition: old side empty, new side is the content.
+        let (old, new, added, removed) = reconstruct_edit("+first\n+second");
+        assert_eq!(old, "");
+        assert_eq!(new, "first\nsecond");
+        assert_eq!((added, removed), (2, 0));
+
+        // Pure deletion: new side empty, old side is the content.
+        let (old, new, added, removed) = reconstruct_edit("-gone");
+        assert_eq!(old, "gone");
+        assert_eq!(new, "");
+        assert_eq!((added, removed), (0, 1));
+    }
+
+    #[test]
+    fn reconstruct_edit_skips_headers() {
+        // Hunk headers and no-newline markers must not count as changes.
+        let diff = "@@ -1,1 +1,1 @@\n-old\n+new\n\\ No newline at end of file";
+        let (old, new, added, removed) = reconstruct_edit(diff);
+        assert_eq!(old, "old");
+        assert_eq!(new, "new");
+        assert_eq!((added, removed), (1, 1));
+    }
+
+    #[test]
     fn parse_command_output_delta() {
         let mut parser = CodexParser::new();
         let line =
@@ -822,14 +900,58 @@ mod tests {
     #[test]
     fn parse_file_change_started() {
         let mut parser = CodexParser::new();
-        let line = r#"{"method":"item/started","params":{"item":{"type":"fileChange","filePath":"test.txt","diff":"+ new line"}}}"#;
+        let line = r#"{"method":"item/started","params":{"item":{"type":"fileChange","changes":[{"path":"test.txt","kind":{"type":"update","move_path":null},"diff":"@@ -1,2 +1,2 @@\n old\n-bye\n+hi"}],"status":"inProgress"}}}"#;
         let (events, _) = parser.feed(&format!("{line}\n"));
 
-        assert!(events.iter().any(|e| matches!(
-            e,
-            AgentEvent::Message { content, tool_meta: Some(meta), .. }
-            if content.contains("[Edit]") && meta.tool_name == "Edit"
-        )));
+        // One Edit message, carrying the real path and line counts, with
+        // before/after contents reconstructed from the unified diff.
+        let msg = events
+            .iter()
+            .find_map(|e| match e {
+                AgentEvent::Message {
+                    content,
+                    tool_meta: Some(meta),
+                    ..
+                } if meta.tool_name == "Edit" => Some((content, meta)),
+                _ => None,
+            })
+            .expect("Edit message emitted");
+
+        let (content, meta) = msg;
+        assert!(content.contains("[Edit]"));
+        assert!(content.contains("test.txt"));
+        assert!(content.contains("\"old_string\""));
+        assert!(content.contains("\"new_string\""));
+        assert_eq!(meta.lines_added, Some(1));
+        assert_eq!(meta.lines_removed, Some(1));
+
+        // The reconstructed contents diff cleanly: context kept, bye->hi.
+        let input: serde_json::Value = {
+            let json = content.strip_prefix("[Edit]\n").unwrap();
+            serde_json::from_str(json).unwrap()
+        };
+        assert_eq!(input["file_path"], "test.txt");
+        assert_eq!(input["old_string"], "old\nbye");
+        assert_eq!(input["new_string"], "old\nhi");
+    }
+
+    #[test]
+    fn parse_file_change_emits_one_message_per_file() {
+        let mut parser = CodexParser::new();
+        let line = r#"{"method":"item/started","params":{"item":{"type":"fileChange","changes":[{"path":"a.txt","kind":{"type":"add"},"diff":"+alpha"},{"path":"b.txt","kind":{"type":"delete"},"diff":"-beta"}],"status":"inProgress"}}}"#;
+        let (events, _) = parser.feed(&format!("{line}\n"));
+
+        let edits: Vec<&String> = events
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::Message { content, .. } if content.contains("[Edit]") => Some(content),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(edits.len(), 2);
+        assert!(edits.iter().any(|c| c.contains("a.txt")));
+        assert!(edits.iter().any(|c| c.contains("b.txt")));
     }
 
     #[test]
