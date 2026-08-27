@@ -282,9 +282,15 @@ export class ChatStore {
       modelVersion?: string | null
       /** Override the permission mode (used for autonomous review with a different agent) */
       permissionMode?: string | null
+      /** Override the agent type of the spawned agent (used for autonomous review with a different agent) */
+      agentType?: string | null
     }
   ): Promise<void> {
     const activeService = opts?.service ?? this.service
+    // The agent actually being spawned. In autonomous review this can differ
+    // from the main chat's agent, so per-agent settings (CLAUDE_CONFIG_DIR,
+    // effort) must key off this, not this.chat.agentType.
+    const effectiveAgentType = opts?.agentType ?? this.chat.agentType
     // If agent is responding, queue as follow-up instead
     if (this.isSending) {
       this.pendingFollowUps.push(content)
@@ -330,11 +336,11 @@ export class ChatStore {
               : null
       const modelVersion =
         opts?.modelVersion !== undefined ? opts.modelVersion : this.chat.modelVersion
-      const effortLevel = this.chat.agentType === "claude" ? this.chat.effortLevel : null
+      const effortLevel = effectiveAgentType === "claude" ? this.chat.effortLevel : null
       const projectName = this.context?.getProjectName() ?? ""
       // Only Claude reads CLAUDE_CONFIG_DIR; other agents ignore the extra arg.
       const claudeConfigDir =
-        this.chat.agentType === "claude" ? this.context?.getClaudeConfigDir() : undefined
+        effectiveAgentType === "claude" ? this.context?.getClaudeConfigDir() : undefined
 
       // Prepend attachment paths to the message so the agent can read the files
       let messageContent = content
@@ -858,6 +864,7 @@ export class ChatStore {
               service: reviewService ?? undefined,
               modelVersion: this.autonomousReviewModelVersion,
               permissionMode: this.getYoloModeValueForAgent(agentTypeForYolo),
+              agentType: this.autonomousReviewAgentType,
             }
           : undefined
       )

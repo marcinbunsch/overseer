@@ -1014,6 +1014,40 @@ describe("ChatStore", () => {
     expect(lastCall[10]).toBeUndefined()
   })
 
+  // Autonomous review can spawn a different agent than the main chat, so the
+  // config dir must key off the spawned agent (opts.agentType), not the chat's.
+  it("forwards claudeConfigDir when the review agent is Claude but the main chat is not", async () => {
+    const store = createChatStore(
+      { agentType: "codex" },
+      { getClaudeConfigDir: () => "~/.claude-work" }
+    )
+
+    await store.sendMessage("review please", "/home/user/wt", undefined, undefined, {
+      service: mockReviewAgentService,
+      agentType: "claude",
+    })
+
+    const calls = vi.mocked(mockReviewAgentService.sendMessage).mock.calls as unknown[][]
+    const lastCall = calls[calls.length - 1]
+    expect(lastCall[10]).toBe("~/.claude-work")
+  })
+
+  it("does not forward claudeConfigDir when the review agent is not Claude", async () => {
+    const store = createChatStore(
+      { agentType: "claude" },
+      { getClaudeConfigDir: () => "~/.claude-work" }
+    )
+
+    await store.sendMessage("review please", "/home/user/wt", undefined, undefined, {
+      service: mockReviewAgentService,
+      agentType: "codex",
+    })
+
+    const calls = vi.mocked(mockReviewAgentService.sendMessage).mock.calls as unknown[][]
+    const lastCall = calls[calls.length - 1]
+    expect(lastCall[10]).toBeUndefined()
+  })
+
   describe("sandboxed toggle", () => {
     it("updates the flag on the chat", () => {
       const store = createChatStore({ sandboxed: false })
