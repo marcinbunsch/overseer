@@ -565,8 +565,14 @@ pub fn run() {
                     match event_rx.blocking_recv() {
                         Ok(event) => {
                             // When an agent process closes, revoke its git-API token
-                            // so it can't be reused after the session ends.
-                            if let Some(conv_id) = event.event_type.strip_prefix("agent:close:") {
+                            // so it can't be reused after the session ends. Claude
+                            // emits "agent:close:<id>", Codex "codex:close:<id>";
+                            // both use the conversation/server id as the key.
+                            if let Some(conv_id) = event
+                                .event_type
+                                .strip_prefix("agent:close:")
+                                .or_else(|| event.event_type.strip_prefix("codex:close:"))
+                            {
                                 agent_api_registry.remove_by_conversation(conv_id);
                             }
                             let _ = app_handle.emit(&event.event_type, event.payload);
@@ -595,6 +601,7 @@ pub fn run() {
             git::merge_into_main,
             git::rename_branch,
             git::get_file_diff,
+            git::get_git_common_dir,
             git::get_uncommitted_diff,
             git::get_submodule_file_diff,
             skills::list_skills,

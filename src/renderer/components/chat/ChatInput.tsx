@@ -525,8 +525,9 @@ export const ChatInput = observer(function ChatInput({
             )}
             {/* Sandbox is macOS-local (sandbox-exec), so only offer it on macOS
                 and the Tauri backend — the remote HTTP backend ignores the flag
-                and a sandboxed spawn errors on other platforms. */}
-            {agentType === "claude" &&
+                and a sandboxed spawn errors on other platforms. Claude and Codex
+                are the agents wired for the Seatbelt sandbox. */}
+            {(agentType === "claude" || agentType === "codex") &&
               onSandboxedChange &&
               isMacOS() &&
               projectRegistry.selectedWorkspaceStore?.backend.type === "tauri" && (

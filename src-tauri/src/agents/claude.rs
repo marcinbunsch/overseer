@@ -128,7 +128,7 @@ pub async fn send_message(
 /// Returns an empty vec when the agent isn't sandboxed (it has host credentials
 /// already) or when the service hasn't started — the agent simply won't see the
 /// API in its environment and falls back to normal git/gh.
-async fn build_agent_api_env(
+pub(crate) async fn build_agent_api_env(
     agent_api_state: &crate::agent_api::AgentApiState,
     sandboxed: bool,
     conversation_id: &str,
