@@ -28,7 +28,7 @@ import { getAgentDisplayName } from "../../utils/agentDisplayName"
 import { Textarea } from "../shared/Textarea"
 import { saveAttachment } from "../../services/attachmentService"
 import { isMacOS } from "../../utils/platform"
-import type { Attachment, AutonomousReviewConfig } from "../../types"
+import type { Attachment, AutonomousReviewConfig, GauntletReviewer } from "../../types"
 
 // Detect touch-only devices (mobile/tablet without keyboard)
 const isTouchDevice =
@@ -59,7 +59,8 @@ interface ChatInputProps {
   onStartAutonomous?: (
     prompt: string,
     maxIterations: number,
-    reviewConfig?: AutonomousReviewConfig
+    reviewConfig?: AutonomousReviewConfig,
+    gauntletReviewers?: GauntletReviewer[]
   ) => void
   onStopAutonomous?: () => void
 }
@@ -621,8 +622,8 @@ export const ChatInput = observer(function ChatInput({
           open={autonomousDialogOpen}
           onOpenChange={setAutonomousDialogOpen}
           initialPrompt={input}
-          onStart={(prompt, maxIterations, reviewConfig) => {
-            onStartAutonomous(prompt, maxIterations, reviewConfig)
+          onStart={(prompt, maxIterations, reviewConfig, gauntletReviewers) => {
+            onStartAutonomous(prompt, maxIterations, reviewConfig, gauntletReviewers)
             workspaceStore?.setDraft(workspaceStore.activeChatId ?? "", "")
           }}
         />

@@ -68,6 +68,8 @@ export type AutonomousMessageType =
   | "autonomous-loop"
   | "autonomous-complete"
   | "autonomous-stopped"
+  | "gauntlet-round"
+  | "gauntlet-verdict"
 
 export interface MessageMeta {
   type: string
@@ -88,6 +90,14 @@ export interface MessageMeta {
   reviewAgentType?: AgentType
   /** Review model version stored on a cap-hit completion, paired with reviewAgentType */
   reviewModelVersion?: string | null
+  /** Name of the gauntlet reviewer this message is about (round/verdict messages) */
+  gauntletReviewerName?: string
+  /** Verdict of a gauntlet reviewer: did it pass or find issues */
+  gauntletVerdict?: "pass" | "fail"
+  /** Gauntlet round number (1-indexed) for round/verdict messages */
+  gauntletRound?: number
+  /** Selected gauntlet reviewers stored on a cap-hit completion, so Continue can re-arm */
+  gauntletReviewers?: GauntletReviewer[]
 }
 
 export interface Message {
@@ -137,6 +147,22 @@ export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "hermes" | "
 export interface AutonomousReviewConfig {
   agentType: AgentType
   modelVersion: string | null
+}
+
+/**
+ * A gauntlet reviewer: a specialist agent that reviews the work in a workspace
+ * and reports findings. A gauntlet run fans out to every selected reviewer in
+ * parallel, then the implementer must address all their findings to "survive".
+ */
+export interface GauntletReviewer {
+  id: string
+  name: string
+  /** The reviewer's focus/instructions, injected into its review prompt */
+  prompt: string
+  agentType: AgentType
+  modelVersion: string | null
+  /** Included in a run by default when true */
+  enabled: boolean
 }
 
 // --- Model selection ---

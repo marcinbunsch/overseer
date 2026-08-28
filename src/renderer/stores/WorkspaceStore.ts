@@ -12,6 +12,7 @@ import type {
   AgentType,
   Workspace,
   AutonomousReviewConfig,
+  GauntletReviewer,
 } from "../types"
 import type { Backend } from "../backend/types"
 import { GitService } from "../services/git"
@@ -601,17 +602,24 @@ export class WorkspaceStore {
   async startAutonomousRun(
     prompt: string,
     maxIterations: number,
-    reviewConfig?: AutonomousReviewConfig
+    reviewConfig?: AutonomousReviewConfig,
+    gauntletReviewers?: GauntletReviewer[]
   ): Promise<void> {
-    await this.activeChat?.startAutonomousRun(prompt, maxIterations, reviewConfig)
+    await this.activeChat?.startAutonomousRun(
+      prompt,
+      maxIterations,
+      reviewConfig,
+      gauntletReviewers
+    )
   }
 
   @action
   async continueAutonomousRun(
     maxIterations: number,
-    reviewConfig?: AutonomousReviewConfig
+    reviewConfig?: AutonomousReviewConfig,
+    gauntletReviewers?: GauntletReviewer[]
   ): Promise<void> {
-    await this.activeChat?.continueAutonomousRun(maxIterations, reviewConfig)
+    await this.activeChat?.continueAutonomousRun(maxIterations, reviewConfig, gauntletReviewers)
   }
 
   @action

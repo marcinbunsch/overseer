@@ -321,8 +321,13 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                 onReject={(feedback) => workspaceStore.rejectPlan(feedback)}
                 onDeny={() => workspaceStore.denyPlan()}
                 onReview={() => setPlanReviewOpen(true)}
-                onStartAutonomous={(prompt, maxIterations, reviewConfig) =>
-                  workspaceStore.startAutonomousRun(prompt, maxIterations, reviewConfig)
+                onStartAutonomous={(prompt, maxIterations, reviewConfig, gauntletReviewers) =>
+                  workspaceStore.startAutonomousRun(
+                    prompt,
+                    maxIterations,
+                    reviewConfig,
+                    gauntletReviewers
+                  )
                 }
               />
 
@@ -362,8 +367,13 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                 autonomousRunning={workspaceStore.autonomousRunning}
                 autonomousIteration={workspaceStore.autonomousIteration}
                 autonomousMaxIterations={workspaceStore.autonomousMaxIterations}
-                onStartAutonomous={(prompt, maxIterations, reviewConfig) =>
-                  workspaceStore.startAutonomousRun(prompt, maxIterations, reviewConfig)
+                onStartAutonomous={(prompt, maxIterations, reviewConfig, gauntletReviewers) =>
+                  workspaceStore.startAutonomousRun(
+                    prompt,
+                    maxIterations,
+                    reviewConfig,
+                    gauntletReviewers
+                  )
                 }
                 onStopAutonomous={() => workspaceStore.stopAutonomousRun()}
               />

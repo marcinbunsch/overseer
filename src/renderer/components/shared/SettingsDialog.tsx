@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Copy,
   Palette,
+  ShieldCheck,
 } from "lucide-react"
 import classNames from "classnames"
 import { configStore } from "../../stores/ConfigStore"
@@ -31,9 +32,10 @@ import { Input } from "./Input"
 import { Textarea } from "./Textarea"
 import { Checkbox } from "./Checkbox"
 import { RemoteServersSettings } from "./RemoteServersSettings"
+import { GauntletSettings } from "./GauntletSettings"
 import { requestNotificationPermission } from "../../services/notificationService"
 
-type SettingsTab = "general" | "agents" | "advanced" | "updates" | "design-system"
+type SettingsTab = "general" | "agents" | "gauntlet" | "advanced" | "updates" | "design-system"
 
 interface CommandPreset {
   label: string
@@ -136,6 +138,7 @@ function CommandSelector({ label, value, presets, onChange, testId }: CommandSel
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <Settings2 className="size-4" /> },
   { id: "agents", label: "Agents", icon: <Bot className="size-4" /> },
+  { id: "gauntlet", label: "Gauntlet", icon: <ShieldCheck className="size-4" /> },
   { id: "advanced", label: "Advanced", icon: <Wrench className="size-4" /> },
   { id: "updates", label: "Updates", icon: <RefreshCw className="size-4" /> },
 ]
@@ -1180,6 +1183,14 @@ export const SettingsDialog = observer(function SettingsDialog({
                 className={activeTab === "agents" ? "" : "hidden"}
               >
                 <AgentsTab />
+              </div>
+              <div
+                id="tabpanel-gauntlet"
+                role="tabpanel"
+                aria-labelledby="tab-gauntlet"
+                className={activeTab === "gauntlet" ? "" : "hidden"}
+              >
+                <GauntletSettings />
               </div>
               <div
                 id="tabpanel-advanced"

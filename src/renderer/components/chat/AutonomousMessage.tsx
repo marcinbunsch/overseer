@@ -1,7 +1,15 @@
 import { useState } from "react"
 import { observer } from "mobx-react-lite"
 import type { Message, AutonomousMessageType, AutonomousReviewConfig } from "../../types"
-import { Play, RotateCw, CheckCircle, StopCircle, ChevronRight, ChevronDown } from "lucide-react"
+import {
+  Play,
+  RotateCw,
+  CheckCircle,
+  StopCircle,
+  ChevronRight,
+  ChevronDown,
+  Shield,
+} from "lucide-react"
 import classNames from "classnames"
 import { MarkdownContent } from "./MarkdownContent"
 import { projectRegistry } from "../../stores/ProjectRegistry"
@@ -51,7 +59,8 @@ export const AutonomousMessage = observer(function AutonomousMessage({
       : undefined
     void projectRegistry.selectedWorkspaceStore?.continueAutonomousRun(
       meta.maxIterations,
-      reviewConfig
+      reviewConfig,
+      meta.gauntletReviewers
     )
   }
 
@@ -134,6 +143,18 @@ function getAutonomousStyle(type: AutonomousMessageType): {
         icon: <StopCircle size={14} className="text-ovr-warning" />,
         bgClass: "bg-ovr-warning/10",
         borderClass: "border-ovr-warning/30",
+      }
+    case "gauntlet-round":
+      return {
+        icon: <Shield size={14} className="text-ovr-azure-400" />,
+        bgClass: "bg-ovr-azure-500/10",
+        borderClass: "border-ovr-azure-500/30",
+      }
+    case "gauntlet-verdict":
+      return {
+        icon: <Shield size={14} className="text-ovr-text-muted" />,
+        bgClass: "bg-ovr-bg-elevated",
+        borderClass: "border-ovr-border-subtle",
       }
   }
 }

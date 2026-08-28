@@ -8,14 +8,20 @@ import { Input } from "../shared/Input"
 import { Checkbox } from "../shared/Checkbox"
 import { ModelSelector } from "./ModelSelector"
 import { configStore } from "../../stores/ConfigStore"
+import { gauntletStore } from "../../stores/GauntletStore"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
-import type { AgentType, AutonomousReviewConfig } from "../../types"
+import type { AgentType, AutonomousReviewConfig, GauntletReviewer } from "../../types"
 
 interface AutonomousDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   initialPrompt: string
-  onStart: (prompt: string, maxIterations: number, reviewConfig?: AutonomousReviewConfig) => void
+  onStart: (
+    prompt: string,
+    maxIterations: number,
+    reviewConfig?: AutonomousReviewConfig,
+    gauntletReviewers?: GauntletReviewer[]
+  ) => void
 }
 
 export const AutonomousDialog = observer(function AutonomousDialog({
@@ -29,6 +35,8 @@ export const AutonomousDialog = observer(function AutonomousDialog({
   const [useReviewAgent, setUseReviewAgent] = useState(false)
   const [reviewAgentType, setReviewAgentType] = useState<AgentType>("claude")
   const [reviewModelVersion, setReviewModelVersion] = useState<string | null>(null)
+  const [useGauntlet, setUseGauntlet] = useState(false)
+  const [selectedReviewerIds, setSelectedReviewerIds] = useState<Set<string>>(new Set())
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -38,6 +46,8 @@ export const AutonomousDialog = observer(function AutonomousDialog({
       setUseReviewAgent(false)
       setReviewAgentType("claude")
       setReviewModelVersion(null)
+      setUseGauntlet(false)
+      setSelectedReviewerIds(new Set(gauntletStore.enabledReviewers.map((r) => r.id)))
     }
   }, [open, initialPrompt])
 
@@ -46,12 +56,36 @@ export const AutonomousDialog = observer(function AutonomousDialog({
     setReviewModelVersion(null)
   }, [reviewAgentType])
 
+  // Gauntlet and the single review agent are mutually exclusive
+  const toggleGauntlet = (on: boolean) => {
+    setUseGauntlet(on)
+    if (on) setUseReviewAgent(false)
+  }
+  const toggleReviewAgent = (on: boolean) => {
+    setUseReviewAgent(on)
+    if (on) setUseGauntlet(false)
+  }
+
+  const toggleReviewer = (id: string, on: boolean) => {
+    setSelectedReviewerIds((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const selectedReviewers = gauntletStore.reviewers.filter((r) => selectedReviewerIds.has(r.id))
+  const canStart = prompt.trim() && (!useGauntlet || selectedReviewers.length > 0)
+
   const handleStart = () => {
-    if (!prompt.trim()) return
-    const reviewConfig: AutonomousReviewConfig | undefined = useReviewAgent
-      ? { agentType: reviewAgentType, modelVersion: reviewModelVersion }
-      : undefined
-    onStart(prompt.trim(), maxIterations, reviewConfig)
+    if (!canStart) return
+    const reviewConfig: AutonomousReviewConfig | undefined =
+      useReviewAgent && !useGauntlet
+        ? { agentType: reviewAgentType, modelVersion: reviewModelVersion }
+        : undefined
+    const gauntletReviewers = useGauntlet ? selectedReviewers : undefined
+    onStart(prompt.trim(), maxIterations, reviewConfig, gauntletReviewers)
     onOpenChange(false)
   }
 
@@ -120,7 +154,7 @@ export const AutonomousDialog = observer(function AutonomousDialog({
               <label className="flex cursor-pointer items-center gap-2">
                 <Checkbox
                   checked={useReviewAgent}
-                  onChange={(e) => setUseReviewAgent(e.target.checked)}
+                  onChange={(e) => toggleReviewAgent(e.target.checked)}
                   data-testid="autonomous-use-review-agent-checkbox"
                 />
                 <span className="text-xs font-medium text-ovr-text-secondary">
@@ -169,6 +203,50 @@ export const AutonomousDialog = observer(function AutonomousDialog({
                 </div>
               )}
             </div>
+
+            {/* Gauntlet review configuration */}
+            <div className="flex flex-col gap-3 rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated px-3 py-2.5">
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={useGauntlet}
+                  onChange={(e) => toggleGauntlet(e.target.checked)}
+                  data-testid="autonomous-use-gauntlet-checkbox"
+                />
+                <span className="text-xs font-medium text-ovr-text-secondary">
+                  Use Gauntlet Review
+                </span>
+                <span className="text-[11px] text-ovr-text-muted">
+                  Run every selected reviewer each round until all pass
+                </span>
+              </label>
+
+              {useGauntlet && (
+                <div className="flex flex-col gap-1.5 pl-1">
+                  {gauntletStore.reviewers.length === 0 && (
+                    <p className="text-[11px] text-ovr-text-muted">
+                      No reviewers configured. Add some in Settings → Gauntlet.
+                    </p>
+                  )}
+                  {gauntletStore.reviewers.map((reviewer) => (
+                    <label
+                      key={reviewer.id}
+                      className="flex cursor-pointer items-center gap-2"
+                      data-testid={`gauntlet-select-${reviewer.id}`}
+                    >
+                      <Checkbox
+                        checked={selectedReviewerIds.has(reviewer.id)}
+                        onChange={(e) => toggleReviewer(reviewer.id, e.target.checked)}
+                      />
+                      <span className="text-xs text-ovr-text-primary">{reviewer.name}</span>
+                      <span className="text-[11px] text-ovr-text-muted">
+                        {getAgentDisplayName(reviewer.agentType)}
+                        {reviewer.modelVersion ? ` · ${reviewer.modelVersion}` : ""}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="mt-5 flex justify-end gap-3">
@@ -179,7 +257,7 @@ export const AutonomousDialog = observer(function AutonomousDialog({
               <button
                 className="ovr-btn-primary cursor-pointer px-4 py-1.5 text-xs"
                 onClick={handleStart}
-                disabled={!prompt.trim()}
+                disabled={!canStart}
                 data-testid="autonomous-start-button"
               >
                 Start Autonomous Run

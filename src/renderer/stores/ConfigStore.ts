@@ -5,6 +5,8 @@ import { listOpencodeModels } from "../services/opencode"
 import { listPiModels } from "../services/pi"
 import { backend } from "../backend"
 import { remoteServerStore, type RemoteServerConfig } from "./RemoteServerStore"
+import { gauntletStore } from "./GauntletStore"
+import type { GauntletReviewer } from "../types"
 
 export type ClaudePermissionMode = "default" | "plan" | "acceptEdits" | "bypassPermissions"
 export type CodexApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never"
@@ -55,6 +57,7 @@ interface Config {
   showReviewPrs?: boolean
   httpServer?: HttpServerConfig
   remoteServers?: RemoteServerConfig[]
+  gauntletReviewers?: GauntletReviewer[]
 }
 
 const ALL_AGENTS: AgentType[] = ["claude", "codex", "copilot", "gemini", "hermes", "opencode", "pi"]
@@ -191,6 +194,17 @@ const DEFAULT_PI_MODELS: AgentModel[] = []
 // refresh outside a session, so the list is cached in config.json (see
 // setHermesModels) and starts empty on a fresh install.
 const HermesModelsSchema = z.array(AgentModelSchema)
+
+const GauntletReviewersSchema = z.array(
+  z.object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    prompt: z.string(),
+    agentType: z.string().min(1),
+    modelVersion: z.string().nullable(),
+    enabled: z.boolean(),
+  })
+)
 
 class ConfigStore {
   @observable claudePath: string = FALLBACK_CLAUDE_PATH
@@ -366,6 +380,11 @@ class ConfigStore {
         if (Array.isArray(parsed.remoteServers)) {
           remoteServerStore.initFromConfig(parsed.remoteServers)
         }
+        // Gauntlet reviewers (seeds defaults when nothing is stored)
+        const gauntletReviewers = GauntletReviewersSchema.safeParse(parsed.gauntletReviewers)
+        gauntletStore.initFromConfig(
+          gauntletReviewers.success ? (gauntletReviewers.data as GauntletReviewer[]) : undefined
+        )
         this.loaded = true
       })
 
@@ -436,6 +455,7 @@ class ConfigStore {
           autoStart: this.httpServerAutoStart,
         },
         remoteServers: remoteServerStore.getConfigs(),
+        gauntletReviewers: gauntletStore.getConfigs(),
       }
       await backend.invoke("save_json_config", {
         filename: "config.json",
@@ -757,6 +777,14 @@ class ConfigStore {
    * Called when remote servers are added/removed/updated.
    */
   saveRemoteServers(): void {
+    this.save()
+  }
+
+  /**
+   * Save gauntlet reviewers config.
+   * Called when reviewers are added/removed/updated.
+   */
+  saveGauntletReviewers(): void {
     this.save()
   }
 }
