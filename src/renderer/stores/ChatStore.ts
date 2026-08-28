@@ -1246,8 +1246,8 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
 
 ## Your Job This Iteration
 1. Study the goal and current progress
-2. If any \`autonomous-review*.md\` files exist, read ALL of them and address every finding they list
-3. Otherwise, execute the NEXT logical step toward completing the goal
+2. Read ALL \`autonomous-review*.md\` files and address every finding they list (they may be empty — that's fine)
+3. Then make progress on the goal: execute the NEXT logical step toward completing it
 4. Update \`autonomous-progress.md\` with what you accomplished
 
 ## Important
