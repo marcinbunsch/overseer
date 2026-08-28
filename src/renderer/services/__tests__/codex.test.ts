@@ -57,10 +57,67 @@ describe("CodexAgentService", () => {
         logDir: null,
         logId: "chat-1",
         agentShell: null,
+        workingDir: "/tmp/workdir",
+        sandboxed: false,
       })
     })
 
     // Clean up by stopping
+    service.stopChat("chat-1")
+  })
+
+  it("sendMessage passes workingDir and sandboxed to start_codex_server", async () => {
+    const service = await freshService()
+
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      if (cmd === "start_codex_server") return undefined
+      if (cmd === "codex_stdin") return undefined
+      return undefined
+    })
+
+    // Args: chatId, prompt, workingDir, logDir, modelVersion, permissionMode,
+    // initPrompt, projectName, effortLevel, sandboxed
+    void service.sendMessage(
+      "chat-1",
+      "hello",
+      "/tmp/workdir",
+      undefined,
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      true
+    )
+
+    await vi.waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "start_codex_server",
+        expect.objectContaining({ workingDir: "/tmp/workdir", sandboxed: true })
+      )
+    })
+
+    service.stopChat("chat-1")
+  })
+
+  it("sendMessage defaults sandboxed to false when not passed", async () => {
+    const service = await freshService()
+
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      if (cmd === "start_codex_server") return undefined
+      if (cmd === "codex_stdin") return undefined
+      return undefined
+    })
+
+    void service.sendMessage("chat-1", "hello", "/tmp/workdir")
+
+    await vi.waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "start_codex_server",
+        expect.objectContaining({ workingDir: "/tmp/workdir", sandboxed: false })
+      )
+    })
+
     service.stopChat("chat-1")
   })
 
@@ -84,6 +141,8 @@ describe("CodexAgentService", () => {
         logDir: null,
         logId: "chat-1",
         agentShell: null,
+        workingDir: "/tmp/workdir",
+        sandboxed: false,
       })
     })
 
@@ -110,6 +169,8 @@ describe("CodexAgentService", () => {
         logDir: "/tmp/logs",
         logId: "chat-1",
         agentShell: null,
+        workingDir: "/tmp/workdir",
+        sandboxed: false,
       })
     })
 
@@ -613,6 +674,87 @@ describe("CodexAgentService", () => {
     expect(textInput?.text).toBe("user prompt")
 
     service.stopChat("chat-1")
+  })
+
+  it("adds the git common dir to the sandbox writable roots", async () => {
+    const service = await freshService()
+
+    // Running chat with a thread, so we go straight to turn/start.
+    // @ts-expect-error - accessing private method for test setup
+    const chat = service.getOrCreateChat("chat-1")
+    chat.running = true
+    chat.threadId = "thread-123"
+
+    const stdinCalls: string[] = []
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+      if (cmd === "get_git_common_dir") return "/repo/.git"
+      if (cmd === "codex_stdin") {
+        const data = (args as { data: string }).data
+        stdinCalls.push(data)
+        if (data.includes('"method":"turn/start"')) {
+          setTimeout(() => {
+            const msg = JSON.parse(data)
+            const response = JSON.stringify({ id: msg.id, result: { turn: { id: "turn-1" } } })
+            const stdoutListener = vi
+              .mocked(listen)
+              .mock.calls.find((c) => c[0] === "codex:stdout:chat-1")
+            if (stdoutListener) {
+              ;(stdoutListener[1] as (event: { payload: string }) => void)({ payload: response })
+            }
+          }, 5)
+        }
+      }
+      return undefined
+    })
+
+    await service.attachListeners("chat-1")
+    await service.sendMessage("chat-1", "hi", "/workspace")
+
+    const turnStartCall = stdinCalls.find((d) => d.includes('"method":"turn/start"'))
+    const turnStart = JSON.parse(turnStartCall!) as {
+      params: { sandboxPolicy: { writableRoots: string[] } }
+    }
+    expect(turnStart.params.sandboxPolicy.writableRoots).toEqual(["/workspace", "/repo/.git"])
+  })
+
+  it("falls back to just the workspace when the git dir can't be resolved", async () => {
+    const service = await freshService()
+
+    // @ts-expect-error - accessing private method for test setup
+    const chat = service.getOrCreateChat("chat-1")
+    chat.running = true
+    chat.threadId = "thread-123"
+
+    const stdinCalls: string[] = []
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+      if (cmd === "get_git_common_dir") throw new Error("not a git repo")
+      if (cmd === "codex_stdin") {
+        const data = (args as { data: string }).data
+        stdinCalls.push(data)
+        if (data.includes('"method":"turn/start"')) {
+          setTimeout(() => {
+            const msg = JSON.parse(data)
+            const response = JSON.stringify({ id: msg.id, result: { turn: { id: "turn-1" } } })
+            const stdoutListener = vi
+              .mocked(listen)
+              .mock.calls.find((c) => c[0] === "codex:stdout:chat-1")
+            if (stdoutListener) {
+              ;(stdoutListener[1] as (event: { payload: string }) => void)({ payload: response })
+            }
+          }, 5)
+        }
+      }
+      return undefined
+    })
+
+    await service.attachListeners("chat-1")
+    await service.sendMessage("chat-1", "hi", "/workspace")
+
+    const turnStartCall = stdinCalls.find((d) => d.includes('"method":"turn/start"'))
+    const turnStart = JSON.parse(turnStartCall!) as {
+      params: { sandboxPolicy: { writableRoots: string[] } }
+    }
+    expect(turnStart.params.sandboxPolicy.writableRoots).toEqual(["/workspace"])
   })
 
   it("resumes a persisted thread on server restart instead of starting a new one", async () => {

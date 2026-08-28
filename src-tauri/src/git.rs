@@ -120,6 +120,18 @@ pub async fn get_file_diff(
         .map_err(|e| e.to_string())
 }
 
+/// Resolve the shared git directory (`git rev-parse --git-common-dir`) for a
+/// workspace. For a worktree this is the main repo's `.git`, where commits write
+/// their objects and refs. Codex's `workspace-write` sandbox needs it in its
+/// writable roots or `git commit` fails inside a worktree.
+#[tauri::command]
+pub async fn get_git_common_dir(working_dir: String) -> Result<String, String> {
+    overseer_core::git::get_git_common_dir(std::path::Path::new(&working_dir))
+        .await
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
+}
+
 /// Get the diff for uncommitted changes to a file.
 #[tauri::command]
 pub async fn get_uncommitted_diff(

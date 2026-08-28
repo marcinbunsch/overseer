@@ -13,8 +13,32 @@ use crate::agents::event::AgentEvent;
 use crate::event_bus::EventBus;
 use crate::logging::{log_line, open_log_file, LogHandle};
 use crate::managers::{ChatSessionManager, ProjectApprovalManager};
+use crate::sandbox::{AgentKind, SandboxSpec};
 use crate::shell::AgentExit;
 use crate::spawn::{AgentProcess, ProcessEvent};
+
+/// Build the sandbox spec for a Codex spawn from the workspace and the
+/// caller-resolved git common dir. Mirrors the Claude builder but uses
+/// `AgentKind::Codex` and has no `CLAUDE_CONFIG_DIR` override. Returns an error
+/// (rather than silently skipping the sandbox) if the git dir or `$HOME` is
+/// missing.
+fn build_codex_sandbox_spec(
+    working_dir: &str,
+    git_common_dir: Option<&str>,
+    extra_env: Vec<(String, String)>,
+) -> Result<SandboxSpec, String> {
+    let git = git_common_dir
+        .ok_or_else(|| "Sandboxed Codex requires a resolved git directory".to_string())?;
+    let home = std::env::var("HOME").map_err(|_| "HOME is not set; cannot sandbox".to_string())?;
+    Ok(SandboxSpec::new(
+        AgentKind::Codex,
+        std::path::Path::new(working_dir),
+        std::path::Path::new(git),
+        std::path::Path::new(&home),
+        Vec::new(),
+    )
+    .with_extra_env(extra_env))
+}
 
 /// Entry for a single Codex process.
 struct CodexProcessEntry {
@@ -42,6 +66,20 @@ pub struct CodexStartConfig {
     pub log_dir: Option<String>,
     pub log_id: Option<String>,
     pub agent_shell: Option<String>,
+    /// Workspace directory the app-server runs against. Needed to grant the
+    /// Seatbelt profile write access when `sandboxed`.
+    pub working_dir: String,
+    /// When true, wrap the app-server in a macOS Seatbelt sandbox with a scrubbed
+    /// environment (see [`crate::sandbox`]).
+    pub sandboxed: bool,
+    /// The shared git directory (`git rev-parse --git-common-dir`). Required when
+    /// `sandboxed` so the profile can grant write access to the worktree's git
+    /// state, which lives in the main repo's `.git`. Resolved by the caller.
+    pub git_common_dir: Option<String>,
+    /// Extra environment variables injected into the scrubbed sandbox env (only
+    /// applied when `sandboxed`). Carries the internal git API address + token so
+    /// the agent can push / open PRs on the host. Empty by default.
+    pub extra_env: Vec<(String, String)>,
 }
 
 /// Manages Codex CLI processes.
@@ -93,8 +131,27 @@ impl CodexAgentManager {
             shell_prefix: config.agent_shell,
         };
 
+        let mut spawn_config = codex_config.build();
+
+        // Non-sandboxed spawns apply extra env here. Sandboxed spawns scrub the
+        // host env and re-inject via the SandboxSpec below, so this field is
+        // ignored on that path.
+        let sandbox_extra_env = config.extra_env.clone();
+        spawn_config.extra_env = config.extra_env;
+
+        // When requested, wrap the spawn in a Seatbelt sandbox. Fail loudly if the
+        // spec can't be built — never silently run an agent unsandboxed.
+        if config.sandboxed {
+            let spec = build_codex_sandbox_spec(
+                &config.working_dir,
+                config.git_common_dir.as_deref(),
+                sandbox_extra_env,
+            )?;
+            spawn_config = spawn_config.sandbox(spec);
+        }
+
         // Spawn the process
-        let mut process = AgentProcess::spawn(codex_config.build())?;
+        let mut process = AgentProcess::spawn(spawn_config)?;
 
         // Take the event receiver out so we can do blocking receives
         // without holding the lock on the process
@@ -333,5 +390,37 @@ fn check_auto_approval(
             }
         }
         _ => event,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_sandbox_spec_uses_codex_agent_kind_and_paths() {
+        let spec = build_codex_sandbox_spec(
+            "/tmp/ws",
+            Some("/tmp/repo/.git"),
+            vec![("OVERSEER_API_TOKEN".to_string(), "tok".to_string())],
+        )
+        .expect("spec builds with a git dir");
+
+        assert!(matches!(spec.agent, AgentKind::Codex));
+        assert!(spec.workspace_path.ends_with("ws"));
+        assert!(spec.git_common_dir.ends_with(".git"));
+        // The git-API env is carried through to the scrubbed sandbox env.
+        assert_eq!(
+            spec.extra_env,
+            vec![("OVERSEER_API_TOKEN".to_string(), "tok".to_string())]
+        );
+        // Codex has no CLAUDE_CONFIG_DIR override.
+        assert!(spec.claude_config_dir.is_none());
+    }
+
+    #[test]
+    fn codex_sandbox_spec_requires_git_dir() {
+        let err = build_codex_sandbox_spec("/tmp/ws", None, vec![]).unwrap_err();
+        assert!(err.contains("git directory"), "unexpected error: {err}");
     }
 }

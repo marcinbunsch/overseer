@@ -145,6 +145,13 @@ interface CodexChat {
   turnId: string | null
   running: boolean
   workingDir: string
+  /**
+   * Shared git dir (`git rev-parse --git-common-dir`), resolved once and cached.
+   * `null` means not resolved yet; `""` means resolution failed (don't retry).
+   * Added to the sandbox writable roots so `git commit` works inside a worktree,
+   * whose `.git` state lives outside the workspace directory.
+   */
+  gitCommonDir: string | null
   unlistenStdout: Unsubscribe | null
   unlistenEvent: Unsubscribe | null
   unlistenClose: Unsubscribe | null
@@ -180,6 +187,7 @@ class CodexAgentService implements AgentService {
         turnId: null,
         running: false,
         workingDir: "",
+        gitCommonDir: null,
         unlistenStdout: null,
         unlistenEvent: null,
         unlistenClose: null,
@@ -227,7 +235,12 @@ class CodexAgentService implements AgentService {
     modelVersion?: string | null,
     permissionMode?: string | null,
     initPrompt?: string,
-    projectName?: string
+    projectName?: string,
+    // effortLevel (9) and claudeConfigDir (11) are Claude-only; Codex ignores
+    // them but keeps them in the signature to match the AgentService interface.
+    _effortLevel?: string | null, // eslint-disable-line @typescript-eslint/no-unused-vars
+    sandboxed?: boolean,
+    _claudeConfigDir?: string // eslint-disable-line @typescript-eslint/no-unused-vars
   ): Promise<void> {
     const chat = this.getOrCreateChat(chatId)
     chat.workingDir = workingDir
@@ -251,6 +264,8 @@ class CodexAgentService implements AgentService {
           logDir: logDir ?? null,
           logId: chatId,
           agentShell: configStore.agentShell || null,
+          workingDir,
+          sandboxed: sandboxed ?? false,
         })
       } catch (err) {
         // Re-throw with a more helpful error message
@@ -324,6 +339,19 @@ class CodexAgentService implements AgentService {
     // Prepend initPrompt only to the first message of a brand-new thread
     const messageText = startedNewThread && initPrompt ? `${initPrompt}\n\n${prompt}` : prompt
 
+    // A worktree's git state (objects, refs, worktree metadata) lives in the main
+    // repo's `.git`, outside the workspace. Grant it write access too, or `git
+    // commit` fails under workspace-write. Resolved once and cached per chat.
+    if (chat.gitCommonDir === null) {
+      try {
+        chat.gitCommonDir = await backend.invoke<string>("get_git_common_dir", { workingDir })
+      } catch (err) {
+        console.warn(`Failed to resolve git dir for Codex sandbox [${chatId}]:`, err)
+        chat.gitCommonDir = "" // don't retry every turn
+      }
+    }
+    const writableRoots = chat.gitCommonDir ? [workingDir, chat.gitCommonDir] : [workingDir]
+
     // Send the turn
     await this.sendRequest(chatId, "turn/start", {
       threadId: chat.threadId,
@@ -332,7 +360,7 @@ class CodexAgentService implements AgentService {
       approvalPolicy,
       sandboxPolicy: {
         type: "workspaceWrite",
-        writableRoots: [workingDir],
+        writableRoots,
         networkAccess: true,
       },
     })
