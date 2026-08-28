@@ -23,6 +23,7 @@ import { WebSocketConnectionIndicator } from "./WebSocketConnectionIndicator"
 import { AtSearch } from "./AtSearch"
 import { SlashSearch } from "./SlashSearch"
 import { AutonomousDialog } from "./AutonomousDialog"
+import { GauntletRunDialog } from "./GauntletRunDialog"
 import { AttachmentChip } from "./AttachmentChip"
 import { getAgentDisplayName } from "../../utils/agentDisplayName"
 import { Textarea } from "../shared/Textarea"
@@ -62,6 +63,7 @@ interface ChatInputProps {
     reviewConfig?: AutonomousReviewConfig,
     gauntletReviewers?: GauntletReviewer[]
   ) => void
+  onStartGauntlet?: (reviewers: GauntletReviewer[], maxIterations: number) => void
   onStopAutonomous?: () => void
 }
 
@@ -127,6 +129,7 @@ export const ChatInput = observer(function ChatInput({
   autonomousIteration,
   autonomousMaxIterations,
   onStartAutonomous,
+  onStartGauntlet,
   onStopAutonomous,
 }: ChatInputProps) {
   const workspaceStore = projectRegistry.selectedWorkspaceStore
@@ -142,6 +145,7 @@ export const ChatInput = observer(function ChatInput({
   const [slashSearch, setSlashSearch] = useState<{ start: number; query: string } | null>(null)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [autonomousDialogOpen, setAutonomousDialogOpen] = useState(false)
+  const [gauntletDialogOpen, setGauntletDialogOpen] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
 
   useEffect(() => {
@@ -607,6 +611,16 @@ export const ChatInput = observer(function ChatInput({
                         <Play size={14} className="text-ovr-azure-400" />
                         Autonomous Run
                       </DropdownMenu.Item>
+                      {onStartGauntlet && (
+                        <DropdownMenu.Item
+                          onSelect={() => setGauntletDialogOpen(true)}
+                          className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                          data-testid="gauntlet-run-menu-item"
+                        >
+                          <Shield size={14} className="text-ovr-azure-400" />
+                          Run Gauntlet
+                        </DropdownMenu.Item>
+                      )}
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu.Root>
@@ -626,6 +640,15 @@ export const ChatInput = observer(function ChatInput({
             onStartAutonomous(prompt, maxIterations, reviewConfig, gauntletReviewers)
             workspaceStore?.setDraft(workspaceStore.activeChatId ?? "", "")
           }}
+        />
+      )}
+
+      {/* On-demand gauntlet dialog */}
+      {configStore.autonomousModeEnabled && onStartGauntlet && (
+        <GauntletRunDialog
+          open={gauntletDialogOpen}
+          onOpenChange={setGauntletDialogOpen}
+          onRun={(reviewers, maxIterations) => onStartGauntlet(reviewers, maxIterations)}
         />
       )}
     </div>

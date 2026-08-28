@@ -375,6 +375,9 @@ export const ChatWindow = observer(function ChatWindow({ workspace }: ChatWindow
                     gauntletReviewers
                   )
                 }
+                onStartGauntlet={(reviewers, maxIterations) =>
+                  workspaceStore.startGauntletRun(reviewers, maxIterations)
+                }
                 onStopAutonomous={() => workspaceStore.stopAutonomousRun()}
               />
             </>

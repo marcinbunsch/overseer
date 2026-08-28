@@ -623,6 +623,11 @@ export class WorkspaceStore {
   }
 
   @action
+  async startGauntletRun(reviewers: GauntletReviewer[], maxIterations?: number): Promise<void> {
+    await this.activeChat?.startGauntletRun(reviewers, maxIterations)
+  }
+
+  @action
   stopAutonomousRun(): void {
     this.activeChat?.stopAutonomousRun()
   }

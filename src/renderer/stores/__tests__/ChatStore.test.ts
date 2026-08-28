@@ -2678,6 +2678,38 @@ Live text.`,
       expect(interrupted).toContain(gid(b.id))
     })
 
+    it("startGauntletRun begins in the review phase and fans out immediately", async () => {
+      const [a, b] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startGauntletRun([a, b], 10)
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(store.autonomousRunning).toBe(true)
+      expect(store.autonomousGauntletReviewers.map((r) => r.id)).toEqual([a.id, b.id])
+      // No implementation turn first — reviewers run against existing work right away.
+      const sentIds = firstArgs(mockAgentService.sendMessage)
+      expect(sentIds).toContain(gid(a.id))
+      expect(sentIds).toContain(gid(b.id))
+      // The main chat did not get an implementation loop turn.
+      expect(sentIds).not.toContain("test-chat-id")
+    })
+
+    it("startGauntletRun finishes right away when all reviewers pass", async () => {
+      const [a] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startGauntletRun([a], 10)
+      await new Promise((r) => setTimeout(r, 0))
+
+      eventFor(gid(a.id))?.({ kind: "text", text: "clean GAUNTLET_PASS" })
+      doneFor(gid(a.id))?.()
+
+      expect(store.autonomousRunning).toBe(false)
+      const complete = store.messages.find((m) => m.meta?.autonomousType === "autonomous-complete")
+      expect(complete?.content).toContain("Survived the gauntlet")
+    })
+
     it("removes synthetic reviewer chats on dispose", async () => {
       const [a, b] = twoReviewers()
       const store = createChatStore({ agentType: "claude" })

@@ -742,6 +742,51 @@ export class ChatStore {
   }
 
   /**
+   * On-demand gauntlet: review the work already in this workspace and fix all
+   * findings until every reviewer passes. There is no task prompt — the run
+   * starts in the review phase so the reviewers assess the current changes first.
+   */
+  @action
+  async startGauntletRun(reviewers: GauntletReviewer[], maxIterations = 25): Promise<void> {
+    const workspacePath = this.context.getWorkspacePath()
+    if (!workspacePath || reviewers.length === 0) return
+
+    await this.initAutonomousRunState(maxIterations, undefined, reviewers)
+    // Review the existing work before touching anything.
+    runInAction(() => {
+      this.autonomousPhase = "review"
+    })
+
+    try {
+      await this.backend.invoke("write_file", {
+        path: `${workspacePath}/autonomous-prompt.md`,
+        content:
+          "# Gauntlet Review\n\n" +
+          "There is no separate task description. Specialist reviewers will inspect the " +
+          "current changes in this workspace (start with `git diff` against the base branch) " +
+          "and report issues. Your job across iterations is to address every finding they " +
+          "raise until all reviewers pass.\n",
+      })
+      await this.backend.invoke("write_file", {
+        path: `${workspacePath}/autonomous-progress.md`,
+        content:
+          "# Autonomous Progress\n\nOn-demand gauntlet run. Reviewers assess the current " +
+          "workspace changes first; findings are stored in `autonomous-review-*.md`.\n",
+      })
+    } catch (err) {
+      console.error("Failed to write gauntlet files:", err)
+      runInAction(() => {
+        this.autonomousMode = false
+        this.autonomousRunning = false
+      })
+      return
+    }
+
+    this.pushAutonomousMessage("autonomous-start", 0)
+    await this.runNextIteration()
+  }
+
+  /**
    * Resume a run that stopped because it hit the iteration cap. The prompt/progress/review
    * files persist in the workspace, so we re-arm the run and let the agent read
    * `autonomous-progress.md` to continue — we do NOT rewrite the files here.
