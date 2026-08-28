@@ -32,6 +32,14 @@ import { playCompletionSound, sendSystemNotification } from "../services/notific
  */
 const catchUpQueue = createConcurrencyLimiter(5)
 
+/**
+ * Autonomous/gauntlet scratch files (prompt, progress, review) live in this
+ * folder under the workspace root instead of the root itself, so they don't
+ * clutter the repo or get committed. A `.gitignore` with `*` is written here on
+ * every run, keeping the whole folder untracked.
+ */
+const OVERSEER_DIR = ".overseer"
+
 export interface ChatStoreContext {
   getChatDir: () => Promise<string | null>
   getInitPrompt: () => string | undefined
@@ -698,6 +706,14 @@ export class ChatStore {
 
   // --- Autonomous Mode ---
 
+  /** Keep the .overseer scratch folder out of git so its files never get committed. */
+  private async writeOverseerGitignore(workspacePath: string): Promise<void> {
+    await this.backend.invoke("write_file", {
+      path: `${workspacePath}/${OVERSEER_DIR}/.gitignore`,
+      content: "*\n",
+    })
+  }
+
   @action
   async startAutonomousRun(
     prompt: string,
@@ -710,19 +726,20 @@ export class ChatStore {
 
     await this.initAutonomousRunState(maxIterations, reviewConfig, gauntletReviewers)
 
-    // Write the prompt and progress files to workspace
+    // Write the prompt and progress files to the .overseer folder
     try {
+      await this.writeOverseerGitignore(workspacePath)
       await this.backend.invoke("write_file", {
-        path: `${workspacePath}/autonomous-prompt.md`,
+        path: `${workspacePath}/${OVERSEER_DIR}/autonomous-prompt.md`,
         content: prompt,
       })
       await this.backend.invoke("write_file", {
-        path: `${workspacePath}/autonomous-progress.md`,
+        path: `${workspacePath}/${OVERSEER_DIR}/autonomous-progress.md`,
         content:
-          "# Autonomous Progress\n\nNo progress yet.\n\n> Review findings are stored in `autonomous-review.md`\n",
+          "# Autonomous Progress\n\nNo progress yet.\n\n> Review findings are stored in `.overseer/autonomous-review.md`\n",
       })
       await this.backend.invoke("write_file", {
-        path: `${workspacePath}/autonomous-review.md`,
+        path: `${workspacePath}/${OVERSEER_DIR}/autonomous-review.md`,
         content: "# Autonomous Review\n\nNo review yet.\n",
       })
     } catch (err) {
@@ -758,8 +775,9 @@ export class ChatStore {
     })
 
     try {
+      await this.writeOverseerGitignore(workspacePath)
       await this.backend.invoke("write_file", {
-        path: `${workspacePath}/autonomous-prompt.md`,
+        path: `${workspacePath}/${OVERSEER_DIR}/autonomous-prompt.md`,
         content:
           "# Gauntlet Review\n\n" +
           "There is no separate task description. Specialist reviewers will inspect the " +
@@ -768,10 +786,10 @@ export class ChatStore {
           "raise until all reviewers pass.\n",
       })
       await this.backend.invoke("write_file", {
-        path: `${workspacePath}/autonomous-progress.md`,
+        path: `${workspacePath}/${OVERSEER_DIR}/autonomous-progress.md`,
         content:
           "# Autonomous Progress\n\nOn-demand gauntlet run. Reviewers assess the current " +
-          "workspace changes first; findings are stored in `autonomous-review-*.md`.\n",
+          "workspace changes first; findings are stored in `.overseer/autonomous-review-*.md`.\n",
       })
     } catch (err) {
       console.error("Failed to write gauntlet files:", err)
@@ -1107,14 +1125,14 @@ export class ChatStore {
   }
 
   private generateGauntletReviewPrompt(reviewer: GauntletReviewer): string {
-    const file = `autonomous-review-${reviewer.id}.md`
+    const file = `${OVERSEER_DIR}/autonomous-review-${reviewer.id}.md`
     return `You are a specialist reviewer in a **Gauntlet Review**: **${reviewer.name}**.
 
 ## Original Task
-Read \`autonomous-prompt.md\` for the task the implementer is working on.
+Read \`${OVERSEER_DIR}/autonomous-prompt.md\` for the task the implementer is working on.
 
 ## Progress So Far
-Read \`autonomous-progress.md\` and inspect the actual changes in the workspace.
+Read \`${OVERSEER_DIR}/autonomous-progress.md\` and inspect the actual changes in the workspace.
 
 ## Your Review Focus
 ${reviewer.prompt}
@@ -1239,16 +1257,16 @@ ${reviewer.prompt}
     return `You are running in **Autonomous Mode**, iteration ${this.autonomousIteration} of max ${this.autonomousMaxIterations}.
 
 ## Your Goal
-Read the file \`autonomous-prompt.md\` in the workspace root for your full task description.
+Read the file \`${OVERSEER_DIR}/autonomous-prompt.md\` for your full task description.
 
 ## Your Progress
-Read \`autonomous-progress.md\` to see what has been accomplished so far.
+Read \`${OVERSEER_DIR}/autonomous-progress.md\` to see what has been accomplished so far.
 
 ## Your Job This Iteration
 1. Study the goal and current progress
-2. Read ALL \`autonomous-review*.md\` files and address every finding they list (they may be empty — that's fine)
+2. Read ALL \`${OVERSEER_DIR}/autonomous-review*.md\` files and address every finding they list (they may be empty — that's fine)
 3. Then make progress on the goal: execute the NEXT logical step toward completing it
-4. Update \`autonomous-progress.md\` with what you accomplished
+4. Update \`${OVERSEER_DIR}/autonomous-progress.md\` with what you accomplished
 
 ## Important
 - Each iteration starts fresh - you have no memory of previous iterations
@@ -1262,20 +1280,20 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
     return `You are running in **Autonomous Mode**, review step after iteration ${this.autonomousIteration} of max ${this.autonomousMaxIterations}.
 
 ## Your Goal
-Read \`autonomous-prompt.md\` for the original task description.
+Read \`${OVERSEER_DIR}/autonomous-prompt.md\` for the original task description.
 
 ## Progress So Far
-Read \`autonomous-progress.md\` to see what has been accomplished.
+Read \`${OVERSEER_DIR}/autonomous-progress.md\` to see what has been accomplished.
 
 ## Your Job: Review
 1. Thoroughly review all work done against the original goal
 2. Check for correctness, completeness, and quality
-3. Write your full review findings to \`autonomous-review.md\`
-4. Update \`autonomous-progress.md\` to note that a review was performed and reference \`autonomous-review.md\`
+3. Write your full review findings to \`${OVERSEER_DIR}/autonomous-review.md\`
+4. Update \`${OVERSEER_DIR}/autonomous-progress.md\` to note that a review was performed and reference \`${OVERSEER_DIR}/autonomous-review.md\`
 
 ## Decision
 - If the goal is **fully and correctly completed**: end your response with exactly: AUTONOMOUS_SESSION_COMPLETE
-- If there are remaining issues or incomplete work: describe clearly in \`autonomous-review.md\` what still needs to be done. Do NOT output AUTONOMOUS_SESSION_COMPLETE.
+- If there are remaining issues or incomplete work: describe clearly in \`${OVERSEER_DIR}/autonomous-review.md\` what still needs to be done. Do NOT output AUTONOMOUS_SESSION_COMPLETE.
 
 ## Important
 - Be honest and thorough — this review determines whether the task is done
