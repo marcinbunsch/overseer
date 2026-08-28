@@ -406,8 +406,19 @@ export class ClaudeAgentService implements AgentService {
   }
 
   async interruptTurn(chatId: string): Promise<void> {
-    // Claude doesn't have a protocol-level cancel, so interrupt = stop
-    await this.stopChat(chatId)
+    const conv = this.conversations.get(chatId)
+    if (!conv?.running) return
+
+    // Claude Code's stream-JSON protocol accepts an interrupt control request.
+    // This ends the current turn but leaves the CLI process alive for follow-ups.
+    await this.backend.invoke("agent_stdin", {
+      conversationId: chatId,
+      data: JSON.stringify({
+        type: "control_request",
+        request_id: crypto.randomUUID(),
+        request: { subtype: "interrupt" },
+      }),
+    })
   }
 
   async stopChat(chatId: string): Promise<void> {

@@ -248,6 +248,40 @@ describe("ClaudeAgentService", () => {
     expect(service.isRunning("conv-1")).toBe(false)
   })
 
+  it("interruptTurn sends a stream-JSON interrupt and keeps the process running", async () => {
+    const service = await freshService()
+
+    await service.sendMessage("conv-1", "hello", "/tmp")
+    vi.clearAllMocks()
+
+    await service.interruptTurn("conv-1")
+
+    expect(invoke).toHaveBeenCalledWith("agent_stdin", {
+      conversationId: "conv-1",
+      data: expect.any(String),
+    })
+    expect(invoke).not.toHaveBeenCalledWith("stop_agent", { conversationId: "conv-1" })
+    expect(service.isRunning("conv-1")).toBe(true)
+
+    const interruptInvocation = vi
+      .mocked(invoke)
+      .mock.calls.find(([command]) => command === "agent_stdin")
+    expect(interruptInvocation).toBeDefined()
+    const args = interruptInvocation![1] as { data: string }
+    expect(JSON.parse(args.data)).toMatchObject({
+      type: "control_request",
+      request: { subtype: "interrupt" },
+    })
+  })
+
+  it("interruptTurn does nothing without a running conversation", async () => {
+    const service = await freshService()
+
+    await service.interruptTurn("conv-1")
+
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
   it("setSessionId and getSessionId work correctly", async () => {
     const service = await freshService()
 
