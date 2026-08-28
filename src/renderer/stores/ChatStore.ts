@@ -1396,7 +1396,13 @@ Read \`${OVERSEER_DIR}/autonomous-progress.md\` to see what has been accomplishe
     this.sessionRegistered = false
     this.unlistenReconnect?.()
     this.unlistenReconnect = null
-    void this.backend.invoke("unregister_chat_session", { chatId: this.chat.id })
+    // Do NOT unregister the backend chat session here. The agent process
+    // outlives this view (workspace-cache eviction, window teardown), and
+    // unregistering while it runs makes every later append fail "not
+    // registered" — silently dropped — so the running process keeps working
+    // while the transcript freezes mid-turn. The backend session persistence
+    // must follow the process, not this store. Sessions are released on
+    // explicit archive/delete and app close.
     if (this._reviewService) {
       this._reviewService.removeChat(this.chat.id)
       this._reviewService = null

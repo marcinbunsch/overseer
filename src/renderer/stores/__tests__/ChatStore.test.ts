@@ -1847,12 +1847,14 @@ Live text.`,
   })
 
   describe("dispose", () => {
-    it("dispose unregisters chat session", () => {
+    it("dispose does NOT unregister the chat session (persistence follows the process, not the view)", () => {
       const store = createChatStore()
 
       store.dispose()
 
-      expect(invoke).toHaveBeenCalledWith("unregister_chat_session", { chatId: "test-chat-id" })
+      expect(invoke).not.toHaveBeenCalledWith("unregister_chat_session", {
+        chatId: "test-chat-id",
+      })
     })
   })
 

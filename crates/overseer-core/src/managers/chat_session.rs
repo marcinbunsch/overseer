@@ -298,6 +298,12 @@ impl ChatSession {
         writer.get_ref().sync_all()?;
         self.last_flush = Instant::now();
 
+        // Release the file descriptor between flushes. Sessions now stay
+        // registered for the life of the agent process (the frontend no longer
+        // unregisters when its view is torn down), so a long-lived idle session
+        // must not keep an open handle. The next append reopens in append mode.
+        self.file_handle = None;
+
         Ok(())
     }
 }
@@ -737,6 +743,38 @@ mod tests {
             .load_events("test-project", "test-workspace", "chat-123")
             .unwrap();
         assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn appends_persist_across_flushes_without_reregistering() {
+        // Sessions now stay registered for the whole agent-process lifetime
+        // (the frontend no longer unregisters on view teardown). Each flush
+        // releases the file handle, so a later append must reopen in append
+        // mode and continue the file — not truncate or fail.
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                sample_chat_metadata("chat-123"),
+            )
+            .unwrap();
+
+        // Two full auto-flush batches. The first flush releases the handle; the
+        // second must reopen and append the next batch after it.
+        for i in 0..(MAX_PENDING_EVENTS * 2) {
+            manager
+                .append_event("chat-123", sample_user_message(&format!("m{i}")))
+                .unwrap();
+        }
+
+        let events = manager
+            .load_events("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(events.len(), MAX_PENDING_EVENTS * 2);
     }
 
     // ------------------------------------------------------------------------
