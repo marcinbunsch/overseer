@@ -200,7 +200,9 @@ const GauntletReviewersSchema = z.array(
     id: z.string().min(1),
     name: z.string().min(1),
     prompt: z.string(),
-    agentType: z.string().min(1),
+    // Restrict to known agents so a corrupt/hand-edited value can't reach
+    // createAgentService() at runtime.
+    agentType: z.enum(ALL_AGENTS as [AgentType, ...AgentType[]]),
     modelVersion: z.string().nullable(),
     enabled: z.boolean(),
   })

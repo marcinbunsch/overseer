@@ -2617,6 +2617,30 @@ Live text.`,
       expect(complete?.content).toContain("Survived the gauntlet")
     })
 
+    it("classifies by the final marker when a reviewer quotes both", async () => {
+      const [a] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+      await store.startAutonomousRun("p", 10, undefined, [a])
+
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+      await new Promise((r) => setTimeout(r, 0))
+
+      // Mentions FAIL in prose but ends with PASS — should pass.
+      eventFor(gid(a.id))?.({
+        kind: "text",
+        text: "I could output GAUNTLET_FAIL but everything checks out.\nGAUNTLET_PASS",
+      })
+      doneFor(gid(a.id))?.()
+
+      expect(store.autonomousRunning).toBe(false)
+      const complete = store.messages.find((m) => m.meta?.autonomousType === "autonomous-complete")
+      expect(complete?.content).toContain("Survived the gauntlet")
+    })
+
     it("returns to implementation when a reviewer finds issues", async () => {
       const [a, b] = twoReviewers()
       const store = createChatStore({ agentType: "claude" })

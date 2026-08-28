@@ -829,6 +829,10 @@ export class ChatStore {
       this.isSending = false
     }
 
+    // Tear down any synthetic reviewer chats/services left by a previous run
+    // before re-arming (uses the still-current autonomousGauntletReviewers).
+    this.cleanupGauntletServices()
+
     // Generate unique session ID for this autonomous run
     this.autonomousSessionId = `${this.chat.id}-auto-${Date.now()}`
     this.autonomousMode = true
@@ -838,7 +842,9 @@ export class ChatStore {
     this.autonomousPhase = "implementation"
     this.autonomousReviewAgentType = reviewConfig?.agentType ?? null
     this.autonomousReviewModelVersion = reviewConfig?.modelVersion ?? null
-    this.autonomousGauntletReviewers = gauntletReviewers ?? []
+    // Snapshot the reviewer configs so later edits in Settings can't mutate the
+    // in-flight run or the stored completion meta.
+    this.autonomousGauntletReviewers = (gauntletReviewers ?? []).map((r) => ({ ...r }))
     this.autonomousGauntletRound = 0
     this._gauntletPending.clear()
     this._gauntletText.clear()
@@ -1053,9 +1059,11 @@ export class ChatStore {
 
     this._gauntletPending.delete(reviewer.id)
     const text = this._gauntletText.get(reviewer.id) ?? ""
-    // Default to fail if the marker is missing, so a confused reviewer never
-    // lets the implementer off the hook.
-    const passed = text.includes("GAUNTLET_PASS") && !text.includes("GAUNTLET_FAIL")
+    // Reviewers are told to END with exactly one marker, so take whichever marker
+    // appears LAST. A reviewer that quotes both markers in its prose (e.g. the
+    // instructions) then still gets classified by its final verdict. Missing
+    // markers default to fail, so a confused reviewer never lets the run off the hook.
+    const passed = text.lastIndexOf("GAUNTLET_PASS") > text.lastIndexOf("GAUNTLET_FAIL")
     this._gauntletVerdicts.set(reviewer.id, passed)
     this.pushGauntletVerdict(reviewer, passed)
 

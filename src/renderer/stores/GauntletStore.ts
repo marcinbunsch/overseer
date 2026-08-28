@@ -64,12 +64,13 @@ class GauntletStore {
 
   /**
    * Initialize reviewers from saved config. Called by ConfigStore after loading.
-   * Seeds the defaults when nothing is stored (fresh install).
+   * Seeds the defaults only when the config key is absent (fresh install) —
+   * an explicit empty array means the user deleted every reviewer, which we honor.
    */
   @action
   initFromConfig(configs: GauntletReviewer[] | undefined): void {
     this._reviewers.clear()
-    const list = configs && configs.length > 0 ? configs : defaultReviewers()
+    const list = configs ?? defaultReviewers()
     for (const reviewer of list) {
       this._reviewers.set(reviewer.id, reviewer)
     }

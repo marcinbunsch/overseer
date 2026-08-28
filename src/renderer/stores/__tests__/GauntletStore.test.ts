@@ -18,6 +18,11 @@ describe("GauntletStore", () => {
     expect(names).toContain("Security Review")
   })
 
+  it("honors an explicit empty array without re-seeding defaults", () => {
+    gauntletStore.initFromConfig([])
+    expect(gauntletStore.reviewers).toHaveLength(0)
+  })
+
   it("uses stored reviewers when provided instead of defaults", () => {
     gauntletStore.initFromConfig([
       {
