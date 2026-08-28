@@ -1,9 +1,10 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
 import { AutonomousDialog } from "../AutonomousDialog"
+import { gauntletStore } from "../../../stores/GauntletStore"
 
 vi.mock("../../../stores/ConfigStore", () => ({
   configStore: {
@@ -20,6 +21,12 @@ vi.mock("../../../stores/ConfigStore", () => ({
     },
   },
 }))
+
+// Start each test with a clean, empty gauntlet reviewer list.
+beforeEach(() => {
+  gauntletStore.initFromConfig([])
+  gauntletStore.reviewers.forEach((r) => gauntletStore.removeReviewer(r.id))
+})
 
 describe("AutonomousDialog", () => {
   const defaultProps = {
@@ -53,7 +60,7 @@ describe("AutonomousDialog", () => {
 
     fireEvent.click(screen.getByTestId("autonomous-start-button"))
 
-    expect(onStart).toHaveBeenCalledWith("Test prompt", 25, undefined)
+    expect(onStart).toHaveBeenCalledWith("Test prompt", 25, undefined, undefined)
   })
 
   it("calls onStart with custom maxIterations", () => {
@@ -64,7 +71,7 @@ describe("AutonomousDialog", () => {
     fireEvent.change(input, { target: { value: "10" } })
     fireEvent.click(screen.getByTestId("autonomous-start-button"))
 
-    expect(onStart).toHaveBeenCalledWith("Test prompt", 10, undefined)
+    expect(onStart).toHaveBeenCalledWith("Test prompt", 10, undefined, undefined)
   })
 
   it("does not call onStart with empty prompt", () => {
@@ -99,7 +106,7 @@ describe("AutonomousDialog", () => {
 
       fireEvent.click(screen.getByTestId("autonomous-start-button"))
 
-      expect(onStart).toHaveBeenCalledWith("Test prompt", 25, undefined)
+      expect(onStart).toHaveBeenCalledWith("Test prompt", 25, undefined, undefined)
     })
 
     it("passes reviewConfig with default claude agent and null model when checkbox enabled", () => {
@@ -109,10 +116,15 @@ describe("AutonomousDialog", () => {
       fireEvent.click(screen.getByTestId("autonomous-use-review-agent-checkbox"))
       fireEvent.click(screen.getByTestId("autonomous-start-button"))
 
-      expect(onStart).toHaveBeenCalledWith("Test prompt", 25, {
-        agentType: "claude",
-        modelVersion: null,
-      })
+      expect(onStart).toHaveBeenCalledWith(
+        "Test prompt",
+        25,
+        {
+          agentType: "claude",
+          modelVersion: null,
+        },
+        undefined
+      )
     })
 
     it("shows model selector when checkbox is enabled", () => {
@@ -134,10 +146,15 @@ describe("AutonomousDialog", () => {
       // Model starts at Default (null) — click Start without picking a model
       fireEvent.click(screen.getByTestId("autonomous-start-button"))
 
-      expect(onStart).toHaveBeenCalledWith("Test prompt", 25, {
-        agentType: "claude",
-        modelVersion: null,
-      })
+      expect(onStart).toHaveBeenCalledWith(
+        "Test prompt",
+        25,
+        {
+          agentType: "claude",
+          modelVersion: null,
+        },
+        undefined
+      )
     })
 
     it("passes selected model version when a model is chosen", () => {
@@ -152,10 +169,15 @@ describe("AutonomousDialog", () => {
 
       fireEvent.click(screen.getByTestId("autonomous-start-button"))
 
-      expect(onStart).toHaveBeenCalledWith("Test prompt", 25, {
-        agentType: "claude",
-        modelVersion: "claude-haiku-4-5",
-      })
+      expect(onStart).toHaveBeenCalledWith(
+        "Test prompt",
+        25,
+        {
+          agentType: "claude",
+          modelVersion: "claude-haiku-4-5",
+        },
+        undefined
+      )
     })
 
     it("shows agent type selector when checkbox is enabled", () => {
@@ -164,6 +186,94 @@ describe("AutonomousDialog", () => {
       fireEvent.click(screen.getByTestId("autonomous-use-review-agent-checkbox"))
 
       expect(screen.getByTestId("autonomous-review-agent-select")).toBeInTheDocument()
+    })
+  })
+
+  describe("gauntlet review configuration", () => {
+    const seedReviewers = () => {
+      gauntletStore.addReviewer({
+        name: "Code Review",
+        prompt: "check correctness",
+        agentType: "claude",
+        modelVersion: null,
+        enabled: true,
+      })
+      gauntletStore.addReviewer({
+        name: "Security Review",
+        prompt: "check security",
+        agentType: "claude",
+        modelVersion: null,
+        enabled: false,
+      })
+    }
+
+    it("reveals the reviewer checklist when enabled and defaults to enabled reviewers", () => {
+      seedReviewers()
+      render(<AutonomousDialog {...defaultProps} />)
+
+      const [codeReview, securityReview] = gauntletStore.reviewers
+      expect(screen.queryByTestId(`gauntlet-select-${codeReview.id}`)).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId("autonomous-use-gauntlet-checkbox"))
+
+      const codeCheckbox = screen
+        .getByTestId(`gauntlet-select-${codeReview.id}`)
+        .querySelector("input") as HTMLInputElement
+      const securityCheckbox = screen
+        .getByTestId(`gauntlet-select-${securityReview.id}`)
+        .querySelector("input") as HTMLInputElement
+      // Only the enabled reviewer is pre-selected.
+      expect(codeCheckbox.checked).toBe(true)
+      expect(securityCheckbox.checked).toBe(false)
+    })
+
+    it("passes the selected reviewers and no reviewConfig when gauntlet is on", () => {
+      seedReviewers()
+      const onStart = vi.fn()
+      render(<AutonomousDialog {...defaultProps} onStart={onStart} />)
+
+      fireEvent.click(screen.getByTestId("autonomous-use-gauntlet-checkbox"))
+      fireEvent.click(screen.getByTestId("autonomous-start-button"))
+
+      const [codeReview] = gauntletStore.reviewers
+      expect(onStart).toHaveBeenCalledWith("Test prompt", 25, undefined, [
+        expect.objectContaining({ id: codeReview.id, name: "Code Review" }),
+      ])
+    })
+
+    it("is mutually exclusive with the single review agent option", () => {
+      seedReviewers()
+      render(<AutonomousDialog {...defaultProps} />)
+
+      const gauntletCheckbox = screen.getByTestId(
+        "autonomous-use-gauntlet-checkbox"
+      ) as HTMLInputElement
+      const reviewCheckbox = screen.getByTestId(
+        "autonomous-use-review-agent-checkbox"
+      ) as HTMLInputElement
+
+      fireEvent.click(reviewCheckbox)
+      expect(reviewCheckbox.checked).toBe(true)
+
+      fireEvent.click(gauntletCheckbox)
+      expect(gauntletCheckbox.checked).toBe(true)
+      expect(reviewCheckbox.checked).toBe(false)
+    })
+
+    it("disables Start when gauntlet is on but no reviewer is selected", () => {
+      seedReviewers()
+      render(<AutonomousDialog {...defaultProps} />)
+
+      fireEvent.click(screen.getByTestId("autonomous-use-gauntlet-checkbox"))
+
+      const [codeReview] = gauntletStore.reviewers
+      // Uncheck the only pre-selected reviewer.
+      const codeCheckbox = screen
+        .getByTestId(`gauntlet-select-${codeReview.id}`)
+        .querySelector("input") as HTMLInputElement
+      fireEvent.click(codeCheckbox)
+
+      expect(screen.getByTestId("autonomous-start-button")).toBeDisabled()
     })
   })
 })

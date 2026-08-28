@@ -13,6 +13,7 @@ import type {
   AgentType,
   AutonomousMessageType,
   AutonomousReviewConfig,
+  GauntletReviewer,
 } from "../types"
 import { groupMessagesIntoTurns } from "../utils/groupMessagesIntoTurns"
 import { createAgentService } from "../services/agentRegistry"
@@ -30,6 +31,14 @@ import { playCompletionSound, sendSystemNotification } from "../services/notific
  * requests simultaneously.
  */
 const catchUpQueue = createConcurrencyLimiter(5)
+
+/**
+ * Autonomous/gauntlet scratch files (prompt, progress, review) live in this
+ * folder under the workspace root instead of the root itself, so they don't
+ * clutter the repo or get committed. A `.gitignore` with `*` is written here on
+ * every run, keeping the whole folder untracked.
+ */
+const OVERSEER_DIR = ".overseer"
 
 export interface ChatStoreContext {
   getChatDir: () => Promise<string | null>
@@ -118,8 +127,20 @@ export class ChatStore {
   @observable autonomousPhase: "implementation" | "review" = "implementation"
   @observable autonomousReviewAgentType: AgentType | null = null
   @observable autonomousReviewModelVersion: string | null = null
+  /** Reviewers selected for a gauntlet run. Empty = classic single-reviewer mode. */
+  @observable autonomousGauntletReviewers: GauntletReviewer[] = []
+  /** 1-indexed gauntlet round counter for display */
+  @observable autonomousGauntletRound: number = 0
   /** Accumulated text from the current iteration for completion detection */
   private autonomousCurrentIterationText: string = ""
+  /** Gauntlet review services, cached by agent type and reused across rounds */
+  private _gauntletServices: Map<AgentType, AgentService> = new Map()
+  /** Reviewer ids still running in the current gauntlet round */
+  private _gauntletPending: Set<string> = new Set()
+  /** Accumulated final text per reviewer id in the current round (for verdict detection) */
+  private _gauntletText: Map<string, string> = new Map()
+  /** Pass/fail verdict per reviewer id in the current round */
+  private _gauntletVerdicts: Map<string, boolean> = new Map()
   /** Original permission mode to restore after autonomous run completes. undefined = not set */
   private originalPermissionMode: string | null | undefined = undefined
   /** When true, stop the process on next turnComplete so it restarts with new config */
@@ -685,30 +706,40 @@ export class ChatStore {
 
   // --- Autonomous Mode ---
 
+  /** Keep the .overseer scratch folder out of git so its files never get committed. */
+  private async writeOverseerGitignore(workspacePath: string): Promise<void> {
+    await this.backend.invoke("write_file", {
+      path: `${workspacePath}/${OVERSEER_DIR}/.gitignore`,
+      content: "*\n",
+    })
+  }
+
   @action
   async startAutonomousRun(
     prompt: string,
     maxIterations: number,
-    reviewConfig?: AutonomousReviewConfig
+    reviewConfig?: AutonomousReviewConfig,
+    gauntletReviewers?: GauntletReviewer[]
   ): Promise<void> {
     const workspacePath = this.context.getWorkspacePath()
     if (!workspacePath) return
 
-    await this.initAutonomousRunState(maxIterations, reviewConfig)
+    await this.initAutonomousRunState(maxIterations, reviewConfig, gauntletReviewers)
 
-    // Write the prompt and progress files to workspace
+    // Write the prompt and progress files to the .overseer folder
     try {
+      await this.writeOverseerGitignore(workspacePath)
       await this.backend.invoke("write_file", {
-        path: `${workspacePath}/autonomous-prompt.md`,
+        path: `${workspacePath}/${OVERSEER_DIR}/autonomous-prompt.md`,
         content: prompt,
       })
       await this.backend.invoke("write_file", {
-        path: `${workspacePath}/autonomous-progress.md`,
+        path: `${workspacePath}/${OVERSEER_DIR}/autonomous-progress.md`,
         content:
-          "# Autonomous Progress\n\nNo progress yet.\n\n> Review findings are stored in `autonomous-review.md`\n",
+          "# Autonomous Progress\n\nNo progress yet.\n\n> Review findings are stored in `.overseer/autonomous-review.md`\n",
       })
       await this.backend.invoke("write_file", {
-        path: `${workspacePath}/autonomous-review.md`,
+        path: `${workspacePath}/${OVERSEER_DIR}/autonomous-review.md`,
         content: "# Autonomous Review\n\nNo review yet.\n",
       })
     } catch (err) {
@@ -728,6 +759,52 @@ export class ChatStore {
   }
 
   /**
+   * On-demand gauntlet: review the work already in this workspace and fix all
+   * findings until every reviewer passes. There is no task prompt — the run
+   * starts in the review phase so the reviewers assess the current changes first.
+   */
+  @action
+  async startGauntletRun(reviewers: GauntletReviewer[], maxIterations = 25): Promise<void> {
+    const workspacePath = this.context.getWorkspacePath()
+    if (!workspacePath || reviewers.length === 0) return
+
+    await this.initAutonomousRunState(maxIterations, undefined, reviewers)
+    // Review the existing work before touching anything.
+    runInAction(() => {
+      this.autonomousPhase = "review"
+    })
+
+    try {
+      await this.writeOverseerGitignore(workspacePath)
+      await this.backend.invoke("write_file", {
+        path: `${workspacePath}/${OVERSEER_DIR}/autonomous-prompt.md`,
+        content:
+          "# Gauntlet Review\n\n" +
+          "There is no separate task description. Specialist reviewers will inspect the " +
+          "current changes in this workspace (start with `git diff` against the base branch) " +
+          "and report issues. Your job across iterations is to address every finding they " +
+          "raise until all reviewers pass.\n",
+      })
+      await this.backend.invoke("write_file", {
+        path: `${workspacePath}/${OVERSEER_DIR}/autonomous-progress.md`,
+        content:
+          "# Autonomous Progress\n\nOn-demand gauntlet run. Reviewers assess the current " +
+          "workspace changes first; findings are stored in `.overseer/autonomous-review-*.md`.\n",
+      })
+    } catch (err) {
+      console.error("Failed to write gauntlet files:", err)
+      runInAction(() => {
+        this.autonomousMode = false
+        this.autonomousRunning = false
+      })
+      return
+    }
+
+    this.pushAutonomousMessage("autonomous-start", 0)
+    await this.runNextIteration()
+  }
+
+  /**
    * Resume a run that stopped because it hit the iteration cap. The prompt/progress/review
    * files persist in the workspace, so we re-arm the run and let the agent read
    * `autonomous-progress.md` to continue — we do NOT rewrite the files here.
@@ -735,14 +812,15 @@ export class ChatStore {
   @action
   async continueAutonomousRun(
     maxIterations: number,
-    reviewConfig?: AutonomousReviewConfig
+    reviewConfig?: AutonomousReviewConfig,
+    gauntletReviewers?: GauntletReviewer[]
   ): Promise<void> {
     if (this.autonomousRunning) return
 
     const workspacePath = this.context.getWorkspacePath()
     if (!workspacePath) return
 
-    await this.initAutonomousRunState(maxIterations, reviewConfig)
+    await this.initAutonomousRunState(maxIterations, reviewConfig, gauntletReviewers)
 
     this.pushAutonomousMessage("autonomous-start", 0)
     await this.runNextIteration()
@@ -756,7 +834,8 @@ export class ChatStore {
   @action
   private async initAutonomousRunState(
     maxIterations: number,
-    reviewConfig?: AutonomousReviewConfig
+    reviewConfig?: AutonomousReviewConfig,
+    gauntletReviewers?: GauntletReviewer[]
   ): Promise<void> {
     // Kill any active generation before starting (e.g. agent waiting in plan mode)
     if (this.isSending || this.pendingPlanApproval) {
@@ -768,6 +847,10 @@ export class ChatStore {
       this.isSending = false
     }
 
+    // Tear down any synthetic reviewer chats/services left by a previous run
+    // before re-arming (uses the still-current autonomousGauntletReviewers).
+    this.cleanupGauntletServices()
+
     // Generate unique session ID for this autonomous run
     this.autonomousSessionId = `${this.chat.id}-auto-${Date.now()}`
     this.autonomousMode = true
@@ -777,6 +860,13 @@ export class ChatStore {
     this.autonomousPhase = "implementation"
     this.autonomousReviewAgentType = reviewConfig?.agentType ?? null
     this.autonomousReviewModelVersion = reviewConfig?.modelVersion ?? null
+    // Snapshot the reviewer configs so later edits in Settings can't mutate the
+    // in-flight run or the stored completion meta.
+    this.autonomousGauntletReviewers = (gauntletReviewers ?? []).map((r) => ({ ...r }))
+    this.autonomousGauntletRound = 0
+    this._gauntletPending.clear()
+    this._gauntletText.clear()
+    this._gauntletVerdicts.clear()
     // Save original permission mode to restore after autonomous run completes
     this.originalPermissionMode = this.chat.permissionMode
   }
@@ -796,6 +886,8 @@ export class ChatStore {
 
     // Stop current generation
     this.stopGeneration()
+    // Stop any in-flight gauntlet reviewers
+    this.stopGauntletReviewers()
 
     // Add stopped message
     this.pushAutonomousMessage("autonomous-stopped", stoppedAtIteration)
@@ -813,6 +905,13 @@ export class ChatStore {
 
     this.autonomousIteration++
     this.autonomousCurrentIterationText = ""
+
+    // Gauntlet review: fan out to every selected reviewer instead of one review step.
+    if (this.autonomousPhase === "review" && this.autonomousGauntletReviewers.length > 0) {
+      this.autonomousGauntletRound++
+      void this.runGauntletRound()
+      return
+    }
 
     // Force new session for each iteration by clearing the session ID
     // This ensures the agent CLI starts fresh without trying to --resume
@@ -872,6 +971,220 @@ export class ChatStore {
       console.error("Error in autonomous iteration:", err)
       this.finishAutonomousRun("Error during iteration")
     }
+  }
+
+  // --- Gauntlet review ---
+
+  /** Filesystem-safe synthetic chat id for a reviewer's headless run. */
+  private gauntletChatId(reviewerId: string): string {
+    return `${this.chat.id}-gauntlet-${reviewerId}`
+  }
+
+  /** Get or create the cached review service for an agent type. */
+  private getGauntletService(agentType: AgentType): AgentService {
+    let service = this._gauntletServices.get(agentType)
+    if (!service) {
+      service = createAgentService(agentType, this.backend)
+      this._gauntletServices.set(agentType, service)
+    }
+    return service
+  }
+
+  /**
+   * Run one gauntlet round: launch every selected reviewer in parallel under its
+   * own synthetic chat id. Reviewer streams do NOT enter the main chat — each
+   * writes findings to its own review file and its verdict is read from the
+   * accumulated response text. When all reviewers finish, finishGauntletRound decides.
+   */
+  @action
+  private async runGauntletRound(): Promise<void> {
+    const reviewers = this.autonomousGauntletReviewers
+    const workspacePath = this.context.getWorkspacePath()
+    if (!workspacePath || reviewers.length === 0) {
+      this.finishAutonomousRun("No gauntlet reviewers configured")
+      return
+    }
+
+    this._gauntletPending = new Set(reviewers.map((r) => r.id))
+    this._gauntletText.clear()
+    this._gauntletVerdicts.clear()
+
+    this.pushGauntletRoundMessage(this.autonomousGauntletRound, reviewers.length)
+
+    const logDir = (await this.context?.getChatDir()) ?? undefined
+    const projectName = this.context?.getProjectName() ?? ""
+
+    for (const reviewer of reviewers) {
+      const service = this.getGauntletService(reviewer.agentType)
+      const syntheticId = this.gauntletChatId(reviewer.id)
+
+      // Register callbacks for this reviewer's synthetic chat (idempotent overwrite).
+      service.onEvent(syntheticId, (event: AgentEvent) => {
+        this.accumulateGauntletText(reviewer.id, event)
+      })
+      service.onDone(syntheticId, () => {
+        this.onGauntletReviewerDone(reviewer)
+      })
+
+      service.setSessionId(syntheticId, null)
+
+      const effortLevel = reviewer.agentType === "claude" ? this.chat.effortLevel : null
+      const claudeConfigDir =
+        reviewer.agentType === "claude" ? this.context?.getClaudeConfigDir() : undefined
+
+      void service
+        .sendMessage(
+          syntheticId,
+          this.generateGauntletReviewPrompt(reviewer),
+          workspacePath,
+          logDir,
+          reviewer.modelVersion,
+          this.getYoloModeValueForAgent(reviewer.agentType),
+          undefined,
+          projectName,
+          effortLevel,
+          this.chat.sandboxed,
+          claudeConfigDir
+        )
+        .catch((err) => {
+          console.error(`Gauntlet reviewer "${reviewer.name}" failed to start:`, err)
+          // Treat a failed launch as a completed (failing) reviewer so the round can finish.
+          this.onGauntletReviewerDone(reviewer)
+        })
+    }
+  }
+
+  private accumulateGauntletText(reviewerId: string, event: AgentEvent): void {
+    let text: string | null = null
+    if (event.kind === "text") {
+      text = event.text
+    } else if (event.kind === "message" && !event.toolMeta && !event.isInfo) {
+      text = event.content
+    }
+    if (!text) return
+    this._gauntletText.set(reviewerId, (this._gauntletText.get(reviewerId) ?? "") + "\n" + text)
+  }
+
+  /**
+   * Called when a reviewer's headless run completes. Records its verdict and, once
+   * every reviewer in the round is done, hands off to finishGauntletRound.
+   */
+  @action
+  private onGauntletReviewerDone(reviewer: GauntletReviewer): void {
+    if (!this.autonomousRunning) return
+    // Ignore stray completions not part of the current round (e.g. a re-run).
+    if (!this._gauntletPending.has(reviewer.id)) return
+
+    this._gauntletPending.delete(reviewer.id)
+    const text = this._gauntletText.get(reviewer.id) ?? ""
+    // Reviewers are told to END with exactly one marker, so take whichever marker
+    // appears LAST. A reviewer that quotes both markers in its prose (e.g. the
+    // instructions) then still gets classified by its final verdict. Missing
+    // markers default to fail, so a confused reviewer never lets the run off the hook.
+    const passed = text.lastIndexOf("GAUNTLET_PASS") > text.lastIndexOf("GAUNTLET_FAIL")
+    this._gauntletVerdicts.set(reviewer.id, passed)
+    this.pushGauntletVerdict(reviewer, passed)
+
+    if (this._gauntletPending.size === 0) {
+      this.finishGauntletRound()
+    }
+  }
+
+  @action
+  private finishGauntletRound(): void {
+    if (!this.autonomousRunning) return
+    const allPassed = this.autonomousGauntletReviewers.every(
+      (r) => this._gauntletVerdicts.get(r.id) === true
+    )
+    if (allPassed) {
+      this.finishAutonomousRun("Survived the gauntlet")
+    } else {
+      // Some reviewer found issues — implementer addresses all findings next.
+      this.autonomousPhase = "implementation"
+      void this.runNextIteration()
+    }
+  }
+
+  /** Interrupt any in-flight reviewer turns (used when the user stops the run). */
+  private stopGauntletReviewers(): void {
+    for (const reviewer of this.autonomousGauntletReviewers) {
+      const service = this._gauntletServices.get(reviewer.agentType)
+      if (!service) continue
+      void Promise.resolve(service.interruptTurn(this.gauntletChatId(reviewer.id))).catch(() => {})
+    }
+    this._gauntletPending.clear()
+  }
+
+  /** Tear down all cached gauntlet services and their synthetic chats. */
+  private cleanupGauntletServices(): void {
+    for (const reviewer of this.autonomousGauntletReviewers) {
+      const service = this._gauntletServices.get(reviewer.agentType)
+      service?.removeChat(this.gauntletChatId(reviewer.id))
+    }
+    this._gauntletServices.clear()
+  }
+
+  private generateGauntletReviewPrompt(reviewer: GauntletReviewer): string {
+    const file = `${OVERSEER_DIR}/autonomous-review-${reviewer.id}.md`
+    return `You are a specialist reviewer in a **Gauntlet Review**: **${reviewer.name}**.
+
+## Original Task
+Read \`${OVERSEER_DIR}/autonomous-prompt.md\` for the task the implementer is working on.
+
+## Progress So Far
+Read \`${OVERSEER_DIR}/autonomous-progress.md\` and inspect the actual changes in the workspace.
+
+## Your Review Focus
+${reviewer.prompt}
+
+## Your Job
+1. Review the work through the lens above only — stay in your lane.
+2. Write your findings to \`${file}\` — concrete and actionable, with file:line where you can.
+3. Do NOT modify any source files. You review; the implementer fixes.
+
+## Verdict
+- If you find NO issues in your area: end your response with exactly GAUNTLET_PASS
+- If you find issues: write them to \`${file}\` and end your response with exactly GAUNTLET_FAIL
+
+## Important
+- Be honest and specific. Report real problems, not hypotheticals.
+- You start fresh each round — read the files to understand the current state.`
+  }
+
+  private pushGauntletRoundMessage(round: number, reviewerCount: number): void {
+    this.chat.messages.push({
+      id: crypto.randomUUID(),
+      role: "user",
+      content: `🛡️ **Gauntlet round ${round}** — running ${reviewerCount} reviewer${
+        reviewerCount !== 1 ? "s" : ""
+      }`,
+      timestamp: new Date(),
+      meta: {
+        type: "system",
+        label: "Gauntlet",
+        autonomousType: "gauntlet-round",
+        gauntletRound: round,
+        iteration: this.autonomousIteration,
+        maxIterations: this.autonomousMaxIterations,
+      },
+    })
+  }
+
+  private pushGauntletVerdict(reviewer: GauntletReviewer, passed: boolean): void {
+    this.chat.messages.push({
+      id: crypto.randomUUID(),
+      role: "user",
+      content: passed ? `✅ **${reviewer.name}** passed` : `⚠️ **${reviewer.name}** found issues`,
+      timestamp: new Date(),
+      meta: {
+        type: "system",
+        label: "Gauntlet",
+        autonomousType: "gauntlet-verdict",
+        gauntletReviewerName: reviewer.name,
+        gauntletVerdict: passed ? "pass" : "fail",
+        gauntletRound: this.autonomousGauntletRound,
+      },
+    })
   }
 
   @action
@@ -944,15 +1257,16 @@ export class ChatStore {
     return `You are running in **Autonomous Mode**, iteration ${this.autonomousIteration} of max ${this.autonomousMaxIterations}.
 
 ## Your Goal
-Read the file \`autonomous-prompt.md\` in the workspace root for your full task description.
+Read the file \`${OVERSEER_DIR}/autonomous-prompt.md\` for your full task description.
 
 ## Your Progress
-Read \`autonomous-progress.md\` to see what has been accomplished so far.
+Read \`${OVERSEER_DIR}/autonomous-progress.md\` to see what has been accomplished so far.
 
 ## Your Job This Iteration
 1. Study the goal and current progress
-2. Execute the NEXT logical step toward completing the goal
-3. Update \`autonomous-progress.md\` with what you accomplished
+2. Read ALL \`${OVERSEER_DIR}/autonomous-review*.md\` files and address every finding they list (they may be empty — that's fine)
+3. Then make progress on the goal: execute the NEXT logical step toward completing it
+4. Update \`${OVERSEER_DIR}/autonomous-progress.md\` with what you accomplished
 
 ## Important
 - Each iteration starts fresh - you have no memory of previous iterations
@@ -966,20 +1280,20 @@ Read \`autonomous-progress.md\` to see what has been accomplished so far.
     return `You are running in **Autonomous Mode**, review step after iteration ${this.autonomousIteration} of max ${this.autonomousMaxIterations}.
 
 ## Your Goal
-Read \`autonomous-prompt.md\` for the original task description.
+Read \`${OVERSEER_DIR}/autonomous-prompt.md\` for the original task description.
 
 ## Progress So Far
-Read \`autonomous-progress.md\` to see what has been accomplished.
+Read \`${OVERSEER_DIR}/autonomous-progress.md\` to see what has been accomplished.
 
 ## Your Job: Review
 1. Thoroughly review all work done against the original goal
 2. Check for correctness, completeness, and quality
-3. Write your full review findings to \`autonomous-review.md\`
-4. Update \`autonomous-progress.md\` to note that a review was performed and reference \`autonomous-review.md\`
+3. Write your full review findings to \`${OVERSEER_DIR}/autonomous-review.md\`
+4. Update \`${OVERSEER_DIR}/autonomous-progress.md\` to note that a review was performed and reference \`${OVERSEER_DIR}/autonomous-review.md\`
 
 ## Decision
 - If the goal is **fully and correctly completed**: end your response with exactly: AUTONOMOUS_SESSION_COMPLETE
-- If there are remaining issues or incomplete work: describe clearly in \`autonomous-review.md\` what still needs to be done. Do NOT output AUTONOMOUS_SESSION_COMPLETE.
+- If there are remaining issues or incomplete work: describe clearly in \`${OVERSEER_DIR}/autonomous-review.md\` what still needs to be done. Do NOT output AUTONOMOUS_SESSION_COMPLETE.
 
 ## Important
 - Be honest and thorough — this review determines whether the task is done
@@ -992,7 +1306,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
     reason?: string,
     maxIterationsReached = false
   ): void {
-    let content: string
+    let content = ""
     switch (autonomousType) {
       case "autonomous-start":
         content = `🚀 **Autonomous Mode Started** — Max ${this.autonomousMaxIterations} iterations`
@@ -1025,6 +1339,10 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
         maxIterationsReached,
         reviewAgentType: this.autonomousReviewAgentType ?? undefined,
         reviewModelVersion: this.autonomousReviewModelVersion,
+        gauntletReviewers:
+          this.autonomousGauntletReviewers.length > 0
+            ? this.autonomousGauntletReviewers
+            : undefined,
       },
     })
   }
@@ -1084,6 +1402,7 @@ Read \`autonomous-progress.md\` to see what has been accomplished.
       this._reviewService = null
       this._reviewServiceAgentType = null
     }
+    this.cleanupGauntletServices()
   }
 
   // --- Agent event handling ---

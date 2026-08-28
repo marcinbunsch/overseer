@@ -164,10 +164,14 @@ describe("AutonomousMessage", () => {
 
     fireEvent.click(screen.getByTestId("autonomous-continue-button"))
 
-    expect(continueAutonomousRun).toHaveBeenCalledWith(5, {
-      agentType: "gemini",
-      modelVersion: "gemini-2.5-pro",
-    })
+    expect(continueAutonomousRun).toHaveBeenCalledWith(
+      5,
+      {
+        agentType: "gemini",
+        modelVersion: "gemini-2.5-pro",
+      },
+      undefined
+    )
   })
 
   it("disables the Continue button while a run is active", () => {
@@ -211,6 +215,73 @@ describe("AutonomousMessage", () => {
     }
     const { container } = render(<AutonomousMessage message={message} />)
     expect(container.firstChild).toBeNull()
+  })
+
+  it("renders a gauntlet-round message", () => {
+    const message: Message = {
+      id: "g-round",
+      role: "user",
+      content: "🛡️ **Gauntlet round 1** — running 3 reviewers",
+      timestamp: new Date(),
+      meta: {
+        type: "system",
+        label: "Gauntlet",
+        autonomousType: "gauntlet-round",
+        gauntletRound: 1,
+      },
+    }
+    render(<AutonomousMessage message={message} />)
+    expect(screen.getByTestId("autonomous-message-gauntlet-round")).toBeInTheDocument()
+    expect(screen.getByText(/Gauntlet round 1/)).toBeInTheDocument()
+  })
+
+  it("renders a gauntlet-verdict message", () => {
+    const message: Message = {
+      id: "g-verdict",
+      role: "user",
+      content: "⚠️ **Security Review** found issues",
+      timestamp: new Date(),
+      meta: {
+        type: "system",
+        label: "Gauntlet",
+        autonomousType: "gauntlet-verdict",
+        gauntletReviewerName: "Security Review",
+        gauntletVerdict: "fail",
+      },
+    }
+    render(<AutonomousMessage message={message} />)
+    expect(screen.getByTestId("autonomous-message-gauntlet-verdict")).toBeInTheDocument()
+    expect(screen.getByText(/Security Review/)).toBeInTheDocument()
+  })
+
+  it("re-arms the gauntlet from a cap-hit completion's meta", () => {
+    const reviewers = [
+      {
+        id: "r1",
+        name: "Code Review",
+        prompt: "p",
+        agentType: "claude" as const,
+        modelVersion: null,
+        enabled: true,
+      },
+    ]
+    const message: Message = {
+      id: "complete",
+      role: "user",
+      content: "Autonomous Mode Complete — Max iterations reached",
+      timestamp: new Date(),
+      meta: {
+        type: "system",
+        label: "Autonomous",
+        autonomousType: "autonomous-complete",
+        maxIterations: 25,
+        maxIterationsReached: true,
+        gauntletReviewers: reviewers,
+      },
+    }
+    render(<AutonomousMessage message={message} />)
+    fireEvent.click(screen.getByTestId("autonomous-continue-button"))
+    expect(continueAutonomousRun).toHaveBeenCalledWith(25, undefined, reviewers)
   })
 })
 

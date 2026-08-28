@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { observer } from "mobx-react-lite"
-import type { PendingPlanApproval, AutonomousReviewConfig } from "../../types"
+import type { PendingPlanApproval, AutonomousReviewConfig, GauntletReviewer } from "../../types"
 import { configStore } from "../../stores/ConfigStore"
 import { MarkdownContent } from "./MarkdownContent"
 import { Textarea } from "../shared/Textarea"
@@ -15,7 +15,8 @@ interface PlanApprovalPanelProps {
   onStartAutonomous?: (
     prompt: string,
     maxIterations: number,
-    reviewConfig?: AutonomousReviewConfig
+    reviewConfig?: AutonomousReviewConfig,
+    gauntletReviewers?: GauntletReviewer[]
   ) => void
 }
 
@@ -130,8 +131,8 @@ export const PlanApprovalPanel = observer(function PlanApprovalPanel({
           open={autonomousDialogOpen}
           onOpenChange={setAutonomousDialogOpen}
           initialPrompt={`Execute the following plan:\n\n${pending.planContent ?? ""}`}
-          onStart={(prompt, maxIterations, reviewConfig) => {
-            onStartAutonomous(prompt, maxIterations, reviewConfig)
+          onStart={(prompt, maxIterations, reviewConfig, gauntletReviewers) => {
+            onStartAutonomous(prompt, maxIterations, reviewConfig, gauntletReviewers)
             onDeny() // Close the plan approval after starting autonomous run
           }}
         />

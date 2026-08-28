@@ -5,6 +5,7 @@ import type { Chat } from "../../types"
 import { ChatStore, type ChatStoreContext } from "../ChatStore"
 import { backend } from "../../backend"
 import type { Backend } from "../../backend/types"
+import { gauntletStore } from "../GauntletStore"
 
 // Mock agent services via agentRegistry
 const mockAgentService = {
@@ -2298,13 +2299,16 @@ Live text.`,
       const store = createChatStore()
       await store.startAutonomousRun("My autonomous prompt", 5)
 
-      expect(writeFileCalls).toHaveLength(3)
-      expect(writeFileCalls[0].path).toBe("/tmp/test-workspace/autonomous-prompt.md")
-      expect(writeFileCalls[0].content).toBe("My autonomous prompt")
-      expect(writeFileCalls[1].path).toBe("/tmp/test-workspace/autonomous-progress.md")
-      expect(writeFileCalls[1].content).toContain("# Autonomous Progress")
-      expect(writeFileCalls[2].path).toBe("/tmp/test-workspace/autonomous-review.md")
-      expect(writeFileCalls[2].content).toContain("# Autonomous Review")
+      // First write keeps the .overseer folder out of git; the rest are the scratch files.
+      expect(writeFileCalls).toHaveLength(4)
+      expect(writeFileCalls[0].path).toBe("/tmp/test-workspace/.overseer/.gitignore")
+      expect(writeFileCalls[0].content).toBe("*\n")
+      expect(writeFileCalls[1].path).toBe("/tmp/test-workspace/.overseer/autonomous-prompt.md")
+      expect(writeFileCalls[1].content).toBe("My autonomous prompt")
+      expect(writeFileCalls[2].path).toBe("/tmp/test-workspace/.overseer/autonomous-progress.md")
+      expect(writeFileCalls[2].content).toContain("# Autonomous Progress")
+      expect(writeFileCalls[3].path).toBe("/tmp/test-workspace/.overseer/autonomous-review.md")
+      expect(writeFileCalls[3].content).toContain("# Autonomous Review")
     })
   })
 
@@ -2519,6 +2523,236 @@ Live text.`,
         const meta = (loopMessages[0][1] as { meta?: Record<string, unknown> })?.meta
         expect(meta?.reviewAgentLabel).toBeUndefined()
       }
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Gauntlet review
+  // ---------------------------------------------------------------------------
+
+  describe("Gauntlet review", () => {
+    const clearReviewers = () =>
+      gauntletStore.reviewers.forEach((r) => gauntletStore.removeReviewer(r.id))
+
+    beforeEach(() => {
+      clearReviewers()
+    })
+    afterEach(() => {
+      clearReviewers()
+    })
+
+    const twoReviewers = () => {
+      const a = gauntletStore.addReviewer({
+        name: "A",
+        prompt: "check A",
+        agentType: "claude",
+        modelVersion: null,
+        enabled: true,
+      })
+      const b = gauntletStore.addReviewer({
+        name: "B",
+        prompt: "check B",
+        agentType: "claude",
+        modelVersion: null,
+        enabled: true,
+      })
+      return [a, b] as const
+    }
+
+    const gid = (reviewerId: string) => `test-chat-id-gauntlet-${reviewerId}`
+    // The shared mock's fns are untyped, so mock.calls comes back as empty tuples.
+    const firstArgs = (mockFn: { mock: { calls: unknown[][] } }): string[] =>
+      (mockFn.mock.calls as unknown as Array<[string, ...unknown[]]>).map((c) => c[0])
+    const doneFor = (syntheticId: string) => {
+      const calls = mockAgentService.onDone.mock.calls as unknown as Array<[string, () => void]>
+      return calls.find((c) => c[0] === syntheticId)?.[1]
+    }
+    const eventFor = (syntheticId: string) => {
+      const calls = mockAgentService.onEvent.mock.calls as unknown as Array<
+        [string, (e: unknown) => void]
+      >
+      return calls.find((c) => c[0] === syntheticId)?.[1]
+    }
+
+    it("stores the selected reviewers on start", async () => {
+      const [a, b] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+      await store.startAutonomousRun("p", 10, undefined, [a, b])
+      expect(store.autonomousGauntletReviewers.map((r) => r.id)).toEqual([a.id, b.id])
+    })
+
+    it("fans out one sendMessage per reviewer under synthetic chat ids", async () => {
+      const [a, b] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+      await store.startAutonomousRun("p", 10, undefined, [a, b])
+
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+      await new Promise((r) => setTimeout(r, 0))
+
+      const sentIds = firstArgs(mockAgentService.sendMessage)
+      expect(sentIds).toContain(gid(a.id))
+      expect(sentIds).toContain(gid(b.id))
+    })
+
+    it("finishes the run when all reviewers pass a round", async () => {
+      const [a, b] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+      await store.startAutonomousRun("p", 10, undefined, [a, b])
+
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+      await new Promise((r) => setTimeout(r, 0))
+
+      eventFor(gid(a.id))?.({ kind: "text", text: "all good GAUNTLET_PASS" })
+      eventFor(gid(b.id))?.({ kind: "text", text: "fine GAUNTLET_PASS" })
+      doneFor(gid(a.id))?.()
+      doneFor(gid(b.id))?.()
+
+      expect(store.autonomousRunning).toBe(false)
+      const complete = store.messages.find((m) => m.meta?.autonomousType === "autonomous-complete")
+      expect(complete?.content).toContain("Survived the gauntlet")
+    })
+
+    it("classifies by the final marker when a reviewer quotes both", async () => {
+      const [a] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+      await store.startAutonomousRun("p", 10, undefined, [a])
+
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+      await new Promise((r) => setTimeout(r, 0))
+
+      // Mentions FAIL in prose but ends with PASS — should pass.
+      eventFor(gid(a.id))?.({
+        kind: "text",
+        text: "I could output GAUNTLET_FAIL but everything checks out.\nGAUNTLET_PASS",
+      })
+      doneFor(gid(a.id))?.()
+
+      expect(store.autonomousRunning).toBe(false)
+      const complete = store.messages.find((m) => m.meta?.autonomousType === "autonomous-complete")
+      expect(complete?.content).toContain("Survived the gauntlet")
+    })
+
+    it("returns to implementation when a reviewer finds issues", async () => {
+      const [a, b] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+      await store.startAutonomousRun("p", 10, undefined, [a, b])
+
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+      await new Promise((r) => setTimeout(r, 0))
+
+      eventFor(gid(a.id))?.({ kind: "text", text: "GAUNTLET_PASS" })
+      eventFor(gid(b.id))?.({ kind: "text", text: "found a bug GAUNTLET_FAIL" })
+      doneFor(gid(a.id))?.()
+      doneFor(gid(b.id))?.()
+
+      expect(store.autonomousRunning).toBe(true)
+      expect(store.autonomousPhase).toBe("implementation")
+    })
+
+    it("posts a verdict message per reviewer", async () => {
+      const [a, b] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+      await store.startAutonomousRun("p", 10, undefined, [a, b])
+
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+      await new Promise((r) => setTimeout(r, 0))
+
+      eventFor(gid(a.id))?.({ kind: "text", text: "GAUNTLET_PASS" })
+      doneFor(gid(a.id))?.()
+
+      const verdicts = store.messages.filter((m) => m.meta?.autonomousType === "gauntlet-verdict")
+      expect(verdicts).toHaveLength(1)
+      expect(verdicts[0].meta?.gauntletVerdict).toBe("pass")
+      expect(verdicts[0].meta?.gauntletReviewerName).toBe("A")
+    })
+
+    it("interrupts in-flight reviewers when the run is stopped", async () => {
+      const [a, b] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+      await store.startAutonomousRun("p", 10, undefined, [a, b])
+
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+      await new Promise((r) => setTimeout(r, 0))
+
+      store.stopAutonomousRun()
+
+      const interrupted = firstArgs(mockAgentService.interruptTurn)
+      expect(interrupted).toContain(gid(a.id))
+      expect(interrupted).toContain(gid(b.id))
+    })
+
+    it("startGauntletRun begins in the review phase and fans out immediately", async () => {
+      const [a, b] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startGauntletRun([a, b], 10)
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(store.autonomousRunning).toBe(true)
+      expect(store.autonomousGauntletReviewers.map((r) => r.id)).toEqual([a.id, b.id])
+      // No implementation turn first — reviewers run against existing work right away.
+      const sentIds = firstArgs(mockAgentService.sendMessage)
+      expect(sentIds).toContain(gid(a.id))
+      expect(sentIds).toContain(gid(b.id))
+      // The main chat did not get an implementation loop turn.
+      expect(sentIds).not.toContain("test-chat-id")
+    })
+
+    it("startGauntletRun finishes right away when all reviewers pass", async () => {
+      const [a] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+
+      await store.startGauntletRun([a], 10)
+      await new Promise((r) => setTimeout(r, 0))
+
+      eventFor(gid(a.id))?.({ kind: "text", text: "clean GAUNTLET_PASS" })
+      doneFor(gid(a.id))?.()
+
+      expect(store.autonomousRunning).toBe(false)
+      const complete = store.messages.find((m) => m.meta?.autonomousType === "autonomous-complete")
+      expect(complete?.content).toContain("Survived the gauntlet")
+    })
+
+    it("removes synthetic reviewer chats on dispose", async () => {
+      const [a, b] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+      await store.startAutonomousRun("p", 10, undefined, [a, b])
+
+      runInAction(() => {
+        store.autonomousPhase = "review"
+        store.isSending = false
+      })
+      await (store as any).runNextIteration()
+      await new Promise((r) => setTimeout(r, 0))
+
+      store.dispose()
+      const removed = firstArgs(mockAgentService.removeChat)
+      expect(removed).toContain(gid(a.id))
+      expect(removed).toContain(gid(b.id))
     })
   })
 

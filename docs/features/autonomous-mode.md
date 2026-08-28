@@ -25,11 +25,12 @@ Each autonomous run enforces a **impl → review → fixes → review** cycle. A
 
 ## Files
 
-Three files are created in the **workspace root** (visible to the agent):
+Files are created in the **`.overseer/` folder** under the workspace root (visible to the agent). A `.overseer/.gitignore` with `*` is written on every run, so the folder is never committed.
 
-- `autonomous-prompt.md` - The user's original goal (written once at start)
-- `autonomous-progress.md` - Agent's progress notes (updated each iteration)
-- `autonomous-review.md` - Review findings written by the review step
+- `.overseer/autonomous-prompt.md` - The user's original goal (written once at start)
+- `.overseer/autonomous-progress.md` - Agent's progress notes (updated each iteration)
+- `.overseer/autonomous-review.md` - Review findings written by the review step
+- `.overseer/autonomous-review-<id>.md` - Per-reviewer findings during a gauntlet run
 
 ## Prompts
 
@@ -39,15 +40,15 @@ Three files are created in the **workspace root** (visible to the agent):
 You are running in **Autonomous Mode**, iteration {N} of max {MAX}.
 
 ## Your Goal
-Read the file `autonomous-prompt.md` in the workspace root for your full task description.
+Read the file `.overseer/autonomous-prompt.md` in the workspace root for your full task description.
 
 ## Your Progress
-Read `autonomous-progress.md` to see what has been accomplished so far.
+Read `.overseer/autonomous-progress.md` to see what has been accomplished so far.
 
 ## Your Job This Iteration
 1. Study the goal and current progress
 2. Execute the NEXT logical step toward completing the goal
-3. Update `autonomous-progress.md` with what you accomplished
+3. Update `.overseer/autonomous-progress.md` with what you accomplished
 
 ## Important
 - Each iteration starts fresh - you have no memory of previous iterations
@@ -63,20 +64,20 @@ Read `autonomous-progress.md` to see what has been accomplished so far.
 You are running in **Autonomous Mode**, review step after iteration {N} of max {MAX}.
 
 ## Your Goal
-Read `autonomous-prompt.md` for the original task description.
+Read `.overseer/autonomous-prompt.md` for the original task description.
 
 ## Progress So Far
-Read `autonomous-progress.md` to see what has been accomplished.
+Read `.overseer/autonomous-progress.md` to see what has been accomplished.
 
 ## Your Job: Review
 1. Thoroughly review all work done against the original goal
 2. Check for correctness, completeness, and quality
-3. Write your full review findings to `autonomous-review.md`
-4. Update `autonomous-progress.md` to note that a review was performed and reference `autonomous-review.md`
+3. Write your full review findings to `.overseer/autonomous-review.md`
+4. Update `.overseer/autonomous-progress.md` to note that a review was performed and reference `.overseer/autonomous-review.md`
 
 ## Decision
 - If the goal is **fully and correctly completed**: end your response with exactly: AUTONOMOUS_SESSION_COMPLETE
-- If there are remaining issues or incomplete work: describe clearly in `autonomous-review.md` what still needs to be done. Do NOT output AUTONOMOUS_SESSION_COMPLETE.
+- If there are remaining issues or incomplete work: describe clearly in `.overseer/autonomous-review.md` what still needs to be done. Do NOT output AUTONOMOUS_SESSION_COMPLETE.
 
 ## Important
 - Be honest and thorough — this review determines whether the task is done
@@ -135,8 +136,8 @@ User clicks "Start Autonomous Run"
 AutonomousDialog opens → user edits prompt/limit → clicks Start
     ↓
 ChatStore.startAutonomousRun(prompt, maxIterations)
-    ├── Write autonomous-prompt.md
-    ├── Write autonomous-progress.md
+    ├── Write .overseer/autonomous-prompt.md
+    ├── Write .overseer/autonomous-progress.md
     ├── Set autonomousSessionId, autonomousRunning=true
     ├── Add "autonomous-start" message to chat
     └── Call runNextIteration()

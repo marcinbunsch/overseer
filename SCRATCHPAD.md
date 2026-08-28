@@ -43,6 +43,7 @@ My learning journal for this codebase. **Rules** are patterns I must follow. **M
 
 ### Architecture
 
+- **Run a headless agent off the main chat with a synthetic chatId** — `AgentService` keys everything by `chatId`: `sendMessage(chatId, ...)` starts a process, `onEvent(chatId, cb)`/`onDone(chatId, cb)` route its events, and Rust listens on `agent:event:${chatId}`. To run an agent that must NOT stream into the visible chat (e.g. Gauntlet reviewers), call it under a distinct id like `${chat.id}-gauntlet-${reviewerId}` and register callbacks that update store state instead of pushing to `chat.messages`. No session registration needed for send. Clean up with `removeChat(syntheticId)` in `dispose()`. See ChatStore `runGauntletRound`/`getGauntletService`. In tests, the shared mock service's `onDone`/`onEvent` are `vi.fn()`; grab the registered callback via `mock.calls.find(c => c[0] === syntheticId)?.[1]` and invoke it to drive completion.
 - **Keep invoke() in services** — Low-level Tauri `invoke()` calls should stay in the service layer, not leak into stores. Expose clean methods like `terminalService.write()` instead of having stores call `invoke("pty_write", ...)`.
 - **Credentials never in memory** — When dealing with tokens/secrets, use shell subprocesses with pipes. Never store credentials in variables, even temporarily. Let the shell handle the token flow.
 - **Don't overthink working solutions** — If user provides a working shell command, use it exactly. Don't try to "improve" by removing dependencies or using alternatives.
