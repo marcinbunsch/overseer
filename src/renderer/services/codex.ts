@@ -244,6 +244,8 @@ class CodexAgentService implements AgentService {
   ): Promise<void> {
     const chat = this.getOrCreateChat(chatId)
     chat.workingDir = workingDir
+    const isSandboxed = sandboxed ?? false
+    const sandboxMode = isSandboxed ? "workspace-write" : "danger-full-access"
 
     // Was the app-server already up? Used to decide whether we need to resume a
     // persisted thread after a (re)start.
@@ -265,7 +267,7 @@ class CodexAgentService implements AgentService {
           logId: chatId,
           agentShell: configStore.agentShell || null,
           workingDir,
-          sandboxed: sandboxed ?? false,
+          sandboxed: isSandboxed,
         })
       } catch (err) {
         // Re-throw with a more helpful error message
@@ -296,7 +298,7 @@ class CodexAgentService implements AgentService {
           threadId: chat.threadId,
           cwd: workingDir,
           approvalPolicy,
-          sandbox: "workspace-write",
+          sandbox: sandboxMode,
         })) as { thread?: { id?: string } }
 
         const resumedId = result?.thread?.id
@@ -325,7 +327,7 @@ class CodexAgentService implements AgentService {
       const result = (await this.sendRequest(chatId, "thread/start", {
         cwd: workingDir,
         approvalPolicy,
-        sandbox: "workspace-write",
+        sandbox: sandboxMode,
       })) as { thread?: { id?: string } }
 
       const threadId = result?.thread?.id
@@ -341,8 +343,9 @@ class CodexAgentService implements AgentService {
 
     // A worktree's git state (objects, refs, worktree metadata) lives in the main
     // repo's `.git`, outside the workspace. Grant it write access too, or `git
-    // commit` fails under workspace-write. Resolved once and cached per chat.
-    if (chat.gitCommonDir === null) {
+    // commit` fails under workspace-write. An unrestricted Codex session needs
+    // neither this lookup nor an explicit list of writable roots.
+    if (isSandboxed && chat.gitCommonDir === null) {
       try {
         chat.gitCommonDir = await backend.invoke<string>("get_git_common_dir", { workingDir })
       } catch (err) {
@@ -350,7 +353,13 @@ class CodexAgentService implements AgentService {
         chat.gitCommonDir = "" // don't retry every turn
       }
     }
-    const writableRoots = chat.gitCommonDir ? [workingDir, chat.gitCommonDir] : [workingDir]
+    const sandboxPolicy = isSandboxed
+      ? {
+          type: "workspaceWrite",
+          writableRoots: chat.gitCommonDir ? [workingDir, chat.gitCommonDir] : [workingDir],
+          networkAccess: true,
+        }
+      : { type: "dangerFullAccess" }
 
     // Send the turn
     await this.sendRequest(chatId, "turn/start", {
@@ -358,11 +367,7 @@ class CodexAgentService implements AgentService {
       input: [{ type: "text", text: messageText }],
       cwd: workingDir,
       approvalPolicy,
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots,
-        networkAccess: true,
-      },
+      sandboxPolicy,
     })
   }
 

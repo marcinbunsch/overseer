@@ -591,12 +591,21 @@ describe("CodexAgentService", () => {
     expect(turnStartCall).toBeDefined()
 
     const turnStartData = JSON.parse(turnStartCall!) as {
-      params: { input: Array<{ type: string; text: string }> }
+      params: {
+        input: Array<{ type: string; text: string }>
+        sandboxPolicy: { type: string }
+      }
     }
     const textInput = turnStartData.params.input.find((i) => i.type === "text")
 
     // The message should have initPrompt prepended with double newline separator
     expect(textInput?.text).toBe("Read docs/ARCH.md first\n\nuser prompt")
+    expect(turnStartData.params.sandboxPolicy).toEqual({ type: "dangerFullAccess" })
+
+    const threadStartCall = stdinCalls.find((data) => data.includes('"method":"thread/start"'))
+    const threadStartData = JSON.parse(threadStartCall!) as { params: { sandbox: string } }
+    expect(threadStartData.params.sandbox).toBe("danger-full-access")
+    expect(invoke).not.toHaveBeenCalledWith("get_git_common_dir", expect.anything())
 
     service.stopChat("chat-1")
   })
@@ -708,12 +717,24 @@ describe("CodexAgentService", () => {
     })
 
     await service.attachListeners("chat-1")
-    await service.sendMessage("chat-1", "hi", "/workspace")
+    await service.sendMessage(
+      "chat-1",
+      "hi",
+      "/workspace",
+      undefined,
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      true
+    )
 
     const turnStartCall = stdinCalls.find((d) => d.includes('"method":"turn/start"'))
     const turnStart = JSON.parse(turnStartCall!) as {
-      params: { sandboxPolicy: { writableRoots: string[] } }
+      params: { sandboxPolicy: { type: string; writableRoots: string[] } }
     }
+    expect(turnStart.params.sandboxPolicy.type).toBe("workspaceWrite")
     expect(turnStart.params.sandboxPolicy.writableRoots).toEqual(["/workspace", "/repo/.git"])
   })
 
@@ -748,12 +769,24 @@ describe("CodexAgentService", () => {
     })
 
     await service.attachListeners("chat-1")
-    await service.sendMessage("chat-1", "hi", "/workspace")
+    await service.sendMessage(
+      "chat-1",
+      "hi",
+      "/workspace",
+      undefined,
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      true
+    )
 
     const turnStartCall = stdinCalls.find((d) => d.includes('"method":"turn/start"'))
     const turnStart = JSON.parse(turnStartCall!) as {
-      params: { sandboxPolicy: { writableRoots: string[] } }
+      params: { sandboxPolicy: { type: string; writableRoots: string[] } }
     }
+    expect(turnStart.params.sandboxPolicy.type).toBe("workspaceWrite")
     expect(turnStart.params.sandboxPolicy.writableRoots).toEqual(["/workspace"])
   })
 
