@@ -260,6 +260,49 @@ const GeneralTab = observer(function GeneralTab() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div>
+              <span className="text-xs text-ovr-text-primary">Theme</span>
+              <p className="text-[11px] text-ovr-text-dim">
+                Auto follows your operating system setting
+              </p>
+            </div>
+            <Select.Root
+              value={configStore.themePreference}
+              onValueChange={(value) =>
+                configStore.setThemePreference(value as "auto" | "light" | "dark")
+              }
+            >
+              <Select.Trigger
+                className="flex w-32 cursor-pointer items-center justify-between rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated px-3 py-2 text-xs capitalize text-ovr-text-primary focus:border-ovr-azure-500 focus:outline-none"
+                data-testid="theme-select-trigger"
+              >
+                <Select.Value />
+                <Select.Icon>
+                  <ChevronDown className="size-3 text-ovr-text-dim" />
+                </Select.Icon>
+              </Select.Trigger>
+              <Select.Portal>
+                <Select.Content
+                  className="z-[100] overflow-hidden rounded-lg border border-ovr-border-subtle bg-ovr-bg-elevated shadow-lg"
+                  position="popper"
+                  sideOffset={4}
+                >
+                  <Select.Viewport className="p-1">
+                    {(["auto", "light", "dark"] as const).map((option) => (
+                      <Select.Item
+                        key={option}
+                        value={option}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs capitalize text-ovr-text-primary outline-none data-[highlighted]:bg-ovr-bg-panel"
+                      >
+                        <Select.ItemText>{option}</Select.ItemText>
+                      </Select.Item>
+                    ))}
+                  </Select.Viewport>
+                </Select.Content>
+              </Select.Portal>
+            </Select.Root>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
               <span className="text-xs text-ovr-text-primary">Animations</span>
               <p className="text-[11px] text-ovr-text-dim">Show spinning and loading animations</p>
             </div>
@@ -269,7 +312,7 @@ const GeneralTab = observer(function GeneralTab() {
               className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
               data-testid="animations-toggle"
             >
-              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
             </Switch.Root>
           </div>
           <div className="flex items-center justify-between">
@@ -283,7 +326,7 @@ const GeneralTab = observer(function GeneralTab() {
               className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
               data-testid="terminal-open-toggle"
             >
-              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
             </Switch.Root>
           </div>
           <div className="flex items-center justify-between">
@@ -299,7 +342,7 @@ const GeneralTab = observer(function GeneralTab() {
               className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
               data-testid="show-review-prs-toggle"
             >
-              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
             </Switch.Root>
           </div>
           <div className="flex items-center justify-between">
@@ -317,7 +360,7 @@ const GeneralTab = observer(function GeneralTab() {
               className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
               data-testid="sound-notification-toggle"
             >
-              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
             </Switch.Root>
           </div>
           <div className="flex items-center justify-between">
@@ -343,7 +386,7 @@ const GeneralTab = observer(function GeneralTab() {
               className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
               data-testid="system-notification-toggle"
             >
-              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
             </Switch.Root>
           </div>
           <div className="flex items-center justify-between">
@@ -359,7 +402,7 @@ const GeneralTab = observer(function GeneralTab() {
               className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
               data-testid="remote-models-toggle"
             >
-              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
             </Switch.Root>
           </div>
         </div>
@@ -381,7 +424,7 @@ const GeneralTab = observer(function GeneralTab() {
             className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-elevated transition-colors data-[state=checked]:bg-ovr-azure-500"
             data-testid="autonomous-mode-toggle"
           >
-            <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+            <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
           </Switch.Root>
         </div>
       </div>
@@ -545,7 +588,7 @@ const AgentsTab = observer(function AgentsTab() {
                   className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500"
                   data-testid={`agent-toggle-${agent.type}`}
                 >
-                  <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+                  <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
                 </Switch.Root>
               </div>
             )
@@ -590,7 +633,7 @@ const AgentsTab = observer(function AgentsTab() {
                       className="relative h-5 w-9 shrink-0 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500"
                       data-testid="claude-usage-indicator-toggle"
                     >
-                      <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+                      <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
                     </Switch.Root>
                   </div>
                 </>
@@ -835,7 +878,7 @@ const AdvancedTab = observer(function AdvancedTab() {
               className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500 disabled:cursor-not-allowed disabled:opacity-50"
               data-testid="http-auth-toggle"
             >
-              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
             </Switch.Root>
           </div>
           <div className="flex items-center justify-between">
@@ -848,7 +891,7 @@ const AdvancedTab = observer(function AdvancedTab() {
               className="relative h-5 w-9 cursor-pointer rounded-full bg-ovr-bg-panel transition-colors data-[state=checked]:bg-ovr-azure-500"
               data-testid="http-auto-start-toggle"
             >
-              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+              <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform data-[state=checked]:translate-x-4" />
             </Switch.Root>
           </div>
           {authToken && (

@@ -11,6 +11,7 @@ import type { GauntletReviewer } from "../types"
 export type ClaudePermissionMode = "default" | "plan" | "acceptEdits" | "bypassPermissions"
 export type CodexApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never"
 export type GeminiApprovalMode = "yolo" | "auto_edit"
+export type ThemePreference = "auto" | "light" | "dark"
 
 interface HttpServerConfig {
   host: string
@@ -47,6 +48,7 @@ interface Config {
   claudePermissionMode?: ClaudePermissionMode
   codexApprovalPolicy?: CodexApprovalPolicy
   geminiApprovalMode?: GeminiApprovalMode
+  themePreference?: ThemePreference
   animationsEnabled?: boolean
   showClaudeUsageIndicator?: boolean
   autonomousModeEnabled?: boolean
@@ -234,6 +236,7 @@ class ConfigStore {
   @observable claudePermissionMode: ClaudePermissionMode = "default"
   @observable codexApprovalPolicy: CodexApprovalPolicy = "untrusted"
   @observable geminiApprovalMode: GeminiApprovalMode = "yolo"
+  @observable themePreference: ThemePreference = "auto"
   @observable defaultClaudeModel: string | null = null
   @observable defaultCodexModel: string | null = null
   @observable defaultCopilotModel: string | null = null
@@ -351,6 +354,7 @@ class ConfigStore {
         this.claudePermissionMode = parsed.claudePermissionMode ?? "default"
         this.codexApprovalPolicy = normalizeCodexApprovalPolicy(parsed.codexApprovalPolicy)
         this.geminiApprovalMode = parsed.geminiApprovalMode ?? "yolo"
+        this.themePreference = parsed.themePreference ?? "auto"
         this.defaultClaudeModel = parsed.defaultClaudeModel ?? null
         this.defaultCodexModel = parsed.defaultCodexModel ?? null
         this.defaultCopilotModel = parsed.defaultCopilotModel ?? null
@@ -441,6 +445,7 @@ class ConfigStore {
         claudePermissionMode: this.claudePermissionMode,
         codexApprovalPolicy: this.codexApprovalPolicy,
         geminiApprovalMode: this.geminiApprovalMode,
+        themePreference: this.themePreference,
         animationsEnabled: this.animationsEnabled,
         showClaudeUsageIndicator: this.showClaudeUsageIndicator,
         autonomousModeEnabled: this.autonomousModeEnabled,
@@ -625,6 +630,11 @@ class ConfigStore {
 
   @action setTerminalCommand(cmd: string) {
     this.terminalCommand = cmd
+    this.save()
+  }
+
+  @action setThemePreference(preference: ThemePreference) {
+    this.themePreference = preference
     this.save()
   }
 

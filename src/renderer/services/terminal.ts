@@ -19,6 +19,9 @@ export function stripPromptEolMark(text: string): string {
   return text.replace(PROMPT_EOL_MARK_PATTERN, "")
 }
 
+export type TerminalThemeName = "light" | "dark"
+
+// Solarized-dark palette (the app's original terminal theme).
 export const TERMINAL_THEME: ITheme = {
   background: "#1a1b1e",
   foreground: "#e6e6e6",
@@ -44,6 +47,37 @@ export const TERMINAL_THEME: ITheme = {
   brightWhite: "#fdf6e3",
 }
 
+// Solarized-light palette — same accent colours as the dark theme so terminal
+// output keeps its meaning, just on a light base.
+export const TERMINAL_THEME_LIGHT: ITheme = {
+  background: "#fdf6e3",
+  foreground: "#657b83",
+  cursor: "#586e75",
+  cursorAccent: "#fdf6e3",
+  selectionBackground: "#eee8d5",
+  selectionForeground: "#586e75",
+  black: "#073642",
+  red: "#dc322f",
+  green: "#859900",
+  yellow: "#b58900",
+  blue: "#268bd2",
+  magenta: "#d33682",
+  cyan: "#2aa198",
+  white: "#eee8d5",
+  brightBlack: "#002b36",
+  brightRed: "#cb4b16",
+  brightGreen: "#586e75",
+  brightYellow: "#657b83",
+  brightBlue: "#839496",
+  brightMagenta: "#6c71c4",
+  brightCyan: "#93a1a1",
+  brightWhite: "#fdf6e3",
+}
+
+export function terminalThemeFor(name: TerminalThemeName): ITheme {
+  return name === "light" ? TERMINAL_THEME_LIGHT : TERMINAL_THEME
+}
+
 export interface TerminalInstance {
   ptyId: string
   xterm: Terminal
@@ -62,6 +96,23 @@ class TerminalService {
   private terminals: Map<string, TerminalInstance> = new Map()
   private encoder = new TextEncoder()
   private decoder = new TextDecoder("utf-8")
+  // Theme applied to new terminals. The ThemeController updates this (and every
+  // live terminal) via setTheme whenever the effective theme changes.
+  private currentThemeName: TerminalThemeName = "dark"
+
+  /** Apply a theme to every live terminal and to any created afterwards. */
+  setTheme(name: TerminalThemeName): void {
+    this.currentThemeName = name
+    const theme = terminalThemeFor(name)
+    for (const instance of this.terminals.values()) {
+      instance.xterm.options.theme = theme
+    }
+  }
+
+  /** Background colour of the current terminal theme (for container styling). */
+  get themeBackground(): string {
+    return terminalThemeFor(this.currentThemeName).background ?? "#1a1b1e"
+  }
 
   private getDefaultShell(): string {
     try {
@@ -84,7 +135,7 @@ class TerminalService {
     const ptyId = crypto.randomUUID()
 
     const xterm = new Terminal({
-      theme: TERMINAL_THEME,
+      theme: terminalThemeFor(this.currentThemeName),
       fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
       fontSize: 13,
       cursorBlink: true,

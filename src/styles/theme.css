@@ -54,6 +54,71 @@
 }
 
 /* =================================
+   LIGHT THEME OVERRIDES
+
+   Dark is the default (the @theme block above). The ThemeController sets
+   data-theme="light" | "dark" on <html>; this block re-points the same CSS
+   variables to a light palette, so every ovr-* utility flips with no component
+   changes. The higher selector specificity (:root[data-theme]) beats @theme.
+================================= */
+
+:root[data-theme="light"] {
+  /* Background roles — grayest (base) to whitest (panel). Raised controls
+     read as subtle gray on white, since we can't go brighter than white.
+     bg-app is the center working area; keep it near-white so it doesn't read
+     darker than the white side panels (bg-panel) framing it. */
+  --color-ovr-bg-base: #e9ebef;
+  --color-ovr-bg-app: #f8f9fb;
+  --color-ovr-bg-panel: #ffffff;
+  --color-ovr-bg-elevated: #eef0f3;
+  --color-ovr-bg-surface: #e3e6ea;
+  --color-ovr-bg-overlay: #f0f1f4;
+
+  /* Text — dark on light. */
+  --color-ovr-text-strong: #0b1220;
+  --color-ovr-text-primary: #1f2733;
+  --color-ovr-text-muted: #5c6772;
+  --color-ovr-text-dim: #8a97a3;
+
+  /* Borders. */
+  --color-ovr-border-subtle: #d9dde3;
+  --color-ovr-border-strong: #c2c9d2;
+
+  /* Status — darkened so status text stays legible on light. */
+  --color-ovr-ok: #12a150;
+  --color-ovr-warn: #b4820a;
+  --color-ovr-bad: #e5484d;
+  --color-ovr-info: #5b6ef5;
+
+  --color-ovr-dev: #b4820a;
+
+  /* Diff — GitHub light green/red. */
+  --color-ovr-diff-add: #1a7f37;
+  --color-ovr-diff-del: #cf222e;
+
+  /* Shadows — the neon glow reads as noise on light, so soften to plain
+     drop shadows. */
+  --shadow-ovr-glow-soft: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-ovr-glow: 0 2px 8px rgba(15, 23, 42, 0.1);
+  --shadow-ovr-glow-strong: 0 4px 14px rgba(15, 23, 42, 0.16);
+  --shadow-ovr-panel: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+
+/* The azure ramp stays as-is for button/interactive backgrounds (dark text on
+   cyan reads fine). But azure-300/400 are used as TEXT on light surfaces
+   (markdown links, inline code), where neon cyan is unreadable — retarget just
+   those two usages to a darker teal. */
+:root[data-theme="light"] .ovr-markdown a,
+:root[data-theme="light"] .ovr-markdown code:not(pre code) {
+  color: #0e7490;
+}
+
+/* Hero gradient is hardcoded dark; give it a light wash. */
+:root[data-theme="light"] .bg-ovr-hero {
+  background-image: radial-gradient(circle at 50% 45%, #ffffff 0%, #f1f3f6 45%, #e6e9ee 100%);
+}
+
+/* =================================
    GRADIENT + EFFECT UTILITIES
 ================================= */
 

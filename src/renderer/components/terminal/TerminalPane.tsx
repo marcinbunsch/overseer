@@ -1,6 +1,7 @@
 import { observer } from "mobx-react-lite"
 import { useEffect, useRef } from "react"
-import { terminalService, TERMINAL_THEME, type TerminalInstance } from "../../services/terminal"
+import { terminalService, terminalThemeFor, type TerminalInstance } from "../../services/terminal"
+import { themeController } from "../../services/themeController"
 import "xterm/css/xterm.css"
 
 interface TerminalPaneProps {
@@ -66,7 +67,7 @@ export const TerminalPane = observer(function TerminalPane({
     <div
       ref={wrapperRef}
       className="relative h-full w-full overflow-hidden"
-      style={{ backgroundColor: TERMINAL_THEME.background }}
+      style={{ backgroundColor: terminalThemeFor(themeController.effectiveTheme).background }}
     />
   )
 })

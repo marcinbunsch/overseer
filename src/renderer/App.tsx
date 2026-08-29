@@ -21,6 +21,7 @@ import { backend } from "./backend"
 import { httpBackend } from "./backend/http"
 import { handleWindowCloseRequest, createDefaultDeps } from "./utils/windowClose"
 import { initNotificationClickHandler } from "./services/notificationService"
+import { themeController } from "./services/themeController"
 import { projectRegistry } from "./stores/ProjectRegistry"
 import { runInAction } from "mobx"
 
@@ -108,6 +109,9 @@ export default observer(function App() {
   useEffect(() => {
     // Initialize console interception for mobile debug console
     consoleStore.init()
+
+    // Start applying the light/dark theme (follows OS when set to auto)
+    themeController.init()
 
     // Show the window after React has mounted to avoid white flash
     // (window starts hidden via `visible: false` in tauri.conf.json)
@@ -199,6 +203,7 @@ export default observer(function App() {
       cleanupFns.forEach((p) => p.then((fn) => fn()))
       if (unsubscribeAuth) unsubscribeAuth()
       if (unsubscribeNotifications) unsubscribeNotifications()
+      themeController.dispose()
     }
   }, [])
 

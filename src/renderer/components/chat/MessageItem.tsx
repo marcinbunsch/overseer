@@ -74,7 +74,7 @@ function MetaMessageItem({ message }: { message: Message }) {
           {message.meta!.label}
         </button>
         {expanded && (
-          <div className="mt-2 text-sm text-white">
+          <div className="mt-2 text-sm text-ovr-text-primary">
             <MarkdownContent content={message.content} />
           </div>
         )}
@@ -213,7 +213,7 @@ export const MessageItem = observer(function MessageItem({ message, compact }: M
     return (
       <div className="group mb-3 flex items-start justify-end gap-1">
         <CopyButton content={message.content} />
-        <div className="max-w-[80%] overflow-hidden rounded-lg border-r-2 border-ovr-azure-500 bg-ovr-bg-elevated px-3 py-4 text-sm text-white">
+        <div className="max-w-[80%] overflow-hidden rounded-lg border-r-2 border-ovr-azure-500 bg-ovr-bg-elevated px-3 py-4 text-sm text-ovr-text-primary">
           <MarkdownContent content={message.content} />
           {message.attachments && message.attachments.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
