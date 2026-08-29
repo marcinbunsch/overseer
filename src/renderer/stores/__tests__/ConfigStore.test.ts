@@ -1186,6 +1186,77 @@ describe("ConfigStore", () => {
     })
   })
 
+  describe("themePreference", () => {
+    it("defaults to auto when not in config", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.themePreference).toBe("auto")
+    })
+
+    it("loads themePreference from config", async () => {
+      mockInvoke((cmd: string) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude", themePreference: "light" })
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      expect(configStore.themePreference).toBe("light")
+    })
+
+    it("saves config when themePreference is changed", async () => {
+      let savedConfig: Record<string, unknown> | null = null
+      mockInvoke((cmd: string, args?: unknown) => {
+        if (cmd === "config_file_exists") return Promise.resolve(true)
+        if (cmd === "load_json_config") {
+          return Promise.resolve({ claudePath: "claude" })
+        }
+        if (cmd === "save_json_config") {
+          savedConfig = (args as { content: Record<string, unknown> }).content
+          return Promise.resolve(undefined)
+        }
+        return Promise.resolve(undefined)
+      })
+
+      vi.resetModules()
+      const { configStore } = await import("../ConfigStore")
+
+      await vi.waitFor(() => {
+        expect(configStore.loaded).toBe(true)
+      })
+
+      configStore.setThemePreference("dark")
+
+      expect(configStore.themePreference).toBe("dark")
+      await vi.waitFor(() => {
+        expect(savedConfig).not.toBeNull()
+      })
+
+      expect(savedConfig!.themePreference).toBe("dark")
+    })
+  })
+
   describe("hermes models cache", () => {
     it("loads hermesPath and cached hermesModels from config", async () => {
       mockInvoke((cmd: string) => {

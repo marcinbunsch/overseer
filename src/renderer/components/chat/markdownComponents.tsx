@@ -1,6 +1,8 @@
+import { observer } from "mobx-react-lite"
 import { PrismAsyncLight as SyntaxHighlighter } from "react-syntax-highlighter"
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism"
+import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { open } from "@tauri-apps/plugin-shell"
+import { themeController } from "../../services/themeController"
 
 /** Link component that opens URLs in the default browser */
 export function MarkdownLink({ href, children }: { href?: string; children?: React.ReactNode }) {
@@ -18,7 +20,7 @@ export function MarkdownLink({ href, children }: { href?: string; children?: Rea
 }
 
 /** Code block component with syntax highlighting */
-export function MarkdownCode({
+export const MarkdownCode = observer(function MarkdownCode({
   className,
   children,
   ...rest
@@ -32,7 +34,7 @@ export function MarkdownCode({
   if (match) {
     return (
       <SyntaxHighlighter
-        style={oneDark}
+        style={themeController.effectiveTheme === "light" ? oneLight : oneDark}
         language={match[1]}
         PreTag="div"
         customStyle={{
@@ -51,4 +53,4 @@ export function MarkdownCode({
       {children}
     </code>
   )
-}
+})

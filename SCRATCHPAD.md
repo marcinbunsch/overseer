@@ -97,6 +97,14 @@ To preview all design system elements, enable dev mode and go to Settings → De
 
 ## Project Knowledge
 
+### Theming (light/dark)
+
+- **One source of truth**: `themePreference` ("auto"|"light"|"dark") in `ConfigStore`, applied by `services/themeController.ts`. The controller resolves `auto` via `matchMedia("(prefers-color-scheme: dark)")`, writes `data-theme` on `<html>`, and exposes `@computed effectiveTheme`. Started once in `App.tsx` useEffect; `dispose()` on unmount.
+- **CSS flips via variables**: `theme.css` has the dark palette in `@theme {}` (the default). A `:root[data-theme="light"] {}` block re-points the same `--color-ovr-*` variables — higher specificity than `@theme`'s `:root`, so it wins. Every `ovr-*` utility reads `var(...)`, so no component changes needed.
+- **Two JS consumers** read `themeController.effectiveTheme` directly (they can't use CSS vars): terminal (`terminalService.setTheme` swaps xterm `ITheme`; light theme is `TERMINAL_THEME_LIGHT`) and code highlighting (`markdownComponents.tsx` picks `oneLight`/`oneDark`). Both wrapped in `observer`.
+- **Watch for hardcoded colors that don't flip**: `text-white`/`bg-white`/`text-black` on `bg-ovr-bg-*` tokens break in one theme. The user message bubble was `text-white` on `bg-ovr-bg-elevated` (invisible in light) → use `text-ovr-text-primary`. Switch thumbs (`bg-white`) got `shadow-sm ring-1 ring-black/10` so they read on light off-tracks. `text-white` on saturated button backgrounds (azure/green/red) is fine in both.
+
+
 - **Dev vs Prod paths**: Dev mode uses different paths to avoid conflicts with stable builds:
   - Dev: `~/.config/overseer-dev/` and `~/overseer/workspaces-dev/`
   - Prod: `~/.config/overseer/` and `~/overseer/workspaces/`

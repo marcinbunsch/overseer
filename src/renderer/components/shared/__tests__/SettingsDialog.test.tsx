@@ -372,6 +372,28 @@ describe("SettingsDialog Agents tab - Claude usage indicator", () => {
   })
 })
 
+describe("SettingsDialog General tab - Theme", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    configStore.themePreference = "auto"
+  })
+
+  it("shows the theme selector", () => {
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.getByText("Theme")).toBeInTheDocument()
+    expect(screen.getByTestId("theme-select-trigger")).toBeInTheDocument()
+  })
+
+  it("reflects the current theme preference", () => {
+    configStore.themePreference = "light"
+
+    render(<SettingsDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.getByTestId("theme-select-trigger")).toHaveTextContent(/light/i)
+  })
+})
+
 describe("SettingsDialog General tab - External Tools", () => {
   beforeEach(() => {
     vi.clearAllMocks()
