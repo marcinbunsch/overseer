@@ -631,7 +631,11 @@ export class ChatStore {
   setModelVersion(model: string | null): void {
     if (this.chat.modelVersion !== model) {
       this.chat.modelVersion = model
-      if (this.isSending) this._configChanged = true
+      if (this.isSending) {
+        this._configChanged = true
+      } else if (this.service?.isRunning(this.chat.id)) {
+        void this.service.stopChat(this.chat.id)
+      }
       void this.persistMetadata()
     }
   }
