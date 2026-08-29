@@ -2763,6 +2763,15 @@ Live text.`,
   // ---------------------------------------------------------------------------
 
   describe("mid-session config changes", () => {
+    it("stops an idle process after a model change so the next message uses the new model", () => {
+      const store = createChatStore()
+      mockAgentService.isRunning.mockReturnValueOnce(true)
+
+      store.setModelVersion("claude-haiku-4-5")
+
+      expect(mockAgentService.stopChat).toHaveBeenCalledWith("test-chat-id")
+    })
+
     it("allows model changes while agent is running without immediately restarting", async () => {
       const store = createChatStore()
 
