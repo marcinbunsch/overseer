@@ -197,6 +197,7 @@ interface ChangedFile {
 ### Other
 
 - Driving API (`/api/v1`) — let another agent create workspaces, start sessions, send messages, and read replies over HTTP. See [features/26-driving-api.md](features/26-driving-api.md)
+- MCP server (`/mcp`) — the same driving verbs exposed as MCP tools, behind the HTTP server's bearer token. See [features/27-mcp-server.md](features/27-mcp-server.md)
 - VS Code / iTerm integration (open workspace in external app)
 - Editable branch names in chat header
 - Toast notifications

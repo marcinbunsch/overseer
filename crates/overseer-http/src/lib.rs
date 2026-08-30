@@ -38,11 +38,15 @@
 
 mod api_v1;
 mod auth;
+mod mcp;
 mod routes;
 mod state;
 mod websocket;
 
 use axum::{middleware, routing::get, Router};
+use rmcp::transport::streamable_http_server::{
+    session::local::LocalSessionManager, StreamableHttpService,
+};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -144,6 +148,16 @@ pub fn start(
             .expect("Failed to create tokio runtime");
 
         rt.block_on(async move {
+            // MCP server at /mcp — exposes the driving verbs as MCP tools. A fresh
+            // handler is built per request; it only holds an Arc to shared state.
+            // json_response mode: our tools are request/response, no SSE needed.
+            let mcp_state = Arc::clone(&state);
+            let mcp_service = StreamableHttpService::new(
+                move || Ok(mcp::OverseerMcp::new(Arc::clone(&mcp_state))),
+                Arc::new(LocalSessionManager::default()),
+                Default::default(),
+            );
+
             let protected_routes = Router::new()
                 .route(
                     "/api/invoke/{command}",
@@ -151,6 +165,9 @@ pub fn start(
                 )
                 .route("/ws/events", get(websocket::ws_handler))
                 .merge(api_v1::router())
+                // /mcp sits inside the protected group, so the same bearer-token
+                // auth (and outer CORS) guards it — no MCP-specific auth needed.
+                .nest_service("/mcp", mcp_service)
                 .layer(middleware::from_fn_with_state(
                     Arc::clone(&state),
                     auth::auth_middleware,

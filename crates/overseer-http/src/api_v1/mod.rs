@@ -15,10 +15,12 @@
 //! - [`views`] — fold the persisted event stream into clean messages.
 
 mod attachments;
-mod messages;
-mod sessions;
 mod views;
-mod workspaces;
+
+// Reachable from the sibling `mcp` module, whose tools call these handlers directly.
+pub(crate) mod messages;
+pub(crate) mod sessions;
+pub(crate) mod workspaces;
 
 use std::sync::Arc;
 
@@ -114,6 +116,17 @@ impl ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: message.into(),
         }
+    }
+
+    /// The HTTP status this error maps to. Read-only; used by the MCP layer to
+    /// pick the right JSON-RPC error code.
+    pub(crate) fn status_code(&self) -> StatusCode {
+        self.status
+    }
+
+    /// The human-readable error message.
+    pub(crate) fn message(&self) -> &str {
+        &self.message
     }
 }
 
