@@ -168,7 +168,7 @@ impl OverseerMcp {
 
     /// Send a message to a session. Does not wait for the reply.
     #[tool(description = "Send a message to a session. Returns immediately with { accepted, \
-        lastSeq } — it does NOT wait for the reply. Poll read_messages with sinceSeq=lastSeq \
+        lastSeq } — it does NOT wait for the reply. Poll read_messages with since_seq=lastSeq \
         until turnComplete is true, then the new messages hold the agent's reply.")]
     async fn send_message(
         &self,
@@ -187,7 +187,7 @@ impl OverseerMcp {
 
     /// Read a session's messages with a poll cursor.
     #[tool(description = "Read a session's messages. Returns { messages, lastSeq, running, \
-        turnComplete }. Use sinceSeq to fetch only new messages while polling for a reply.")]
+        turnComplete }. Use since_seq to fetch only new messages while polling for a reply.")]
     async fn read_messages(
         &self,
         Parameters(args): Parameters<ReadMessagesArgs>,
@@ -214,7 +214,7 @@ impl ServerHandler for OverseerMcp {
             ))
             .with_instructions(
                 "Drive Overseer over MCP: list_projects → create_workspace → create_session → \
-                 send_message, then poll read_messages with sinceSeq until turnComplete is true.",
+                 send_message, then poll read_messages with since_seq until turnComplete is true.",
             )
     }
 }
