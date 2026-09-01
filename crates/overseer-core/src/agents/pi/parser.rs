@@ -95,7 +95,7 @@ impl PiParser {
             // handler — notifications, follow-ups, file refresh) plus Done (persistent
             // process cleanup — clears the running/isSending flags).
             "agent_start" => Vec::new(), // No-op, internal
-            "agent_end" => vec![AgentEvent::TurnComplete, AgentEvent::Done],
+            "agent_end" => vec![AgentEvent::turn_complete(), AgentEvent::Done],
 
             // Turn lifecycle
             //
@@ -396,7 +396,7 @@ mod tests {
         // agent_end is the sole completion signal: TurnComplete (full handler)
         // followed by Done (process cleanup).
         assert_eq!(events.len(), 2);
-        assert!(matches!(events[0], AgentEvent::TurnComplete));
+        assert!(matches!(events[0], AgentEvent::TurnComplete { .. }));
         assert!(matches!(events[1], AgentEvent::Done));
     }
 

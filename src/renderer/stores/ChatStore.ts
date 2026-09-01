@@ -17,7 +17,7 @@ import type {
 } from "../types"
 import { groupMessagesIntoTurns } from "../utils/groupMessagesIntoTurns"
 import { createAgentService } from "../services/agentRegistry"
-import type { AgentEvent, AgentService } from "../services/types"
+import type { AgentEvent, AgentService, TurnMetadata } from "../services/types"
 import { configStore } from "./ConfigStore"
 import { extractOverseerBlocks, type OverseerAction } from "../utils/overseerActions"
 import { executeOverseerAction } from "../services/overseerActionExecutor"
@@ -90,6 +90,15 @@ type BackendAgentEvent = {
   questions?: BackendQuestionItem[]
   raw_input?: Record<string, unknown>
   session_id?: string
+  completed_at?: string
+  cost_usd?: number
+  duration_ms?: number
+  total_tokens?: number
+  input_tokens?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
+  output_tokens?: number
+  reasoning_output_tokens?: number
   id?: string
   timestamp?: string
   meta?: Record<string, unknown>
@@ -135,6 +144,7 @@ export class ChatStore {
   @observable autonomousGauntletReviewers: GauntletReviewer[] = []
   /** 1-indexed gauntlet round counter for display */
   @observable autonomousGauntletRound: number = 0
+  @observable private turnMetadataByUserMessageId: Map<string, TurnMetadata> = new Map()
   /** Accumulated text from the current iteration for completion detection */
   private autonomousCurrentIterationText: string = ""
   /** Gauntlet review services, cached by agent type and reused across rounds */
@@ -208,7 +218,10 @@ export class ChatStore {
     // When a plan approval is pending, treat as not sending so the turn
     // gets finalized and the plan text shows as the result message.
     const sending = this.isSending && !this.pendingPlanApproval
-    return groupMessagesIntoTurns(this.chat.messages, sending)
+    return groupMessagesIntoTurns(this.chat.messages, sending).map((turn) => ({
+      ...turn,
+      metadata: this.turnMetadataByUserMessageId.get(turn.userMessage.id),
+    }))
   }
 
   @computed get status(): ChatStatus {
@@ -1661,6 +1674,15 @@ Read \`${OVERSEER_DIR}/autonomous-progress.md\` to see what has been accomplishe
         }
 
         case "turnComplete": {
+          const completedUserMessage = [...this.chat.messages]
+            .reverse()
+            .find((message) => message.role === "user")
+          if (completedUserMessage && (event.metadata || !this.isReplaying)) {
+            this.turnMetadataByUserMessageId.set(
+              completedUserMessage.id,
+              event.metadata ?? { completedAt: new Date() }
+            )
+          }
           this.activeCodexStreamMessageId = null
           this.isSending = false
           // Show "done" status unless user is actively viewing this chat
@@ -2213,7 +2235,22 @@ Read \`${OVERSEER_DIR}/autonomous-progress.md\` to see what has been accomplishe
         if (!event.session_id) return null
         return { kind: "sessionId", sessionId: event.session_id }
       case "turnComplete":
-        return { kind: "turnComplete" }
+        return {
+          kind: "turnComplete",
+          metadata: event.completed_at
+            ? {
+                completedAt: new Date(event.completed_at),
+                costUsd: event.cost_usd,
+                durationMs: event.duration_ms,
+                totalTokens: event.total_tokens,
+                inputTokens: event.input_tokens,
+                cacheReadTokens: event.cache_read_tokens,
+                cacheWriteTokens: event.cache_write_tokens,
+                outputTokens: event.output_tokens,
+                reasoningOutputTokens: event.reasoning_output_tokens,
+              }
+            : undefined,
+        }
       case "done":
         return { kind: "done" }
       default:

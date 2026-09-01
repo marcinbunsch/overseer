@@ -29,7 +29,7 @@
 //! {"id": 5, "result": {"approved": true}}
 //! ```
 
-use crate::agents::event::{AgentEvent, ToolMeta};
+use crate::agents::event::{AgentEvent, ToolMeta, TurnMetadata};
 use crate::approval::parse_command_prefixes;
 
 use super::types::{CodexItem, JsonRpcMessage, JsonRpcNotification, JsonRpcServerRequest};
@@ -221,6 +221,9 @@ pub struct CodexParser {
     /// When it completes, we set it back to false.
     /// This helps the UI know when to show the command output area.
     in_command_execution: bool,
+
+    /// Usage reported for the active turn by `thread/tokenUsage/updated`.
+    pending_turn_metadata: Option<TurnMetadata>,
 }
 
 /// # Rust Concept: Default Trait
@@ -486,6 +489,11 @@ impl CodexParser {
         let params = notif.params.clone().unwrap_or(serde_json::json!({}));
 
         match notif.method.as_str() {
+            "turn/started" => {
+                self.pending_turn_metadata = None;
+                Vec::new()
+            }
+
             // Streaming text delta from agent
             //
             // This is the main text output — like TypeScript's `text` in ChatStore
@@ -655,7 +663,36 @@ impl CodexParser {
             }
 
             // Turn completed — agent is done responding
-            "turn/completed" => vec![AgentEvent::TurnComplete],
+            "turn/completed" => {
+                let mut metadata = self
+                    .pending_turn_metadata
+                    .take()
+                    .unwrap_or_else(TurnMetadata::now);
+                metadata.completed_at = Some(chrono::Utc::now());
+                vec![AgentEvent::TurnComplete { metadata }]
+            }
+
+            // Token usage is cumulative for the thread and includes the most
+            // recent turn separately. The latter is what belongs in the footer.
+            "thread/tokenUsage/updated" => {
+                let Some(usage) = params.get("tokenUsage").and_then(|usage| usage.get("last"))
+                else {
+                    return Vec::new();
+                };
+                let token = |field| usage.get(field).and_then(|value| value.as_u64());
+                self.pending_turn_metadata = Some(TurnMetadata {
+                    completed_at: None,
+                    cost_usd: None,
+                    duration_ms: None,
+                    total_tokens: token("totalTokens"),
+                    input_tokens: token("inputTokens"),
+                    cache_read_tokens: token("cachedInputTokens"),
+                    cache_write_tokens: token("cacheWriteInputTokens"),
+                    output_tokens: token("outputTokens"),
+                    reasoning_output_tokens: token("reasoningOutputTokens"),
+                });
+                Vec::new()
+            }
 
             // Command output delta — streaming terminal output
             "item/commandExecution/outputDelta" => {
@@ -698,7 +735,6 @@ impl CodexParser {
             // `|` lets you match multiple patterns in one arm.
             // This is cleaner than having multiple arms with the same body.
             "thread/name/updated"
-            | "thread/tokenUsage/updated"
             | "thread/compacted"
             | "account/updated"
             | "account/rateLimits/updated"
@@ -764,7 +800,31 @@ mod tests {
         let line = r#"{"method":"turn/completed","params":{}}"#;
         let (events, _) = parser.feed(&format!("{line}\n"));
 
-        assert!(events.iter().any(|e| matches!(e, AgentEvent::TurnComplete)));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::TurnComplete { .. })));
+    }
+
+    #[test]
+    fn turn_complete_includes_last_turn_token_usage() {
+        let mut parser = CodexParser::new();
+        parser.feed(r#"{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}
+{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"totalTokens":300,"inputTokens":250,"cachedInputTokens":200,"cacheWriteInputTokens":4,"outputTokens":50,"reasoningOutputTokens":10},"last":{"totalTokens":150,"inputTokens":120,"cachedInputTokens":90,"cacheWriteInputTokens":2,"outputTokens":30,"reasoningOutputTokens":6},"modelContextWindow":258400}}}
+"#);
+
+        let (events, _) = parser.feed(r#"{"method":"turn/completed","params":{"turn":{"id":"turn-1"}}}
+"#);
+        let metadata = events.iter().find_map(|event| match event {
+            AgentEvent::TurnComplete { metadata } => Some(metadata),
+            _ => None,
+        });
+        let metadata = metadata.expect("turn should complete");
+        assert_eq!(metadata.total_tokens, Some(150));
+        assert_eq!(metadata.input_tokens, Some(120));
+        assert_eq!(metadata.cache_read_tokens, Some(90));
+        assert_eq!(metadata.cache_write_tokens, Some(2));
+        assert_eq!(metadata.output_tokens, Some(30));
+        assert_eq!(metadata.reasoning_output_tokens, Some(6));
     }
 
     #[test]
@@ -1089,7 +1149,7 @@ mod tests {
         let (events3, _) = parser.feed("\n");
         assert!(events3
             .iter()
-            .any(|e| matches!(e, AgentEvent::TurnComplete)));
+            .any(|e| matches!(e, AgentEvent::TurnComplete { .. })));
     }
 
     #[test]

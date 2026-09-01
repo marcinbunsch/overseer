@@ -37,7 +37,7 @@
 //!
 //! // When process exits, flush remaining buffer and emit TurnComplete
 //! let final_events = parser.flush();
-//! emit(AgentEvent::TurnComplete);
+//! emit(AgentEvent::turn_complete());
 //! ```
 
 mod parser;

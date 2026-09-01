@@ -445,7 +445,7 @@ mod tests {
                 tool_use_id: None,
                 is_info: None,
             },
-            AgentEvent::TurnComplete,
+            AgentEvent::turn_complete(),
         ];
         for event in events {
             state

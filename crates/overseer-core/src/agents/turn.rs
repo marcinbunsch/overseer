@@ -558,7 +558,7 @@ mod tests {
 
         #[test]
         fn with_resolution_sets_resolution() {
-            let event = TurnEvent::new(AgentEvent::TurnComplete).with_resolution(EventResolution {
+            let event = TurnEvent::new(AgentEvent::turn_complete()).with_resolution(EventResolution {
                 decision: Decision::Approved,
                 decided_at: Utc::now(),
             });

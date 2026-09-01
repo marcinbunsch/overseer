@@ -108,7 +108,18 @@ type BackendAgentEvent =
       meta?: Record<string, unknown> | null
     }
   | { kind: "sessionId"; session_id: string }
-  | { kind: "turnComplete" }
+  | {
+      kind: "turnComplete"
+      completed_at?: string
+      cost_usd?: number
+      duration_ms?: number
+      total_tokens?: number
+      input_tokens?: number
+      cache_read_tokens?: number
+      cache_write_tokens?: number
+      output_tokens?: number
+      reasoning_output_tokens?: number
+    }
   | { kind: "done" }
   | { kind: "error"; message: string }
 
@@ -289,8 +300,27 @@ export class ClaudeAgentService implements AgentService {
         return
       }
       case "text":
-      case "bashOutput":
-      case "turnComplete":
+      case "bashOutput": {
+        this.emitEvent(chatId, event as import("./types").AgentEvent, seq)
+        return
+      }
+      case "turnComplete": {
+        const metadata = event.completed_at
+          ? {
+              completedAt: new Date(event.completed_at),
+              costUsd: event.cost_usd,
+              durationMs: event.duration_ms,
+              totalTokens: event.total_tokens,
+              inputTokens: event.input_tokens,
+              cacheReadTokens: event.cache_read_tokens,
+              cacheWriteTokens: event.cache_write_tokens,
+              outputTokens: event.output_tokens,
+              reasoningOutputTokens: event.reasoning_output_tokens,
+            }
+          : undefined
+        this.emitEvent(chatId, { kind: "turnComplete", metadata }, seq)
+        return
+      }
       case "done": {
         this.emitEvent(chatId, event as import("./types").AgentEvent, seq)
         return

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, cleanup } from "@testing-library/react"
+import { render, screen, cleanup, fireEvent } from "@testing-library/react"
 import { describe, it, expect, afterEach, vi } from "vitest"
 import { MessageItem } from "../MessageItem"
 import { TurnSection } from "../TurnSection"
@@ -71,5 +71,35 @@ describe("turn work section force-expand during search", () => {
     chatSearchStore.open()
     render(<TurnSection turn={turn()} />)
     expect(screen.getByText("digging through logs")).toBeInTheDocument()
+  })
+
+  it("renders metadata after a completed result", () => {
+    render(
+      <TurnSection
+        turn={{
+          ...turn(),
+          metadata: {
+            completedAt: new Date("2026-09-01T18:26:00Z"),
+            costUsd: 0.03,
+            totalTokens: 40_983,
+            inputTokens: 359,
+            cacheReadTokens: 40_448,
+            outputTokens: 176,
+          },
+        }}
+      />
+    )
+
+    expect(screen.getByTestId("turn-metadata")).toHaveTextContent("$0.03")
+    expect(screen.getByTestId("turn-metadata")).toHaveTextContent("40,983 tokens")
+    expect(screen.queryByText("Input 359")).not.toBeInTheDocument()
+    expect(
+      screen.getByTestId("turn-metadata").querySelector("[data-testid='copy-message-button']")
+    ).not.toHaveClass("opacity-0")
+
+    fireEvent.click(screen.getByRole("button", { name: "Show token details" }))
+    expect(screen.getByTestId("turn-metadata")).toHaveTextContent("Input 359")
+    expect(screen.getByTestId("turn-metadata")).toHaveTextContent("Cache read 40,448")
+    expect(screen.getByRole("button", { name: "Hide token details" })).toBeInTheDocument()
   })
 })

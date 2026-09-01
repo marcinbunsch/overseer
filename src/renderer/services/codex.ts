@@ -136,6 +136,16 @@ interface RustAgentEvent {
   is_processed?: boolean
   // SessionId variant
   session_id?: string
+  // TurnComplete metadata
+  completed_at?: string
+  cost_usd?: number
+  duration_ms?: number
+  total_tokens?: number
+  input_tokens?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
+  output_tokens?: number
+  reasoning_output_tokens?: number
 }
 
 interface CodexChat {
@@ -611,7 +621,22 @@ class CodexAgentService implements AgentService {
         break
 
       case "turnComplete":
-        this.emitEvent(chatId, { kind: "turnComplete" })
+        this.emitEvent(chatId, {
+          kind: "turnComplete",
+          metadata: event.completed_at
+            ? {
+                completedAt: new Date(event.completed_at),
+                costUsd: event.cost_usd,
+                durationMs: event.duration_ms,
+                totalTokens: event.total_tokens,
+                inputTokens: event.input_tokens,
+                cacheReadTokens: event.cache_read_tokens,
+                cacheWriteTokens: event.cache_write_tokens,
+                outputTokens: event.output_tokens,
+                reasoningOutputTokens: event.reasoning_output_tokens,
+              }
+            : undefined,
+        })
         break
 
       case "sessionId":

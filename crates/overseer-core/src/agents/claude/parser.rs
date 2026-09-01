@@ -20,7 +20,7 @@
 //! - **References (`&`)**: Borrow data without taking ownership
 //! - **`String` vs `&str`**: Owned string vs borrowed string slice
 
-use crate::agents::event::{AgentEvent, ToolMeta};
+use crate::agents::event::{AgentEvent, ToolMeta, TurnMetadata};
 use crate::approval::parse_command_prefixes;
 
 use super::types::{AskUserQuestionInput, ClaudeStreamEvent, ExitPlanModeInput};
@@ -85,6 +85,7 @@ pub struct ClaudeParser {
     /// We hold the `TurnComplete` back and emit it once `active_bg_tasks`
     /// drains to empty (the "drain check").
     pending_turn_complete: bool,
+    pending_turn_metadata: Option<TurnMetadata>,
 }
 
 /// # Rust Concept: impl Blocks
@@ -296,7 +297,9 @@ impl ClaudeParser {
     fn drain_turn_complete(&mut self) -> Vec<AgentEvent> {
         if self.active_bg_tasks.is_empty() && self.pending_turn_complete {
             self.pending_turn_complete = false;
-            return vec![AgentEvent::TurnComplete];
+            return vec![AgentEvent::TurnComplete {
+                metadata: self.pending_turn_metadata.take().unwrap_or_else(TurnMetadata::now),
+            }];
         }
         Vec::new()
     }
@@ -527,10 +530,42 @@ impl ClaudeParser {
             // completion until the tasks drain (see `drain_turn_complete`);
             // otherwise complete the turn now.
             "result" => {
+                let input_tokens = event.usage.as_ref().and_then(|usage| usage.input_tokens);
+                let cache_read_tokens = event
+                    .usage
+                    .as_ref()
+                    .and_then(|usage| usage.cache_read_input_tokens);
+                let cache_write_tokens = event
+                    .usage
+                    .as_ref()
+                    .and_then(|usage| usage.cache_creation_input_tokens);
+                let output_tokens = event.usage.as_ref().and_then(|usage| usage.output_tokens);
+                let token_counts = [
+                    input_tokens,
+                    cache_read_tokens,
+                    cache_write_tokens,
+                    output_tokens,
+                ];
+                let metadata = TurnMetadata {
+                    completed_at: Some(chrono::Utc::now()),
+                    cost_usd: event.total_cost_usd,
+                    duration_ms: event.duration_ms,
+                    total_tokens: token_counts
+                        .iter()
+                        .copied()
+                        .any(|count| count.is_some())
+                        .then(|| token_counts.iter().copied().flatten().sum()),
+                    input_tokens,
+                    cache_read_tokens,
+                    cache_write_tokens,
+                    output_tokens,
+                    reasoning_output_tokens: None,
+                };
                 if self.active_bg_tasks.is_empty() {
-                    vec![AgentEvent::TurnComplete]
+                    vec![AgentEvent::TurnComplete { metadata }]
                 } else {
                     self.pending_turn_complete = true;
+                    self.pending_turn_metadata = Some(metadata);
                     Vec::new()
                 }
             }
@@ -924,7 +959,29 @@ mod tests {
         let line = r#"{"type":"result","result":"success"}"#;
         let events = parser.feed(&format!("{line}\n"));
 
-        assert!(events.iter().any(|e| matches!(e, AgentEvent::TurnComplete)));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::TurnComplete { .. })));
+    }
+
+    #[test]
+    fn result_metadata_includes_claude_usage() {
+        let mut parser = ClaudeParser::new();
+        let line = r#"{"type":"result","total_cost_usd":0.03,"duration_ms":1200,"usage":{"input_tokens":359,"cache_read_input_tokens":40448,"cache_creation_input_tokens":0,"output_tokens":176}}"#;
+        let events = parser.feed(&format!("{line}\n"));
+
+        let metadata = events.iter().find_map(|event| match event {
+            AgentEvent::TurnComplete { metadata } => Some(metadata),
+            _ => None,
+        });
+        let metadata = metadata.expect("result should complete the turn");
+        assert_eq!(metadata.cost_usd, Some(0.03));
+        assert_eq!(metadata.duration_ms, Some(1200));
+        assert_eq!(metadata.input_tokens, Some(359));
+        assert_eq!(metadata.total_tokens, Some(40983));
+        assert_eq!(metadata.cache_read_tokens, Some(40448));
+        assert_eq!(metadata.cache_write_tokens, Some(0));
+        assert_eq!(metadata.output_tokens, Some(176));
     }
 
     #[test]
@@ -1033,7 +1090,7 @@ mod tests {
         let events3 = parser.feed("\n");
         assert!(events3
             .iter()
-            .any(|e| matches!(e, AgentEvent::TurnComplete)));
+            .any(|e| matches!(e, AgentEvent::TurnComplete { .. })));
     }
 
     #[test]
@@ -1045,7 +1102,9 @@ mod tests {
 
         // Flush should process it
         let events = parser.flush();
-        assert!(events.iter().any(|e| matches!(e, AgentEvent::TurnComplete)));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::TurnComplete { .. })));
     }
 
     #[test]
@@ -1104,7 +1163,7 @@ mod tests {
     fn turn_complete_count(events: &[AgentEvent]) -> usize {
         events
             .iter()
-            .filter(|e| matches!(e, AgentEvent::TurnComplete))
+            .filter(|e| matches!(e, AgentEvent::TurnComplete { .. }))
             .count()
     }
 

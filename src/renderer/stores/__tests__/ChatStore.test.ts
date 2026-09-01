@@ -378,6 +378,32 @@ describe("ChatStore", () => {
     expect(store.status).toBe("idle")
   })
 
+  it("attaches completion metadata to the completed turn", () => {
+    const store = createChatStore({
+      messages: [
+        { id: "user-1", role: "user", content: "hello", timestamp: new Date() },
+        { id: "assistant-1", role: "assistant", content: "done", timestamp: new Date() },
+      ],
+    })
+    const eventCall = mockAgentService.onEvent.mock.calls.find(
+      (c: unknown[]) => c[0] === "test-chat-id"
+    )
+    const eventCallback = eventCall![1]
+    const completedAt = new Date("2026-09-01T18:26:00Z")
+
+    eventCallback({
+      kind: "turnComplete",
+      metadata: { completedAt, inputTokens: 359, cacheReadTokens: 40_448, outputTokens: 176 },
+    })
+
+    expect(store.turns[0].metadata).toEqual({
+      completedAt,
+      inputTokens: 359,
+      cacheReadTokens: 40_448,
+      outputTokens: 176,
+    })
+  })
+
   it("handleAgentEvent calls refreshChangedFiles on turnComplete", () => {
     const refreshChangedFiles = vi.fn()
     const store = createChatStore(undefined, { refreshChangedFiles })

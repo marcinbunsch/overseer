@@ -243,6 +243,8 @@ export interface MessageTurn {
   resultMessage: Message | null
   /** True if this turn is still streaming / awaiting completion */
   inProgress: boolean
+  /** Accounting attached to the completed turn when the agent exposes it. */
+  metadata?: import("../services/types").TurnMetadata
 }
 
 // --- Plan Approval ---

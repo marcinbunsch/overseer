@@ -14,6 +14,48 @@ pub struct ToolMeta {
     pub lines_removed: Option<u32>,
 }
 
+/// Accounting reported when an agent finishes a turn.
+///
+/// Every completion carries its timestamp. Providers add only the usage fields
+/// their protocol reports; Overseer never estimates missing values.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TurnMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_output_tokens: Option<u64>,
+}
+
+impl TurnMetadata {
+    pub fn now() -> Self {
+        Self {
+            completed_at: Some(Utc::now()),
+            cost_usd: None,
+            duration_ms: None,
+            total_tokens: None,
+            input_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            output_tokens: None,
+            reasoning_output_tokens: None,
+        }
+    }
+}
+
 /// A single question item in a multi-question request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuestionItem {
@@ -127,7 +169,10 @@ pub enum AgentEvent {
     SessionId { session_id: String },
 
     /// A turn (user message + agent response) completed.
-    TurnComplete,
+    TurnComplete {
+        #[serde(flatten)]
+        metadata: TurnMetadata,
+    },
 
     /// Agent process exited.
     Done,
@@ -140,6 +185,14 @@ pub enum AgentEvent {
     OverseerAction {
         action: crate::overseer_actions::OverseerAction,
     },
+}
+
+impl AgentEvent {
+    pub fn turn_complete() -> Self {
+        Self::TurnComplete {
+            metadata: TurnMetadata::now(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -448,12 +501,24 @@ mod tests {
 
         #[test]
         fn turn_complete_event() {
-            let event = AgentEvent::TurnComplete;
+            let event = AgentEvent::turn_complete();
 
             let json = serde_json::to_string(&event).unwrap();
+            assert!(json.contains("\"completed_at\":"));
+            assert!(!json.contains("\"metadata\":"));
             let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
 
-            assert!(matches!(parsed, AgentEvent::TurnComplete));
+            assert!(matches!(parsed, AgentEvent::TurnComplete { .. }));
+        }
+
+        #[test]
+        fn legacy_turn_complete_without_metadata_deserializes() {
+            let event: AgentEvent = serde_json::from_str(r#"{"kind":"turnComplete"}"#).unwrap();
+
+            match event {
+                AgentEvent::TurnComplete { metadata } => assert!(metadata.completed_at.is_none()),
+                _ => panic!("Expected TurnComplete event"),
+            }
         }
 
         #[test]
@@ -513,7 +578,7 @@ mod tests {
 
         #[test]
         fn uses_camel_case_tag() {
-            let event = AgentEvent::TurnComplete;
+            let event = AgentEvent::turn_complete();
             let json = serde_json::to_string(&event).unwrap();
             // Should be "kind":"turnComplete" not "kind":"turn_complete"
             assert!(json.contains("turnComplete"));

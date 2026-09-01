@@ -2,6 +2,7 @@ import { observer } from "mobx-react-lite"
 import { useState } from "react"
 import { ChevronRight, ChevronDown, Copy, Check } from "lucide-react"
 import type { Message } from "../../types"
+import type { TurnMetadata as TurnMetadataData } from "../../services/types"
 import {
   parseToolCall,
   BashToolItem,
@@ -20,14 +21,22 @@ import { MarkdownContent } from "./MarkdownContent"
 import { AutonomousMessage, isAutonomousMessage } from "./AutonomousMessage"
 import { AttachmentChip } from "./AttachmentChip"
 import { chatSearchStore } from "../../stores/ChatSearchStore"
+import { TurnMetadata } from "./TurnMetadata"
 
 interface MessageItemProps {
   message: Message
   /** Render in compact style (smaller, dimmer) for work/thinking messages */
   compact?: boolean
+  turnMetadata?: TurnMetadataData
 }
 
-function CopyButton({ content }: { content: string }) {
+function CopyButton({
+  content,
+  alwaysVisible = false,
+}: {
+  content: string
+  alwaysVisible?: boolean
+}) {
   const [copied, setCopied] = useState(false)
 
   function handleCopy() {
@@ -41,7 +50,7 @@ function CopyButton({ content }: { content: string }) {
     <button
       onClick={handleCopy}
       data-testid="copy-message-button"
-      className="flex items-center justify-center rounded p-1 text-ovr-text-muted opacity-0 transition hover:bg-ovr-bg-panel hover:text-ovr-text-primary group-hover:opacity-100"
+      className={`flex items-center justify-center rounded p-1 text-ovr-text-muted transition hover:bg-ovr-bg-panel hover:text-ovr-text-primary ${alwaysVisible ? "" : "opacity-0 group-hover:opacity-100"}`}
       title="Copy message"
     >
       {copied ? <Check size={13} /> : <Copy size={13} />}
@@ -197,7 +206,11 @@ const compactTools: Record<string, React.ComponentType<{ tool: import("./tools")
   EnterPlanMode: EnterPlanModeToolItem,
 }
 
-export const MessageItem = observer(function MessageItem({ message, compact }: MessageItemProps) {
+export const MessageItem = observer(function MessageItem({
+  message,
+  compact,
+  turnMetadata,
+}: MessageItemProps) {
   const isUser = message.role === "user"
   const searchActive = chatSearchStore.active
   const tool = !isUser ? parseToolCall(message.content) : null
@@ -280,9 +293,16 @@ export const MessageItem = observer(function MessageItem({ message, compact }: M
       <div className="border-l-2 border-ovr-border-strong px-3 py-2 text-sm text-ovr-text-primary">
         <MarkdownContent content={message.content} />
       </div>
-      <div className="flex justify-start pl-3">
-        <CopyButton content={message.content} />
-      </div>
+      {turnMetadata ? (
+        <TurnMetadata
+          metadata={turnMetadata}
+          copyButton={<CopyButton content={message.content} alwaysVisible />}
+        />
+      ) : (
+        <div className="flex justify-start pl-3">
+          <CopyButton content={message.content} />
+        </div>
+      )}
     </div>
   )
 })

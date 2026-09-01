@@ -258,8 +258,11 @@ impl ChatSession {
     fn append_event(&mut self, event: AgentEvent) -> Result<u64, std::io::Error> {
         let seq = self.next_seq;
         self.next_seq += 1;
+        // A turn completion may be the final event before the app exits. Persist
+        // it immediately so usage metadata is available after restart.
+        let completes_turn = matches!(event, AgentEvent::TurnComplete { .. } | AgentEvent::Done);
         self.pending_events.push(event);
-        if self.should_flush() {
+        if completes_turn || self.should_flush() {
             self.flush()?;
         }
         Ok(seq)
@@ -699,6 +702,34 @@ mod tests {
 
         // Now the file should exist
         assert!(jsonl_path.exists());
+    }
+
+    #[test]
+    fn turn_completion_flushes_pending_events_immediately() {
+        let test_dir = TestChatDir::new();
+        let manager = ChatSessionManager::new();
+        manager.set_config_dir(test_dir.path().to_path_buf());
+        manager
+            .register_session(
+                "chat-123".to_string(),
+                "test-project".to_string(),
+                "test-workspace".to_string(),
+                sample_chat_metadata("chat-123"),
+            )
+            .unwrap();
+
+        manager
+            .append_event("chat-123", sample_user_message("Hello"))
+            .unwrap();
+        manager
+            .append_event("chat-123", AgentEvent::turn_complete())
+            .unwrap();
+
+        let events = manager
+            .load_events("test-project", "test-workspace", "chat-123")
+            .unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[1], AgentEvent::TurnComplete { .. }));
     }
 
     #[test]

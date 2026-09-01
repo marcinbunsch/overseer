@@ -1,5 +1,17 @@
 import type { Attachment, MessageMeta, QuestionItem, ToolMeta } from "../types"
 
+export interface TurnMetadata {
+  completedAt: Date
+  costUsd?: number
+  durationMs?: number
+  totalTokens?: number
+  inputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  outputTokens?: number
+  reasoningOutputTokens?: number
+}
+
 export type AgentType = "claude" | "codex" | "copilot" | "gemini" | "hermes" | "opencode" | "pi"
 
 export type AgentEvent =
@@ -49,7 +61,7 @@ export type AgentEvent =
       attachments?: Attachment[]
     }
   | { kind: "sessionId"; sessionId: string }
-  | { kind: "turnComplete" }
+  | { kind: "turnComplete"; metadata?: TurnMetadata }
   | { kind: "done" }
 
 /**

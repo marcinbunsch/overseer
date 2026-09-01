@@ -125,7 +125,9 @@ export const TurnSection = observer(function TurnSection({ turn }: TurnSectionPr
       )}
 
       {/* Result message */}
-      {turn.resultMessage && <MessageItem message={turn.resultMessage} />}
+      {turn.resultMessage && (
+        <MessageItem message={turn.resultMessage} turnMetadata={turn.metadata} />
+      )}
     </div>
   )
 })

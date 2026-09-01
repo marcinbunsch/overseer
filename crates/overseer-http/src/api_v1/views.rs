@@ -202,7 +202,7 @@ pub fn fold_events(events: &[SeqEvent], view: View) -> Fold {
                 );
             }
 
-            AgentEvent::TurnComplete | AgentEvent::Done => {
+            AgentEvent::TurnComplete { .. } | AgentEvent::Done => {
                 turn_complete = true;
             }
 
@@ -345,7 +345,7 @@ mod tests {
                 },
             ),
             seq(6, assistant_text("Done — created HELLO.md with \"hi\".")),
-            seq(7, AgentEvent::TurnComplete),
+            seq(7, AgentEvent::turn_complete()),
         ]
     }
 

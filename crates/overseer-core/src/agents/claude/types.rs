@@ -100,6 +100,14 @@ pub struct ClaudeStreamEvent {
     #[serde(default)]
     pub result: Option<String>,
 
+    /// Billing and token accounting from result events.
+    #[serde(default)]
+    pub total_cost_usd: Option<f64>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub usage: Option<Usage>,
+
     /// Status field for system status events (e.g., "compacting").
     #[serde(default)]
     pub status: Option<String>,
@@ -117,6 +125,18 @@ pub struct ClaudeStreamEvent {
     /// resync our tracked set rather than relying only on incremental start/stop.
     #[serde(default)]
     pub tasks: Option<Vec<BackgroundTask>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Usage {
+    #[serde(default)]
+    pub input_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub output_tokens: Option<u64>,
 }
 
 /// A background task entry from a "background_tasks_changed" system event.

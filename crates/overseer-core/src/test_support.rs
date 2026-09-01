@@ -226,7 +226,7 @@ pub fn sample_tool_approval(
 ///
 /// This event signals that the agent has finished responding to a user message.
 pub fn sample_turn_complete() -> AgentEvent {
-    AgentEvent::TurnComplete
+    AgentEvent::turn_complete()
 }
 
 /// Create a sample Done event.
