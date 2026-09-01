@@ -40,6 +40,10 @@ const catchUpQueue = createConcurrencyLimiter(5)
  */
 const OVERSEER_DIR = ".overseer"
 
+function formatNumberedLines(items: string[], separator: string): string {
+  return items.map((item, index) => `${index + 1}. ${item}`).join(separator)
+}
+
 export interface ChatStoreContext {
   getChatDir: () => Promise<string | null>
   getInitPrompt: () => string | undefined
@@ -545,8 +549,14 @@ export class ChatStore {
     if (!this.service) return
     const question = this.pendingQuestions.find((q) => q.id === requestId)
     const updatedInput = { ...(question?.rawInput ?? {}), answers }
-    const questionText = (question?.questions ?? []).map((q) => q.question).join("\n\n")
-    const answerText = (question?.questions ?? []).map((q) => answers[q.question] ?? "").join(", ")
+    const questionText = formatNumberedLines(
+      (question?.questions ?? []).map((q) => q.question),
+      "\n\n"
+    )
+    const answerText = formatNumberedLines(
+      (question?.questions ?? []).map((q) => answers[q.question] ?? ""),
+      "\n\n"
+    )
 
     // Pi already renders the question via its [Ask_user_question] tool call message,
     // so only add an explicit agent message for non-Pi questions (e.g. Claude).

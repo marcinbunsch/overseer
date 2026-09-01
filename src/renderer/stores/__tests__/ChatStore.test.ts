@@ -512,6 +512,27 @@ describe("ChatStore", () => {
     expect(store.pendingQuestions[0].questions[0].question).toBe("Which option?")
   })
 
+  it("renders answered AskUserQuestion prompts and answers as numbered lines", async () => {
+    const store = createChatStore()
+    runInAction(() => {
+      store.pendingQuestions.push({
+        id: "q-1",
+        questions: [
+          { question: "Question A", header: "A", options: [], multiSelect: false },
+          { question: "Question B", header: "B", options: [], multiSelect: false },
+        ],
+        rawInput: {},
+      })
+    })
+
+    await store.answerQuestion("q-1", { "Question A": "Answer A", "Question B": "Answer B" })
+
+    expect(store.chat.messages).toMatchObject([
+      { role: "assistant", content: "1. Question A\n\n2. Question B" },
+      { role: "user", content: "1. Answer A\n\n2. Answer B" },
+    ])
+  })
+
   it("approveToolUse sends approval and removes from pending", async () => {
     const store = createChatStore()
 
