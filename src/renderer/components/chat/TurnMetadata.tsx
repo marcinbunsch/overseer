@@ -7,7 +7,7 @@ function formatNumber(value: number): string {
 }
 
 function formatCost(value: number): string {
-  return `$${value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`
+  return `$${value.toFixed(2)}`
 }
 
 function formatTime(value: Date): string {
