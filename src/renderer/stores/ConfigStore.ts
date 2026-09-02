@@ -119,6 +119,7 @@ const RemoteModelsSchema = z.object({
 })
 
 export const DEFAULT_CLAUDE_MODELS: AgentModel[] = [
+  { alias: "claude-fable-5-1", displayName: "Fable 5.1" },
   { alias: "claude-fable-5", displayName: "Fable 5" },
   { alias: "claude-opus-5", displayName: "Opus 5" },
   { alias: "claude-sonnet-5", displayName: "Sonnet 5" },
@@ -142,6 +143,7 @@ export const DEFAULT_CODEX_MODELS: AgentModel[] = [
 ]
 
 const DEFAULT_COPILOT_MODELS: AgentModel[] = [
+  { alias: "claude-fable-5.1", displayName: "Claude Fable 5.1" },
   { alias: "claude-fable-5", displayName: "Claude Fable 5" },
   { alias: "claude-opus-5", displayName: "Claude Opus 5" },
   { alias: "claude-opus-4.8", displayName: "Claude Opus 4.8" },
@@ -162,14 +164,21 @@ const DEFAULT_COPILOT_MODELS: AgentModel[] = [
   { alias: "gpt-5.4-nano", displayName: "GPT-5.4 Nano" },
   { alias: "gpt-5.3-codex", displayName: "GPT-5.3 Codex" },
   { alias: "gpt-5-mini", displayName: "GPT-5 Mini" },
+  { alias: "gemini-3.7-flash", displayName: "Gemini 3.7 Flash" },
   { alias: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash" },
   { alias: "gemini-3.5-flash", displayName: "Gemini 3.5 Flash" },
   { alias: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro" },
-  { alias: "gemini-3-flash", displayName: "Gemini 3 Flash" },
-  { alias: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
+  { alias: "grok-4.6", displayName: "Grok 4.6" },
+  { alias: "grok-4.5", displayName: "Grok 4.5" },
+  { alias: "kimi-k3", displayName: "Kimi K3" },
+  { alias: "kimi-k2.7-code", displayName: "Kimi K2.7 Code" },
+  { alias: "mai-code-1.1-flash", displayName: "MAI-Code-1.1-Flash" },
+  { alias: "mai-code-1-flash", displayName: "MAI-Code-1-Flash" },
+  { alias: "raptor-mini", displayName: "Raptor mini" },
 ]
 
 const DEFAULT_GEMINI_MODELS: AgentModel[] = [
+  { alias: "gemini-3.7-flash", displayName: "Gemini 3.7 Flash" },
   { alias: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash" },
   { alias: "gemini-3.5-flash", displayName: "Gemini 3.5 Flash" },
   { alias: "gemini-3.5-flash-lite", displayName: "Gemini 3.5 Flash Lite" },

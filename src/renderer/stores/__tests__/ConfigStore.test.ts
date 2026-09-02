@@ -201,6 +201,7 @@ describe("ConfigStore", () => {
     })
 
     expect(configStore.claudeModels).toEqual([
+      { alias: "claude-fable-5-1", displayName: "Fable 5.1" },
       { alias: "claude-fable-5", displayName: "Fable 5" },
       { alias: "claude-opus-5", displayName: "Opus 5" },
       { alias: "claude-sonnet-5", displayName: "Sonnet 5" },
