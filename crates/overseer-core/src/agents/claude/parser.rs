@@ -86,6 +86,16 @@ pub struct ClaudeParser {
     /// drains to empty (the "drain check").
     pending_turn_complete: bool,
     pending_turn_metadata: Option<TurnMetadata>,
+
+    /// The `total_cost_usd` reported by the previous `result`.
+    ///
+    /// # Why We Track This
+    ///
+    /// Claude's `total_cost_usd` is the *cumulative* cost of the whole session
+    /// (it keeps climbing across turns), not the cost of the turn that just
+    /// finished. To show a per-turn cost we subtract the previous cumulative
+    /// total from the current one. `None` until the first `result` with a cost.
+    previous_total_cost_usd: Option<f64>,
 }
 
 /// # Rust Concept: impl Blocks
@@ -546,9 +556,19 @@ impl ClaudeParser {
                     cache_write_tokens,
                     output_tokens,
                 ];
+                // `total_cost_usd` is cumulative for the session; the per-turn
+                // cost is the increase since the previous `result`. Token counts
+                // and `duration_ms` are already per-turn, so we leave them alone.
+                let cost_usd = event.total_cost_usd.map(|current| {
+                    let previous = self.previous_total_cost_usd.unwrap_or(0.0);
+                    self.previous_total_cost_usd = Some(current);
+                    // Clamp to zero: the cumulative total should never shrink,
+                    // but a negative delta would render as a nonsense cost.
+                    (current - previous).max(0.0)
+                });
                 let metadata = TurnMetadata {
                     completed_at: Some(chrono::Utc::now()),
-                    cost_usd: event.total_cost_usd,
+                    cost_usd,
                     duration_ms: event.duration_ms,
                     total_tokens: token_counts
                         .iter()
@@ -982,6 +1002,34 @@ mod tests {
         assert_eq!(metadata.cache_read_tokens, Some(40448));
         assert_eq!(metadata.cache_write_tokens, Some(0));
         assert_eq!(metadata.output_tokens, Some(176));
+    }
+
+    /// Claude reports `total_cost_usd` as a cumulative session total, so each
+    /// turn's cost is the increase since the previous `result`. The first turn
+    /// starts from zero; the second reports only its own share.
+    #[test]
+    fn result_cost_is_per_turn_delta_of_cumulative_total() {
+        let mut parser = ClaudeParser::new();
+
+        let first = r#"{"type":"result","total_cost_usd":39.222}"#;
+        let first_events = parser.feed(&format!("{first}\n"));
+        let first_cost = turn_complete_cost(&first_events);
+        assert_eq!(first_cost, Some(39.222));
+
+        let second = r#"{"type":"result","total_cost_usd":39.726}"#;
+        let second_events = parser.feed(&format!("{second}\n"));
+        let second_cost = turn_complete_cost(&second_events).expect("second turn has a cost");
+        assert!(
+            (second_cost - 0.504).abs() < 1e-9,
+            "expected per-turn delta ~0.504, got {second_cost}"
+        );
+    }
+
+    fn turn_complete_cost(events: &[AgentEvent]) -> Option<f64> {
+        events.iter().find_map(|event| match event {
+            AgentEvent::TurnComplete { metadata } => metadata.cost_usd,
+            _ => None,
+        })
     }
 
     #[test]
