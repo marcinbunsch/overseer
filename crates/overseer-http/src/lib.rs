@@ -38,11 +38,16 @@
 
 mod api_v1;
 mod auth;
+mod client_log;
 mod mcp;
 mod routes;
 mod state;
 mod websocket;
 
+use axum::extract::Request;
+use axum::http::StatusCode;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use axum::{middleware, routing::get, Router};
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager, StreamableHttpService,
@@ -50,6 +55,7 @@ use rmcp::transport::streamable_http_server::{
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::oneshot;
+use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::cors::{Any, CorsLayer};
 
 // Re-export for callers that need to build static file fallback routers
@@ -124,6 +130,44 @@ impl Default for HttpServerHandle {
 /// If `state.auth_token` is Some, all requests must include the token:
 /// - REST API: `Authorization: Bearer <token>` header
 /// - WebSocket: `?token=<token>` query parameter
+/// Middleware that logs one line per request: method, path, response status, and
+/// how long it took. Server errors log at `error`, client errors at `warn`,
+/// everything else at `info`.
+async fn log_requests(req: Request, next: Next) -> Response {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let start = std::time::Instant::now();
+
+    let response = next.run(req).await;
+
+    let status = response.status();
+    let ms = start.elapsed().as_millis();
+    if status.is_server_error() {
+        log::error!("{method} {uri} -> {status} ({ms}ms)");
+    } else if status.is_client_error() {
+        log::warn!("{method} {uri} -> {status} ({ms}ms)");
+    } else {
+        log::info!("{method} {uri} -> {status} ({ms}ms)");
+    }
+
+    response
+}
+
+/// Panic handler for [`CatchPanicLayer`]. Logs the panic payload through the
+/// `log` facade (so it reaches the log file) and returns a 500 so the
+/// connection isn't dropped without a trace.
+fn handle_panic(err: Box<dyn std::any::Any + Send + 'static>) -> Response {
+    let details = if let Some(s) = err.downcast_ref::<String>() {
+        s.clone()
+    } else if let Some(s) = err.downcast_ref::<&str>() {
+        s.to_string()
+    } else {
+        "unknown panic".to_string()
+    };
+    log::error!("HTTP handler panicked: {details}");
+    (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response()
+}
+
 pub fn start(
     state: Arc<HttpSharedState>,
     host: String,
@@ -164,6 +208,10 @@ pub fn start(
                     axum::routing::post(routes::invoke_handler),
                 )
                 .route("/ws/events", get(websocket::ws_handler))
+                .route(
+                    "/api/client-log",
+                    axum::routing::post(client_log::client_log_handler),
+                )
                 .merge(api_v1::router())
                 // /mcp sits inside the protected group, so the same bearer-token
                 // auth (and outer CORS) guards it — no MCP-specific auth needed.
@@ -180,6 +228,12 @@ pub fn start(
                         .allow_methods(Any)
                         .allow_headers(Any),
                 )
+                // Log every request (method, path, status, latency) through the
+                // `log` facade so it lands in the daemon's log file.
+                .layer(middleware::from_fn(log_requests))
+                // Turn a panicking handler into a logged 500 instead of a
+                // silently dropped connection.
+                .layer(CatchPanicLayer::custom(handle_panic))
                 .with_state(state);
 
             if let Some(fallback_router) = fallback {

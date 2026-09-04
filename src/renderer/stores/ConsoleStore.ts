@@ -25,6 +25,7 @@ class ConsoleStore {
 
   private nextId = 0
   private initialized = false
+  private remoteSink: ((entry: ConsoleEntry) => void) | null = null
   private originalConsole: {
     log: typeof console.log
     warn: typeof console.warn
@@ -35,6 +36,15 @@ class ConsoleStore {
 
   constructor() {
     makeObservable(this)
+  }
+
+  /**
+   * Register a sink that receives every error/warn entry, used to forward them
+   * to the server log so a mobile crash is readable off-device. The sink must
+   * never throw or call console.* (it would re-enter the interceptor).
+   */
+  setRemoteSink(sink: ((entry: ConsoleEntry) => void) | null) {
+    this.remoteSink = sink
   }
 
   /**
@@ -74,6 +84,24 @@ class ConsoleStore {
       this.addEntry("debug", args)
       this.originalConsole!.debug(...args)
     }
+
+    // Catch errors that never reach console.error: uncaught exceptions and
+    // unhandled promise rejections. On mobile these otherwise blank the screen
+    // with no trace.
+    if (typeof window !== "undefined") {
+      window.addEventListener("error", (event: ErrorEvent) => {
+        const stack = event.error instanceof Error ? event.error.stack : undefined
+        const where = event.filename ? ` (${event.filename}:${event.lineno}:${event.colno})` : ""
+        this.addEntry("error", [`Uncaught: ${event.message}${where}`, stack ?? ""])
+      })
+
+      window.addEventListener("unhandledrejection", (event: PromiseRejectionEvent) => {
+        const reason = event.reason
+        const message = reason instanceof Error ? reason.message : String(reason)
+        const stack = reason instanceof Error ? reason.stack : undefined
+        this.addEntry("error", [`Unhandled promise rejection: ${message}`, stack ?? ""])
+      })
+    }
   }
 
   @action
@@ -106,6 +134,15 @@ class ConsoleStore {
     // Track unread errors
     if (level === "error" || level === "warn") {
       this.hasUnreadErrors = true
+      // Ship it to the server log. Guarded so a broken sink can't take the app
+      // (or this interceptor) down with it.
+      if (this.remoteSink) {
+        try {
+          this.remoteSink(entry)
+        } catch {
+          // Never let logging break the app.
+        }
+      }
     }
   }
 

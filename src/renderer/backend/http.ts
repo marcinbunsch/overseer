@@ -275,6 +275,32 @@ export class HttpBackend implements Backend {
     return result.data as T
   }
 
+  /**
+   * Ship a client-side error to the server so it lands in the server log file
+   * (readable off-device, which matters when the crash is on a phone).
+   *
+   * Fire-and-forget: never throws, never calls console.* on failure — the
+   * console interceptor feeds this, so logging a failure here would recurse.
+   */
+  logClient(level: string, message: string, stack?: string): void {
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" }
+      if (this.authToken) {
+        headers["Authorization"] = `Bearer ${this.authToken}`
+      }
+      const source = typeof window !== "undefined" ? window.location.href : undefined
+      void fetch(`${this.baseUrl}/api/client-log`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ level, message, source, stack }),
+        // keepalive lets the report go out even as the page is tearing down.
+        keepalive: true,
+      }).catch(() => {})
+    } catch {
+      // Ignore — logging must never break the app.
+    }
+  }
+
   async listen<T>(event: string, callback: EventCallback<T>): Promise<Unsubscribe> {
     console.log(`[WS ${ts()}] 👂 listen("${event}") called`)
     // Ensure WebSocket is connected

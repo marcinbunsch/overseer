@@ -13,10 +13,23 @@ if (typeof crypto !== "undefined" && typeof crypto.randomUUID !== "function") {
 import React from "react"
 import ReactDOM from "react-dom/client"
 import App from "./App"
+import { ErrorBoundary } from "./components/ErrorBoundary"
+import { consoleStore } from "./stores/ConsoleStore"
+import { httpBackend } from "./backend/http"
 import "../../src/styles/globals.css"
+
+// In a browser (not Tauri), forward captured errors to the server log so a
+// mobile crash is readable off-device.
+if (typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window)) {
+  consoleStore.setRemoteSink((entry) => {
+    httpBackend.logClient(entry.level, entry.message)
+  })
+}
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 )

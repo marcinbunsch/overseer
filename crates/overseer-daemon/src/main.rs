@@ -23,7 +23,8 @@ use axum::{
     response::IntoResponse,
 };
 use clap::Parser;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Overseer Daemon — standalone HTTP server for headless/remote use.
@@ -95,6 +96,72 @@ async fn serve_embedded_asset(req: axum::extract::Request) -> impl IntoResponse 
     (StatusCode::NOT_FOUND, "Not found").into_response()
 }
 
+/// A writer that forwards every byte to two sinks. Tees log output to both
+/// stderr (for an attached terminal / `pnpm dev`) and a file (for a detached
+/// daemon whose stderr goes nowhere).
+struct TeeWriter {
+    file: std::fs::File,
+}
+
+impl Write for TeeWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        // Best-effort to stderr; the file is the sink we report on.
+        let _ = std::io::stderr().write_all(buf);
+        self.file.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let _ = std::io::stderr().flush();
+        self.file.flush()
+    }
+}
+
+/// Initialize `env_logger`, teeing output to stderr and a dated file under
+/// `log_dir`. Falls back to stderr-only if the file can't be opened.
+fn init_logging(log_dir: &Path) {
+    let date = chrono::Local::now().format("%Y-%m-%d");
+    let log_path = log_dir.join(format!("daemon-{date}.log"));
+
+    let mut builder =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        Ok(file) => {
+            builder.target(env_logger::Target::Pipe(Box::new(TeeWriter { file })));
+        }
+        Err(e) => {
+            eprintln!("Could not open log file {}: {e}", log_path.display());
+        }
+    }
+
+    builder.init();
+}
+
+/// Install a panic hook that logs the panic message and location through the
+/// `log` facade (so it reaches the log file), then runs the default hook.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "unknown".to_string());
+        let message = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "unknown panic".to_string()
+        };
+        log::error!("PANIC at {location}: {message}");
+        default_hook(info);
+    }));
+}
+
 fn generate_auth_token() -> String {
     use std::io::Read;
     // Read 16 random bytes from the OS and encode as hex (32 hex chars)
@@ -139,19 +206,20 @@ fn dirs_or_home() -> PathBuf {
 async fn main() {
     let args = Args::parse();
 
-    // Initialize logging
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    )
-    .init();
-
-    // Determine config directory
+    // Determine config directory and where server logs go.
     let config_dir = determine_config_dir(&args);
-    log::info!("Using config directory: {}", config_dir.display());
-
-    // Create logs directory
     let log_dir = config_dir.join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
+
+    // Initialize logging: write to stderr AND a dated file under logs/, so a
+    // crash survives a detached run where stderr goes nowhere.
+    init_logging(&log_dir);
+
+    // Log any panic (not just those caught by the HTTP layer) with its location.
+    install_panic_hook();
+
+    log::info!("Using config directory: {}", config_dir.display());
+    log::info!("Server logs written to: {}", log_dir.display());
 
     // Create OverseerContext (the central shared state)
     let context = Arc::new(
