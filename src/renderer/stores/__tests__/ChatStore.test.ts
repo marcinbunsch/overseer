@@ -2669,6 +2669,20 @@ Live text.`,
       expect(complete?.content).toContain("Survived the gauntlet")
     })
 
+    it("finishes a Codex reviewer on turnComplete without waiting for process exit", async () => {
+      const [a] = twoReviewers()
+      const store = createChatStore({ agentType: "claude" })
+      await store.startGauntletRun([a], 10)
+      await new Promise((r) => setTimeout(r, 0))
+
+      eventFor(gid(a.id))?.({ kind: "text", text: "clean GAUNTLET_PASS" })
+      eventFor(gid(a.id))?.({ kind: "turnComplete" })
+
+      expect(store.autonomousRunning).toBe(false)
+      const complete = store.messages.find((m) => m.meta?.autonomousType === "autonomous-complete")
+      expect(complete?.content).toContain("Survived the gauntlet")
+    })
+
     it("classifies by the final marker when a reviewer quotes both", async () => {
       const [a] = twoReviewers()
       const store = createChatStore({ agentType: "claude" })
