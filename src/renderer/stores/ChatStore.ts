@@ -1021,6 +1021,13 @@ export class ChatStore {
       // Register callbacks for this reviewer's synthetic chat (idempotent overwrite).
       service.onEvent(syntheticId, (event: AgentEvent) => {
         this.accumulateGauntletText(reviewer.id, event)
+        // Codex keeps its app-server alive after a turn. Its reviewer therefore
+        // emits turnComplete without ever triggering onDone (which only fires
+        // when the process exits). Treat both lifecycle signals as completion;
+        // onGauntletReviewerDone ignores a duplicate callback.
+        if (event.kind === "turnComplete") {
+          this.onGauntletReviewerDone(reviewer)
+        }
       })
       service.onDone(syntheticId, () => {
         this.onGauntletReviewerDone(reviewer)
