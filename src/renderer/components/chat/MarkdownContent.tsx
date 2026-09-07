@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm"
 import remarkBreaks from "remark-breaks"
 import { GitPullRequest, GitMerge, PencilLine } from "lucide-react"
 import { MarkdownLink, MarkdownCode } from "./markdownComponents"
+import { MermaidDiagram } from "./MermaidDiagram"
 
 interface MarkdownContentProps {
   content: string
@@ -91,6 +92,11 @@ export const MarkdownContent = memo(function MarkdownContent({
             // Special handling for overseer action blocks
             if (match && match[1] === "overseer") {
               return <OverseerActionBlock content={codeString} />
+            }
+
+            // Render mermaid fenced blocks as diagrams
+            if (match && match[1] === "mermaid") {
+              return <MermaidDiagram code={codeString} />
             }
 
             return (

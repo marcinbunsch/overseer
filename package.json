@@ -88,6 +88,7 @@
     "classnames": "^2.5.1",
     "diff": "^8.0.3",
     "lucide-react": "^0.563.0",
+    "mermaid": "^11.17.2",
     "mobx": "^6.15.0",
     "mobx-react-lite": "^4.1.1",
     "react": "^19.2.4",
