@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react"
 import { observer } from "mobx-react-lite"
 import type { Mermaid } from "mermaid"
 import { themeController } from "../../services/themeController"
+import { MermaidDialog } from "./MermaidDialog"
 
 /** Lazy-loaded singleton so the ~large mermaid bundle stays out of the main chunk. */
 let mermaidPromise: Promise<Mermaid> | null = null
@@ -27,6 +28,7 @@ function getMermaid(): Promise<Mermaid> {
  */
 export const MermaidDiagram = observer(function MermaidDiagram({ code }: { code: string }) {
   const [svg, setSvg] = useState<string | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
   const effectiveTheme = themeController.effectiveTheme
 
   // Mermaid requires a valid DOM-id; useId() contains ':' which is invalid, so strip it.
@@ -67,12 +69,18 @@ export const MermaidDiagram = observer(function MermaidDiagram({ code }: { code:
 
   if (svg) {
     return (
-      <div
-        className="my-2 flex justify-center overflow-x-auto"
-        data-testid="mermaid-diagram"
-        // Trusted SVG produced by the local mermaid library from input we control.
-        dangerouslySetInnerHTML={{ __html: svg }}
-      />
+      <>
+        <button
+          type="button"
+          onClick={() => setDialogOpen(true)}
+          title="Click to enlarge"
+          className="my-2 flex w-full cursor-zoom-in justify-center overflow-x-auto"
+          data-testid="mermaid-diagram"
+          // Trusted SVG produced by the local mermaid library from input we control.
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+        <MermaidDialog open={dialogOpen} onOpenChange={setDialogOpen} svg={svg} />
+      </>
     )
   }
 

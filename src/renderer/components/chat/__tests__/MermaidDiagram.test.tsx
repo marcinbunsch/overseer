@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 
 // Mock mermaid at the module boundary (SCRATCHPAD: mock heavy rendering libs).
 // vi.hoisted lets the hoisted vi.mock factories reference these safely.
@@ -78,5 +78,30 @@ describe("MermaidDiagram", () => {
     await waitFor(() =>
       expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ theme: "dark" }))
     )
+  })
+
+  it("clicking the diagram opens the enlarge dialog", async () => {
+    parse.mockResolvedValue(true)
+    render_.mockResolvedValue({ svg: '<svg data-testid="rendered-svg"></svg>' })
+
+    render(<MermaidDiagram code={DIAGRAM} />)
+    await screen.findByTestId("mermaid-diagram")
+
+    // Dialog is not mounted until the diagram is clicked.
+    expect(screen.queryByTestId("mermaid-dialog-diagram")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId("mermaid-diagram"))
+
+    expect(await screen.findByTestId("mermaid-dialog-diagram")).toBeInTheDocument()
+  })
+
+  it("does not render a dialog while showing the raw-code fallback", async () => {
+    parse.mockRejectedValue(new Error("Parse error"))
+
+    render(<MermaidDiagram code={"flowchart TD\n  A --"} />)
+
+    await screen.findByTestId("mermaid-fallback")
+    expect(screen.queryByTestId("mermaid-diagram")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("mermaid-dialog-diagram")).not.toBeInTheDocument()
   })
 })
