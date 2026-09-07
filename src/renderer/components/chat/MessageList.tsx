@@ -3,7 +3,7 @@ import { useRef, useState, useCallback, useEffect, useMemo } from "react"
 import type { MessageTurn } from "../../types"
 import { TurnSection } from "./TurnSection"
 import { useEventBus } from "../../utils/eventBus"
-import { useDebouncedCallback } from "../../hooks/useDebuncedCallback"
+import { useDebouncedCallback } from "../../hooks/useDebouncedCallback"
 import { chatSearchStore } from "../../stores/ChatSearchStore"
 
 const TURNS_PER_PAGE = 10
