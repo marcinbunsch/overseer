@@ -440,7 +440,7 @@ describe("HermesAgentService", () => {
         "Project rules: be terse."
       )
       let promptReq = stdinRequests().find((r) => r.method === "session/prompt")
-      const firstText = (promptReq?.params?.prompt as Array<{ text: string }>)[0].text
+      const firstText = (promptReq?.params?.prompt as Array<{ text: string }>)?.[0]?.text
       expect(firstText).toContain("Project rules: be terse.")
       expect(firstText).toContain("first message")
 
@@ -470,7 +470,7 @@ describe("HermesAgentService", () => {
         "Project rules: be terse."
       )
       promptReq = stdinRequests().find((r) => r.method === "session/prompt")
-      const resumedText = (promptReq?.params?.prompt as Array<{ text: string }>)[0].text
+      const resumedText = (promptReq?.params?.prompt as Array<{ text: string }>)?.[0]?.text
       expect(resumedText).toBe("follow-up")
     })
   })
