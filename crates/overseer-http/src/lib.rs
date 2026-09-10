@@ -185,6 +185,16 @@ pub fn start(
         .parse()
         .map_err(|e| format!("Invalid address: {}", e))?;
 
+    // Bind synchronously so the caller (and the log) learns about failures like
+    // "address already in use" or an unavailable host — instead of the bind
+    // failing silently inside the background thread while start() returns Ok.
+    let std_listener = std::net::TcpListener::bind(addr)
+        .map_err(|e| format!("Failed to bind HTTP server to {addr}: {e}"))?;
+    std_listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("Failed to set non-blocking mode on {addr}: {e}"))?;
+    log::info!("HTTP server bound to {addr}");
+
     let task = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -242,10 +252,10 @@ pub fn start(
                 log::info!("HTTP server: no static files configured");
             }
 
-            let listener = match tokio::net::TcpListener::bind(addr).await {
+            let listener = match tokio::net::TcpListener::from_std(std_listener) {
                 Ok(l) => l,
                 Err(e) => {
-                    log::error!("Failed to bind HTTP server to {}: {}", addr, e);
+                    log::error!("Failed to adopt listener for {}: {}", addr, e);
                     return;
                 }
             };

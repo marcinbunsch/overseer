@@ -393,7 +393,20 @@ fn start_http_server(
     });
 
     // Start the server
-    *handle = overseer_http::start(shared_state, host, port, fallback)?;
+    let endpoint = format!("{}:{}", host, port);
+    log::info!(
+        "Starting HTTP server on {} (auth={})",
+        endpoint,
+        auth_token.is_some()
+    );
+    *handle = match overseer_http::start(shared_state, host, port, fallback) {
+        Ok(h) => h,
+        Err(e) => {
+            log::error!("HTTP server failed to start on {}: {}", endpoint, e);
+            return Err(e);
+        }
+    };
+    log::info!("HTTP server started on {}", endpoint);
 
     Ok(HttpServerStartResult { auth_token })
 }
@@ -521,6 +534,27 @@ pub fn run() {
                     ))
                     .build(),
             )?;
+
+            // Route panics through the log facade so they land in overseer.log
+            // with their location. Without this, a panic in a background thread
+            // (e.g. the HTTP server thread) only prints to stderr, which the
+            // packaged app discards — so the server dies with no trace.
+            let default_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                let location = info
+                    .location()
+                    .map(|l| format!("{}:{}", l.file(), l.line()))
+                    .unwrap_or_else(|| "unknown".to_string());
+                let message = if let Some(s) = info.payload().downcast_ref::<&str>() {
+                    (*s).to_string()
+                } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "unknown panic".to_string()
+                };
+                log::error!("PANIC at {location}: {message}");
+                default_hook(info);
+            }));
 
             // Set up the config directory on the context itself
             // This is used by the HTTP server's HttpSharedState
