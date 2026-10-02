@@ -15,6 +15,8 @@
   Built with Tauri v2, React 19, and TypeScript.
 </p>
 
+> **⚠️ Discontinued** — This project is no longer maintained. I recommend switching to [Paseo](https://paseo.sh/) instead. The code remains here (MIT licensed) if you want to fork or borrow from it, but expect no further updates.
+
 > **Alpha Release** — This is early software. Expect bugs, missing features, and breaking changes. macOS only for now.
 
 ## Design Principles
